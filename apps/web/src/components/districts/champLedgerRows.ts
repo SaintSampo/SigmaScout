@@ -81,7 +81,10 @@ import {
   deriveStageFromState,
   liveStageByEvent,
   openDistrictLedgerCell,
+  openPlayoffBounds,
   pointMassDistribution,
+  rowCountedPoints,
+  securedBeyondPosted,
   tierEvents,
   type DistrictCategory,
   type DistrictCellKind,
@@ -212,6 +215,8 @@ export interface ChampLedgerSource {
   readonly stage: DistrictEventStage;
   /** The pass row's own `settledElim` (`DistrictLedgerEventRow`), present only where that row carries one. */
   readonly settledElim?: SettledPlayoffs;
+  /** The pass row's own `securedElim`, present only where that row carries one (quick task 261012-mw2). */
+  readonly securedElim?: number;
 }
 
 /** One pass row as a source, copying `settledElim` only where it is defined so a source without it deep equals the shipped one. */
@@ -222,6 +227,7 @@ function sourceOf(row: DistrictLedgerEventRow): ChampLedgerSource {
     week: row.week,
     stage: row.stage,
     ...(row.settledElim === undefined ? {} : { settledElim: row.settledElim }),
+    ...(row.securedElim === undefined ? {} : { securedElim: row.securedElim }),
   };
 }
 
@@ -238,6 +244,30 @@ export interface ChampLedgerRow {
    * and only its Subtotal is open. Always false on the District points row.
    */
   readonly estimated: boolean;
+  /**
+   * What the lock math counts for this row at the position (quick task
+   * 261012-mw2): `rowCountedPoints` summed over the pass rows this row was
+   * built from, and 0 on the District Championship row of a team outside the
+   * field. DISPLAY ONLY: it is the least this row's Subtotal can end at, kept
+   * so a printed Subtotal can be held at or above it. No status, range state,
+   * projection or distribution reads it. ONE READER: `ChampLocksLedger.tsx`
+   * hands it to the row's Subtotal cell as the least that cell may print
+   * (`LedgerParts.tsx`, THE LEAST A TOTAL MAY PRINT). Optional in the type so
+   * a hand built row needs none; `buildChampLedgerRows` sets it on both rows
+   * of every team.
+   *
+   * A FINALS KEY ADDS NO PLAYOFFS FLOOR. A pass row at a divisioned
+   * championship's finals key counts the earned points of the categories
+   * final there and nothing for its Playoffs category, whatever settled or
+   * secured value the row carries: exactly as the header above
+   * (`playoffHeld`) and `champLedgerStatus.ts` read a finals key. So the two
+   * rows' counted points and what the point total holds outside the rows are
+   * the header, and the header is the status floor. Nothing supplies a secured
+   * minimum at a finals key today (the reader credits eight alliance brackets
+   * only), so this changes no figure; it keeps a printed Subtotal from ever
+   * being held above what the lock math counts.
+   */
+  readonly countedAtPosition?: number;
 }
 
 /** One team's District Championship part, as the champ run draws it. */
@@ -323,11 +353,32 @@ export interface ChampLedgerTeam {
   /**
    * THE EARNED TOTAL AT THE POSITION (quick task 260927-6bf, finding 4): the
    * number the Team cell prints, the sort's first tie-break and the
-   * unavailable grand total's fallback projection. At "now" it is exactly
-   * `earnedAllTierTotal`. Rewound, it is `pointTotal` minus, over every
-   * district and dcmp tier event, the earned points of each category not final
-   * at the position: the same subtraction `champLedgerStatus.ts` makes for the
-   * floor, so a rewound header never prints DCMP points earned later.
+   * unavailable grand total's fallback projection. At "now" it starts from
+   * `earnedAllTierTotal`. Rewound, it starts from `pointTotal` minus, over
+   * every district and dcmp tier event, the earned points of each category
+   * not final at the position: the same subtraction `champLedgerStatus.ts`
+   * makes for the floor, so a rewound header never prints DCMP points earned
+   * later (`earnedAtPositionOf`).
+   *
+   * AND IT SAYS WHAT THE LOCK MATH COUNTS (quick task 261012-mw2). To that
+   * figure is added what each Playoffs category counts beyond it, by the rows
+   * module's two bounds rules: an open category's floor (a knocked out team's
+   * exact settled value, or the secured minimum of a team still in the
+   * bracket), and at a final category whatever the secured minimum holds
+   * beyond TBA's number. At a rewound stop this IS the floor
+   * `champLedgerStatus.ts` computes, for every team (the sweep
+   * `scripts/measureChampJointLocks.ts` holds the two equal at every team
+   * stop; the planner read them differing at 666 team stops before this
+   * task, by the settled playoff points the lock counted and the header
+   * left out). At "now" the figure
+   * is the published total, which already holds any playoff number TBA has
+   * posted, so only what the floor counts beyond that number is added and the
+   * header never falls below the published total.
+   *
+   * WHICH ROWS ADD TO IT. Every district event row and the team's own
+   * championship rows. A divisioned championship's finals key adds nothing,
+   * and a team outside the championship field adds nothing for its
+   * championship rows: the lock math reads neither.
    */
   readonly earnedAtPosition: number;
   /**
@@ -795,7 +846,10 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const chance = membership === "in" ? 1 : membership === "out" ? 0 : (suppliedChance ?? 1);
     const fieldChance = membership === "open" ? suppliedChance : undefined;
 
-    const districtRow = foldDistrictRow(districtEntry, districtCeilings, districtEventTotalCeiling);
+    const districtRow: ChampLedgerRow = {
+      ...foldDistrictRow(districtEntry, districtCeilings, districtEventTotalCeiling),
+      countedAtPosition: districtEntry.rows.reduce((sum, row) => sum + rowCountedPoints(row), 0),
+    };
     // WITHOUT AN ESTIMATE MAP OR A SIMULATED DCMP the shipped rule stands
     // unchanged: any priced championship row is read, which is what the tab
     // renders until it supplies either. WITH one, the championship's own row is
@@ -806,7 +860,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       ((options.atLivePosition ?? false) && membership === "in");
     const simulated =
       !fieldIsFact && options.simulatedDcmp !== undefined ? simulatedDcmpReading(options.simulatedDcmp, team.teamKey) : undefined;
-    const { row: dcmpRow, winChance, outsideSimulatedField, finalsOpen } = buildDcmpRow(
+    const { row: dcmpBuilt, winChance, outsideSimulatedField, finalsOpen } = buildDcmpRow(
       dcmpEntry,
       membership,
       dcmpEventTotalCeiling,
@@ -816,6 +870,14 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       simulated,
       fieldFixingKeys
     );
+    const dcmpRow: ChampLedgerRow = {
+      ...dcmpBuilt,
+      // A finals key's row is read without its Playoffs floor, as the header and the status floor read it.
+      countedAtPosition:
+        membership === "out"
+          ? 0
+          : dcmpEntry.rows.reduce((sum, row) => sum + rowCountedPoints(fieldFixingKeys.has(row.eventKey) ? row : { stage: row.stage, earned: row.earned }), 0),
+    };
 
     // THE DCMP WAS NEVER PRICED — no championship on the artifact, or no
     // sidecar and no event artifact for the one it names. The grand total falls
@@ -853,7 +915,31 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
         ? pointMassDistribution(0)
         : distributionOf(dcmpRow.subtotal);
     const earnedAll = team.pointTotal;
-    const earnedAtPosition = earnedAtPositionOf(team, stageByEvent);
+    // The header says what the lock math counts (quick task 261012-mw2): each Playoffs category at its floor. Open,
+    // that is the one bounds rule's floor. Final, it is the larger of TBA's number and the secured minimum.
+    //
+    // THE ROWS AND THE CELLS. The District Championship row's cells are the championship pass's own cells, so an
+    // open Playoffs cell there keeps the pass's `securedAtLeast`. The District points row is a sum over several
+    // events: its Playoffs cell stays the plain sum and carries no such field. The header counts the credit of
+    // every row either way. A team outside the championship field and a divisioned championship's finals key add
+    // nothing here, exactly as `champLedgerStatus.ts` reads neither into a floor.
+    const playoffHeld = (rows: readonly DistrictLedgerEventRow[], wholeCeiling: number, isDcmp: boolean): number => {
+      if (isDcmp && membership === "out") return 0;
+      let held = 0;
+      for (const row of rows) {
+        const finals = isDcmp && !fieldFixingKeys.has(row.eventKey);
+        if (finals) continue;
+        if (row.stage.final.elim) {
+          held += securedBeyondPosted(row);
+          continue;
+        }
+        const posted = stageByEvent === undefined && row.earned !== undefined ? row.earned.elim : 0;
+        held += Math.max(0, openPlayoffBounds(row, wholeCeiling).floor - posted);
+      }
+      return held;
+    };
+    const earnedAtPosition =
+      earnedAtPositionOf(team, stageByEvent) + playoffHeld(districtEntry.rows, districtCeilings.elim, false) + playoffHeld(dcmpEntry.rows, dcmpCeilings.elim, true);
 
     // The two parts the champ run draws SEPARATELY, so its DCMP winner and its
     // DCMP points come from one draw (quick task 260927-6bf).

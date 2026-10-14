@@ -30,6 +30,45 @@
  * quick tasks 260927-6bf and 261004-uw4), so the withheld chip, the withheld
  * counts and the two non figure arms below are shared parts as well.
  *
+ * THE LEAST A TOTAL MAY PRINT (quick task 261012-mw2, the orchestrator's
+ * decision of 2026-10-12). No event total, Subtotal, grand total or Team cell
+ * median is PRINTED below what the lock math already counts for that row or
+ * team. The rule is in one place, `openCellLines`' median form, and beside it
+ * `heldTeamMedian` for the Team cell's own line. Each takes an optional least
+ * and prints the larger of its figure and that least: the low end the larger
+ * of the 10th percentile and the least, the median the larger of the 50th and
+ * the least, and the high end never below the printed median.
+ *   WHAT THE LEAST IS, handed in by the two tab components. For an event
+ *   total, its row's `rowCountedPoints` (`districtLedgerRows.ts`): the earned
+ *   points of every category final in the row's stage, and its Playoffs
+ *   category at its floor. For a Champ Locks row's Subtotal, that row's
+ *   `countedAtPosition`. For a grand total and the Team cell's median, what
+ *   the lock math counts for the team: on the District Locks tab the sum of
+ *   `rowCountedPoints` over the team's rows, on the Champ Locks tab the status
+ *   model's own floor. It is a proven least and not a prediction.
+ *   WHY A TOTAL CAN SIT UNDER IT AT ALL. Not because of the secured playoff
+ *   points: the run ranks the field itself, with a tie break that is not
+ *   TBA's, so for some teams its qualification points sit a point or two
+ *   under the number TBA has already posted. On the local 2026 PNW fixture's
+ *   48 playoff stops, 1,512 team stops with an open grand total, a low end
+ *   printed below the earned figure 154 times and a median 110 times on each
+ *   tab, and an event total and a Champ Locks District points Subtotal below
+ *   their own row's counted points as often. With the rule each count is 0
+ *   (`LedgerParts.test.tsx`, gated on the local event files).
+ *   IT IS PRINT ONLY. No distribution, cell summary, projection, status,
+ *   range state or predicted cutoff is handed the least or reads a printed
+ *   figure: the sort, In range and Out of range, and the cutoff all still
+ *   read the run's own median. So a row's printed median can read above the
+ *   projection its chip was cut at, by the point or two the rule adds. The
+ *   verdict drawer is not handed it either: its tiles and its histogram show
+ *   the distribution itself.
+ *   AT NOW, WHILE AN EVENT IS UNDER WAY, the earned figure a Team cell prints
+ *   is the published total, which holds TBA's interim numbers for categories
+ *   that are still open and can still fall. The print is held at what the
+ *   lock math counts, never at the published total, so there the median can
+ *   read below the earned figure as it could before. At every rewound stop
+ *   and on a finished event the two are one number.
+ *
  * Every `data-testid`, every class string and every text-role class is
  * unchanged, and every class list that mixes a `text-role-*` class with a
  * colour custom property stays a PLAIN STRING — tailwind-merge drops the role
@@ -74,6 +113,7 @@ import {
   districtLedgerCutoffLikelyText,
   districtLedgerPaysLine,
   districtLedgerRunProgressText,
+  districtLedgerSecuredLine,
   districtLedgerSelectionSettledLine,
 } from "./districtLedgerCopy.js";
 import type { LedgerRunProgress } from "./ledgerRunProgress.js";
@@ -486,15 +526,49 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  * top four (see `DistrictPlayoffMilestone`); then the median form; then the
  * Alliance selection route, where the run reported routes; then the chance
  * form every other open cell prints.
+ *
+ * THE SECURED LINE (quick task 261012-mw2, D4). A Playoffs cell of a team
+ * whose alliance is still in the bracket carries `securedAtLeast`, the playoff
+ * points its wins have already secured. Where that is above zero the small
+ * line reads `at least N`, a middle dot, and then the small line the cell's
+ * form prints anyway, unchanged (`districtLedgerSecuredLine`); where the form
+ * has no small line it reads `at least N` alone. It is a proven least and not
+ * a prediction, so it has no tilde. The bold line is never touched.
+ *   WHERE IT PRINTS: the milestone form, the chance form and the median form
+ *   of a Playoffs cell, on a District Locks event row and on the Champ Locks
+ *   District Championship row, whose cells are the championship pass's own.
+ *   The verdict drawer's chips print through this function, so they read the
+ *   same line.
+ *   WHERE IT DOES NOT: a not picked cell (only a backup call can pay it, and
+ *   no alliance list names it); a cell of any other category, whatever it is
+ *   handed; an event total or a grand total; a figure that is zero, below
+ *   zero or rounds to zero. The Champ Locks District points row is a sum over
+ *   several events and its Playoffs cell is the plain sum, built without the
+ *   field (`champLedgerRows.ts`). A grey cell is not an open cell and never
+ *   reaches this function: a knocked out team's value prints as it did.
+ *
+ * THE LEAST (quick task 261012-mw2, this module's header): `least` is what
+ * the lock math already counts for the row or team this total belongs to. It
+ * is a proven least and not a prediction, and ONLY PRINT reads it: the cell,
+ * its summary and its distribution are untouched. It is read in the median
+ * form alone, and not on the Alliance selection settled route, whose figure
+ * is a point mass the draft has already decided. The two tab components hand
+ * it in for totals only; a category cell is handed none.
  */
 export function openCellLines(
   cell: Extract<DistrictLedgerCell, { kind: "open" }>,
-  pricing?: DistrictCellPricing
+  pricing?: DistrictCellPricing,
+  least?: number
 ): { bold: string; small: string | undefined } {
   const paysLine = (): string | undefined => {
     const pay = districtCellPay(cell, pricing);
     return pay === undefined ? undefined : districtLedgerPaysLine(pay);
   };
+  // THE SECURED LINE: `at least N` before the form's own small line, for a
+  // Playoffs cell that carries a secured minimum above zero and for no other.
+  // The not picked return below is ahead of every use of it.
+  const securedPoints = cell.cell === "elim" && cell.securedAtLeast !== undefined && Math.round(cell.securedAtLeast) > 0 ? cell.securedAtLeast : undefined;
+  const withSecured = (small: string | undefined): string | undefined => (securedPoints === undefined ? small : districtLedgerSecuredLine(securedPoints, small));
   // ON NO ALLIANCE once selection is final: no chance to print, because the
   // only open question is a backup call, and the cell stays open for it.
   if (cell.cell === "elim" && cell.notPicked === true) {
@@ -503,7 +577,7 @@ export function openCellLines(
   const milestone = cell.playoffMilestone;
   if (milestone !== undefined) {
     const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
-    return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: paysLine() };
+    return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: withSecured(paysLine()) };
   }
   // THE ALLIANCE SELECTION CELL'S ROUTES, where the run reported them. A baked
   // event reports none and falls through to the shipped chance form below.
@@ -518,7 +592,11 @@ export function openCellLines(
     if (settled !== undefined) {
       return { bold, small: districtLedgerSelectionSettledLine(settled.id, settled.allianceNumber) };
     }
-    return { bold, small: districtLedgerCellLikelyText(p10, p90) };
+    if (least === undefined || !Number.isFinite(least)) return { bold, small: withSecured(districtLedgerCellLikelyText(p10, p90)) };
+    // THE LEAST A TOTAL MAY PRINT: each figure is the larger of the run's own
+    // and the least, and the high end is never under the printed median.
+    const held = heldPercentiles({ p10, p50, p90 }, least);
+    return { bold: `~${String(Math.max(0, Math.round(held.p50)))}`, small: withSecured(districtLedgerCellLikelyText(held.p10, held.p90)) };
   }
   if (selection !== undefined) {
     // THE LIKELIER ROUTE, named after its chance, over what that route pays.
@@ -527,7 +605,33 @@ export function openCellLines(
   }
   // The chance form: the chance, then the outcome, then what it pays. The
   // tilde stays on point figures only; a percentage never carries one.
-  return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${chanceWordsFor(cell.cell)}`, small: paysLine() };
+  return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${chanceWordsFor(cell.cell)}`, small: withSecured(paysLine()) };
+}
+
+/**
+ * The three percentiles a median form total PRINTS, held at `least` (see this
+ * module's header, THE LEAST A TOTAL MAY PRINT). The low end and the median
+ * are each the larger of the run's own and the least. The high end moves only
+ * where the median did, and then only up to it, so a least at or below all
+ * three returns the three it was given.
+ */
+function heldPercentiles(percentiles: { readonly p10: number; readonly p50: number; readonly p90: number }, least: number): { p10: number; p50: number; p90: number } {
+  const p50 = Math.max(percentiles.p50, least);
+  return {
+    p10: Math.max(percentiles.p10, least),
+    p50,
+    p90: p50 > percentiles.p50 ? Math.max(percentiles.p90, p50) : percentiles.p90,
+  };
+}
+
+/**
+ * THE TEAM CELL'S MEDIAN, as printed: the rounded larger of the projection
+ * and the least it is handed, and the rounded projection where it is handed
+ * none (or one that is not a finite number). Print only: the sort, the range
+ * state and the predicted cutoff read `projection` itself.
+ */
+export function heldTeamMedian(projection: number, least: number | undefined): number {
+  return Math.round(least === undefined || !Number.isFinite(least) ? projection : Math.max(projection, least));
 }
 
 export interface CellInteraction {
@@ -540,12 +644,15 @@ export function LedgerCell({
   interaction,
   variant,
   pricing,
+  least,
 }: {
   cell: DistrictLedgerCell;
   interaction: CellInteraction;
   variant?: "total";
   /** The row's season, tier and rookie flag, so a category cell's pays line reads the drawer's own outcome rows. Totals pass none. */
   pricing?: DistrictCellPricing;
+  /** THE LEAST A TOTAL MAY PRINT (this module's header): what the lock math counts for the total's row. Totals only, and print only. */
+  least?: number | undefined;
 }) {
   const box = variant === "total" ? ` district-ledger-cell--${variant}` : "";
   if (cell.kind === "final") {
@@ -566,7 +673,7 @@ export function LedgerCell({
       </TableCell>
     );
   }
-  const lines = openCellLines(cell, pricing);
+  const lines = openCellLines(cell, pricing, least);
   return (
     <TableCell data-cell="open" data-cell-id={cell.id} className="numeric-cell">
       {/* A blue cell is a real <button>: focusable, two lines, never hue alone. */}
@@ -610,7 +717,18 @@ export interface LedgerTeamCellTeam {
   readonly rookieBonus: number;
 }
 
-export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam; season: number; algorithm: PublishedAlgorithmId }) {
+export function TeamCell({
+  team,
+  season,
+  algorithm,
+  least,
+}: {
+  team: LedgerTeamCellTeam;
+  season: number;
+  algorithm: PublishedAlgorithmId;
+  /** THE LEAST THE MEDIAN MAY PRINT (this module's header): what the lock math counts for the team. Print only. */
+  least?: number | undefined;
+}) {
   return (
     <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-team-cell" className={TEAM_CELL_CLASS}>
       {/* Capped so the Team column stays narrow and the nine columns keep
@@ -624,7 +742,7 @@ export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam
         <span className="district-ledger-team-name truncate">{team.nickname}</span>
         <span className="district-ledger-team-meta whitespace-nowrap">
           #{String(team.position)} · {String(Math.round(team.earnedAtPosition))} earned
-          {team.hasOpenCategory ? ` · median ${String(Math.round(team.projection))}` : ""}
+          {team.hasOpenCategory ? ` · median ${String(heldTeamMedian(team.projection, least))}` : ""}
         </span>
         {team.rookieBonus > 0 && (
           <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-rookie-bonus">
@@ -744,7 +862,16 @@ export function ControlsCard({
 }
 
 /** The grand total's own content, rendered inside a cell that carries the team's row span rather than inside `LedgerCell`'s own `<td>`. */
-export function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerCell; interaction: CellInteraction }) {
+export function GrandTotalContent({
+  cell,
+  interaction,
+  least,
+}: {
+  cell: DistrictLedgerCell;
+  interaction: CellInteraction;
+  /** THE LEAST THE TOTAL MAY PRINT (this module's header): what the lock math counts for the team. Print only. */
+  least?: number | undefined;
+}) {
   if (cell.kind === "final") {
     return (
       <span data-cell="final" data-cell-id={cell.id} className={`${FINAL_CELL_CLASS} district-ledger-cell--grand`}>
@@ -760,7 +887,7 @@ export function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerC
       </span>
     );
   }
-  const lines = openCellLines(cell);
+  const lines = openCellLines(cell, undefined, least);
   return (
     <button
       type="button"

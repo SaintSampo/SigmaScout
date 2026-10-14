@@ -86,6 +86,11 @@ export const MEASURED_TEAM_POSITIONS = 921_658;
 // team's rows resolve to the district tier consumes a slot) then moved Locked displays onto the award
 // chip: Locked 77,202 -> 76,964, chip 24,192 -> 24,466, Locked out 167,429, pooled-only 6,512 at 1,073.
 // Both tenets stayed 0 and 0; the reservation pins are unchanged.
+// Re-pinned 2026-10-13 after quick task 261013-lve. The playoff pool is the most TBA's pay rule can pay one
+// event, 216 and proven, where it was 213, a measured maximum plus one. A larger pool can only take pooled
+// locks away: Locked 76,964 -> 76,909, pooled-only 6,512 -> 6,457 at 1,073 -> 1,066 positions, 55 displays in
+// all, every one of them now In range. Locked out, the award chip, the reservation pins and both tenets
+// (0 and 0) are unchanged.
 /**
  * THE HISTORY OF THIS NUMBER. 138,702 before 260925-ms7 held a slot back; 8,197
  * of those displays moved off `Locked`, leaving 130,505. Quick task 260925-pl6's
@@ -96,7 +101,7 @@ export const MEASURED_TEAM_POSITIONS = 921_658;
  * displays existed only because of points earned at a championship that had
  * not been played at the position they were shown at.
  */
-export const MEASURED_LOCKED_SHOWN = 76_964;
+export const MEASURED_LOCKED_SHOWN = 76_909;
 /**
  * 190,854 on the floor that held championship points, 167,333 on the district
  * tier floor (261005-04t): a rival's championship points no longer push a team
@@ -130,8 +135,8 @@ export const MEASURED_POSITIONS_WITH_RESERVED_SLOTS = 3_804;
  * can still hand out, which is the case the ceiling test cannot reach. The two
  * numbers moved for different reasons and neither is a difference of the other.
  */
-export const MEASURED_LOCKED_BY_POOLED_ONLY = 6_512;
-export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 1_073;
+export const MEASURED_LOCKED_BY_POOLED_ONLY = 6_457;
+export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 1_066;
 
 /**
  * The thirteen tenet-A violations 260925-ma5 measured, kept as the RECORD of

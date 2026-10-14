@@ -29,7 +29,7 @@
  *     more real fact through the merge's own two entry points.
  *
  * Every order in which the facts can arrive is a path of edges, so checking
- * every edge covers every order. Over each edge three things must hold:
+ * every edge covers every order. Over each edge four things must hold:
  *
  *   1. NO HELD TEAM IS LOST: a team shown Locked (or prequalified) before the
  *      edge is shown Locked (or prequalified) after it. This is read off the
@@ -45,6 +45,15 @@
  *      file, so at this file's reading 3 follows from 2; it is counted on its
  *      own, by team bounds compared, so that a bound that rose is named as
  *      one. The last group of this file holds the counts.
+ *   4. NO FLOOR DROPS (quick task 261012-mw2): no team's FLOOR, the points
+ *      the lock math already counts for it (`floorByTeam` of the status
+ *      model), is lower after the edge than before it, whatever the joint
+ *      proof said on either side. That task put the playoff points a team in
+ *      a bracket has already secured into its floor, so the edge that
+ *      matters most is the tick a key's playoff points land: TBA's number
+ *      must not be below what the floor already held. The group before the
+ *      last holds the counts: 2,956,059 team floors compared over the rules
+ *      on edges of groups A to D and none lower.
  *
  * THE BOUNDS ARE READ EXACTLY UP TO 12 ABOVE THE POINTS SLOTS (planner reading
  * R8): `jointLockBound` is asked with that stop and the answer capped there.
@@ -145,6 +154,15 @@
  *     a backup TBA has paid for the winner's playoffs stays off the winner
  *     and the seat it holds stays open).
  *
+ * THE CREDIT HAS ITS OWN SWITCH (quick task 261012-mw2), a second module mock,
+ * of `packages/core/districts/securedPlayoffPoints.ts`: while `creditOff` is
+ * set nobody is credited a secured playoff minimum, which is every reading of
+ * before that task. It is not a rule of the proof, and nothing is required
+ * to be lost with it off: the 26 divisioned walks of group D are read without
+ * the credit too, and hold every requirement there as they did before it. It
+ * is how this file shows what the credit added, and that the larger of the
+ * two is what holds the forced awards flag reading of group D.
+ *
  * The Locked teams lost in those runs are read off the status code's own
  * verdicts, so they show the mock reaches the import the tab uses. The
  * switched off totals are PINNED AS THE RUN SHOWS: they are a measurement of
@@ -162,9 +180,24 @@
  * E's exact reading sees. On the championship group E builds by hand it
  * does take a Locked back.
  *
- * A RULES ON FAILURE IS A FINDING, never a pin to move: a Locked lost or a
- * margin dropped with the rules on means the proof took a guarantee back.
- * Stop and report the edge, the team and both bounds.
+ * A RULES ON FAILURE IS A FINDING, never a pin to move: a Locked lost, a
+ * margin dropped, a bound higher or a floor lower with the rules on means a
+ * guarantee was taken back or could be. Stop and report the edge, the team
+ * and both values.
+ *
+ * THE SECURED PLAYOFF MINIMUM IN THIS FILE (quick task 261012-mw2). Groups A
+ * to C read the joint sweep's own stop functions, which hand the status code
+ * each listed pick's secured minimum from the rows played at the stop. Group
+ * D's recipe hands it per key from the rows played so far in the walk
+ * (`securedElimEntry`), and none at a finals key. WHAT IT ADDED ON THE LIVE
+ * WALKS, read with the credit switched off over the 26 walks of the
+ * divisioned championships: teams shown Locked, summed over every reading of
+ * a walk, are 16,568 with the credit against 15,251 without it where the
+ * finals key is on no row, and 27,338 against 26,021 where it is registered
+ * (1,317 more in each); and on the tick D2's absent finals reading switches
+ * on, 30 more teams are shown Locked over the thirteen walks where 4 were.
+ * The rule off measurements of groups A, B and C, four pins of group D and
+ * one of group E moved with the credit, and each names its value of before.
  *
  * EVERY GROUP READS GITIGNORED LOCAL DATA (`data/local-publish/districts` and
  * `data/corpus.sqlite`, opened read only) and skips, with a message naming
@@ -189,6 +222,7 @@ import {
   buildDistrictLedgerRows,
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
+  securedElimEntry,
   deriveStageFromState,
   playedBracketMatchesFor,
   tierEvents,
@@ -220,8 +254,16 @@ import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketFromCorpus, bracketsFromCorpus,
  * While `paidRuleOff` is set the status code never learns which picks TBA has
  * paid for their alliance's playoffs: `confirmedPicks` is handed "nobody",
  * so a pick is confirmed by its alliance selection points alone.
+ *
+ * AND ONE SWITCH THAT IS NOT A RULE OF THE PROOF: THE CREDIT (quick task
+ * 261012-mw2). While `creditOff` is set, `securedPlayoffPoints` answers with
+ * an empty map (a second module mock, below the proof's). Every secured
+ * playoff minimum goes through that one function (`securedElimByTeamFor` in
+ * the rows module), in this file's own recipe and in the sweep's stop
+ * functions alike, so with it set no row carries a credit and every reading
+ * is the reading of before that task.
  */
-const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false, listedRuleOff: false, paidRuleOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false, listedRuleOff: false, paidRuleOff: false, creditOff: false }));
 
 vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/champJointLock.js")>();
@@ -257,22 +299,39 @@ vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) =
   };
 });
 
+vi.mock("../packages/core/districts/securedPlayoffPoints.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../packages/core/districts/securedPlayoffPoints.js")>();
+  return {
+    ...original,
+    // The credit off switch: nobody has secured anything, which is the reading of before quick task 261012-mw2.
+    securedPlayoffPoints: (...args: Parameters<typeof original.securedPlayoffPoints>): ReturnType<typeof original.securedPlayoffPoints> =>
+      ruleSwitch.creditOff ? new Map<string, number>() : original.securedPlayoffPoints(...args),
+  };
+});
+
 afterEach(() => {
   ruleSwitch.awardedRuleOff = false;
   ruleSwitch.stopRuleOff = false;
   ruleSwitch.listedRuleOff = false;
   ruleSwitch.paidRuleOff = false;
+  ruleSwitch.creditOff = false;
 });
 
-/** Which rules a run has on. `"on"` is the shipped proof; each other mode switches exactly one rule off. */
-type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff" | "listedRuleOff" | "paidRuleOff";
+/**
+ * Which rules a run has on. `"on"` is the shipped code; each other mode switches exactly one thing off. `"creditOff"`
+ * is the shipped proof with no secured playoff minimum credited to anybody (quick task 261012-mw2). Every cache of
+ * this file carries the mode in its key, so a reading made with the credit off is never handed out as one made with
+ * it.
+ */
+type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff" | "listedRuleOff" | "paidRuleOff" | "creditOff";
 
-/** Runs `body` under a rule mode, and switches every rule back on whatever happens. */
+/** Runs `body` under a rule mode, and switches everything back on whatever happens. */
 function underRules<T>(mode: RuleMode, body: () => T): T {
   ruleSwitch.awardedRuleOff = mode === "awardedRuleOff";
   ruleSwitch.stopRuleOff = mode === "stopRuleOff";
   ruleSwitch.listedRuleOff = mode === "listedRuleOff";
   ruleSwitch.paidRuleOff = mode === "paidRuleOff";
+  ruleSwitch.creditOff = mode === "creditOff";
   try {
     return body();
   } finally {
@@ -280,6 +339,7 @@ function underRules<T>(mode: RuleMode, body: () => T): T {
     ruleSwitch.stopRuleOff = false;
     ruleSwitch.listedRuleOff = false;
     ruleSwitch.paidRuleOff = false;
+    ruleSwitch.creditOff = false;
   }
 }
 
@@ -425,10 +485,15 @@ interface EdgeTally {
   boundRises: number;
   /** Edges over which the proof went from applied to not applied. */
   appliedThenRefused: number;
+  /** Team FLOORS compared: every team with a floor on both sides of an edge, whatever the joint proof said (quick task 261012-mw2). */
+  floorComparisons: number;
+  /** Team floors LOWER after an edge than before it. */
+  floorDrops: number;
   /** The first lines of each finding, for the failure message and the log. */
   readonly lostLines: string[];
   readonly dropLines: string[];
   readonly riseLines: string[];
+  readonly floorLines: string[];
   /** The distinct teams lost. */
   readonly lostTeams: Set<string>;
 }
@@ -445,9 +510,12 @@ function newTally(): EdgeTally {
     boundComparisons: 0,
     boundRises: 0,
     appliedThenRefused: 0,
+    floorComparisons: 0,
+    floorDrops: 0,
     lostLines: [],
     dropLines: [],
     riseLines: [],
+    floorLines: [],
     lostTeams: new Set(),
   };
 }
@@ -460,7 +528,7 @@ function countReading(tally: EdgeTally, reading: Reading): Reading {
   return reading;
 }
 
-/** One edge: no held team lost, no margin dropped. Findings go to the tally; nothing is asserted here. */
+/** One edge: no held team lost, no floor lower, no margin dropped, no bound higher. Findings go to the tally; nothing is asserted here. */
 function checkEdge(tally: EdgeTally, kind: EdgeKind, where: string, before: Reading, after: Reading): void {
   tally.edges[kind] += 1;
   if (before.joint === "applied" && after.joint !== "applied") tally.appliedThenRefused += 1;
@@ -472,6 +540,19 @@ function checkEdge(tally: EdgeTally, kind: EdgeKind, where: string, before: Read
       tally.lostLines.push(
         `${kind} edge, ${where}: ${teamKey} ${String(before.model.byTeam.get(teamKey)?.lockedBy)} then ${String(after.model.byTeam.get(teamKey)?.status)} | bound ${String(before.bound.get(teamKey))} then ${String(after.bound.get(teamKey))} against ${String(before.pointsSlots)} then ${String(after.pointsSlots)} points slots | joint ${before.joint} then ${after.joint}`
       );
+    }
+  }
+  // NO FLOOR DROPS (quick task 261012-mw2): every team with a floor on both sides, whatever the joint proof said.
+  const floorsBefore = before.model.floorByTeam;
+  const floorsAfter = after.model.floorByTeam;
+  if (floorsBefore !== undefined && floorsAfter !== undefined) {
+    for (const [teamKey, was] of floorsBefore) {
+      const now = floorsAfter.get(teamKey);
+      if (now === undefined) continue;
+      tally.floorComparisons += 1;
+      if (now >= was) continue;
+      tally.floorDrops += 1;
+      if (tally.floorLines.length < LINES_KEPT) tally.floorLines.push(`${kind} edge, ${where}: ${teamKey} floor ${String(was)} then ${String(now)}`);
     }
   }
   if (before.joint !== "applied" || after.joint !== "applied") return;
@@ -510,18 +591,21 @@ function addTally(into: EdgeTally, from: EdgeTally): void {
   into.boundComparisons += from.boundComparisons;
   into.boundRises += from.boundRises;
   into.appliedThenRefused += from.appliedThenRefused;
+  into.floorComparisons += from.floorComparisons;
+  into.floorDrops += from.floorDrops;
   for (const line of from.lostLines) if (into.lostLines.length < LINES_KEPT) into.lostLines.push(line);
   for (const line of from.dropLines) if (into.dropLines.length < LINES_KEPT) into.dropLines.push(line);
   for (const line of from.riseLines) if (into.riseLines.length < LINES_KEPT) into.riseLines.push(line);
+  for (const line of from.floorLines) if (into.floorLines.length < LINES_KEPT) into.floorLines.push(line);
 }
 
-/** The assertion of a rules on run: nothing lost, nothing dropped, no bound higher, with the findings in the message. */
+/** The assertion of a rules on run: nothing lost, nothing dropped, no bound higher, no floor lower, with the findings in the message. */
 function expectMonotone(label: string, tally: EdgeTally): void {
-  const findings = [...tally.lostLines, ...tally.dropLines, ...tally.riseLines];
+  const findings = [...tally.lostLines, ...tally.dropLines, ...tally.riseLines, ...tally.floorLines];
   expect(
-    { label, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, lostOverStepEdges: tally.lost.step, marginDrops: tally.marginDrops, boundRises: tally.boundRises, findings },
-    `${label}: a Locked team was lost, a margin dropped or a bound rose with the rules ON. This is a finding, never a pin to move.`
-  ).toEqual({ label, lostOverFlagEdges: 0, lostOverStopEdges: 0, lostOverStepEdges: 0, marginDrops: 0, boundRises: 0, findings: [] });
+    { label, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, lostOverStepEdges: tally.lost.step, marginDrops: tally.marginDrops, boundRises: tally.boundRises, floorDrops: tally.floorDrops, findings },
+    `${label}: a Locked team was lost, a margin dropped, a bound rose or a floor fell with the rules ON. This is a finding, never a pin to move.`
+  ).toEqual({ label, lostOverFlagEdges: 0, lostOverStopEdges: 0, lostOverStepEdges: 0, marginDrops: 0, boundRises: 0, floorDrops: 0, findings: [] });
 }
 
 const shortKey = (eventKey: string): string => eventKey.slice(4);
@@ -701,9 +785,15 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
       // team margins, and by district 118 at 2023fim, 4 at 2023fit and 239 at 2024fim. The paid pick rule of the
       // same task then moved the team margins once more, 33,385 to 33,388, and nothing else here: from the stop a
       // division's Playoffs are final, a backup TBA has paid is its alliance's confirmed pick.
-      // Quick task 261012-nff (a prequalified team uses no district slot) moved it again, at 2024fim alone, where
-      // frc27 and frc5166 are prequalified and hold championship awards: 952 to 934 lost, 161 to 162 pairs, 33,388
-      // to 33,390 team margins, and 237 to 219 at 2024fim. Executed values, re pinned on Jacob's decision.
+      // QUICK TASK 261012-mw2 moved it again. This reading runs the sweep's own stops, and their floors now hold
+      // the playoff points a team still in its bracket has secured, so the rule off reading starts from other
+      // floors. Until then: 952 lost, 161 pairs, 1786 flag edges with a drop, 33,388 team margins, and by
+      // district 116, 3, 6, 10, 237, 7, 9, 10, 215, 9, 0, 15, 287, 13, 10 and 5 in the order below. The rules on
+      // reading above did not move.
+      // Quick task 261012-nff (a prequalified team uses no district slot) was built beside it and moved 2024fim,
+      // where frc27 and frc5166 are prequalified and hold championship awards (on its own: 952 to 934 lost, 237 to
+      // 219 at 2024fim). With both, as executed on the merged code: 887 to 869 lost, 145 to 146 pairs, 34,337 to
+      // 34,339 team margins, and 243 to 225 at 2024fim. Re pinned at the merge on Jacob's decision.
       expect({
         readings: tally.readings,
         lostOverFlagEdges: tally.lost.flag,
@@ -715,31 +805,31 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         largestDrop: tally.largestDrop,
       }).toEqual({
         readings: 1200,
-        lostOverFlagEdges: 934,
+        lostOverFlagEdges: 869,
         lostOverStopEdges: 0,
-        distinctPairsLost: 162,
-        flagEdgesWithADrop: 1786,
+        distinctPairsLost: 146,
+        flagEdgesWithADrop: 1800,
         stopEdgesWithADrop: 0,
-        teamMarginsDropped: 33_390,
+        teamMarginsDropped: 34_339,
         largestDrop: 4,
       });
       expect(lostByDistrict).toEqual({
-        "2023fim": 116,
-        "2023fit": 3,
-        "2023ne": 6,
-        "2023ont": 10,
-        "2024fim": 219,
-        "2024fit": 7,
+        "2023fim": 106,
+        "2023fit": 5,
+        "2023ne": 8,
+        "2023ont": 9,
+        "2024fim": 225,
+        "2024fit": 6,
         "2024ne": 9,
-        "2024ont": 10,
-        "2025fim": 215,
-        "2025fit": 9,
-        "2025ne": 0,
-        "2025ont": 15,
-        "2026fim": 287,
-        "2026fit": 13,
-        "2026ne": 10,
-        "2026ont": 5,
+        "2024ont": 9,
+        "2025fim": 174,
+        "2025fit": 11,
+        "2025ne": 2,
+        "2025ont": 7,
+        "2026fim": 273,
+        "2026fit": 10,
+        "2026ne": 12,
+        "2026ont": 3,
       });
     },
     TEST_TIMEOUT_MS
@@ -956,11 +1046,13 @@ describe("GROUP B, divisions out of step: some divisions finished, their awards 
       // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
       // Quick task 261010-l0s (every rival counted once) moved it from 49 lost and 772 margins: with the rule off
       // the proof holds more before a flag turns true, so more is lost when it does.
+      // Quick task 261012-mw2 moved it from 54 lost and 777 margins: the sweep's stops this reading runs now hold
+      // the secured playoff minimums in their floors. The rules on reading above did not move.
       expect({ readings: tally.readings, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, marginDrops: tally.marginDrops, largestDrop: tally.largestDrop }).toEqual({
         readings: 288,
-        lostOverFlagEdges: 54,
+        lostOverFlagEdges: 52,
         lostOverStopEdges: 0,
-        marginDrops: 777,
+        marginDrops: 784,
         largestDrop: 3,
       });
     },
@@ -1191,6 +1283,9 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
       // THE REQUIREMENT: the mutation is caught, through the status code's own verdicts.
       expect(finishing.tally.lost.flag).toBeGreaterThan(0);
       // The measurement of the reading before quick task 261010-d7r (finding F-C). Pinned as the run shows.
+      // Quick task 261012-mw2 moved the Locked lost over flag edges from 91 to 87: the sweep's stops this reading
+      // runs now hold the secured playoff minimums in their floors. Nothing else of the record moved, and the
+      // rules on reading above did not move.
       expect({
         joint: finishing.tally.joint,
         lostOverFlagEdges: finishing.tally.lost.flag,
@@ -1198,7 +1293,7 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
         appliedThenRefused: finishing.tally.appliedThenRefused,
         latticeJoint: lattice.tally.joint,
         latticeLost: lattice.tally.lost.flag,
-      }).toEqual({ joint: { applied: 14, noBracketFacts: 14 }, lostOverFlagEdges: 91, lostOverStopEdges: 0, appliedThenRefused: 14, latticeJoint: { applied: 1, noBracketFacts: 3 }, latticeLost: 1 });
+      }).toEqual({ joint: { applied: 14, noBracketFacts: 14 }, lostOverFlagEdges: 87, lostOverStopEdges: 0, appliedThenRefused: 14, latticeJoint: { applied: 1, noBracketFacts: 3 }, latticeLost: 1 });
     },
     TEST_TIMEOUT_MS
   );
@@ -1266,7 +1361,7 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  * must read the same, and the last edge is into the source artifact itself.
  *
  * THE FURTHER EDGES (CONTEXT D7), each with the rules on and asserted to lose
- * no Locked team and drop no margin:
+ * no Locked team, drop no margin and lower no floor:
  *
  *   1. A FINALS ROW POSTING WITH NO STATE BLOCK: the first fact of the
  *      `finalsOnNoRow` chain, at every tuple of division flags.
@@ -1303,8 +1398,8 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  * each; pinned as the run shows, under its own title):
  *
  *   - A DIVISION'S AWARDS FLAG TRUE BEFORE ITS PLAYOFF POINTS, by writing the
- *     flag by hand. A true flag closes every category of the event, so the
- *     playoff points landing after it are points no reading allowed for.
+ *     flag by hand. A true flag closes every category of the event on the
+ *     numbers its rows hold, and here they hold no playoff point.
  *     `eventAwards.ts` states this limit and waits for a playoff point
  *     because of it (quick task 261009-vp9). Not a rule of this task. That
  *     wait is the LIVE vantage of the flag rule, the Worker's. The offline
@@ -1315,6 +1410,31 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  *     that publisher skips a district while one of its events is live (and
  *     for the rest of the Worker's watch when it would raise a flag the
  *     published file holds false); not walked here.
+ *
+ *     SINCE QUICK TASK 261012-mw2 THIS READING LOSES NOTHING. In each finals
+ *     variant, over its 56 forced edges:
+ *
+ *                                    before     TBA's number in     the larger
+ *                                    that task  the credit's place  of the two
+ *       Locked lost                  28         93                  0
+ *       distinct pairs lost          22         85                  0
+ *       margin drops                 498        772                 0
+ *       lost as the flag is written  0          65                  0
+ *
+ *     Before that task the playoff points that landed after the flag were
+ *     in no floor and no ceiling. The middle column is that task's first
+ *     form, read by its planner and never committed: the credit sat in the
+ *     floor while the Playoffs were open and TBA's number took its place
+ *     once they read final, so the flag took the credit out of the floors
+ *     (its planner read 684 floors lower at the forced edges). What is built
+ *     counts the larger of TBA's number and the secured minimum wherever a
+ *     Playoffs category reads final: the flag takes nothing out of a floor,
+ *     and the points that land were already counted. It adds no assumption,
+ *     since the credit already says TBA will pay at least that much. The
+ *     test pins 0 exactly, with no floor lower, and reads the same walks
+ *     with the credit switched off, where they lose the 28 again. It stays
+ *     among the forced readings: the product's own rules still exclude the
+ *     state.
  *   - A PROVEN FIELD READING NOT PROVEN AGAIN, by doubling the artifact's
  *     published championship capacity under the same rows. The joint proof
  *     then refuses (`fieldNotProven`) and whatever it alone held is lost.
@@ -1475,6 +1595,8 @@ interface MicroResult {
   /** The main line's end: every key's playoff points landed, no award level up. */
   readonly atMainLineEnd: { readonly joint: string; readonly jointLocked: number; readonly shownLocked: number };
   readonly endShownLocked: number;
+  /** Teams shown Locked, summed over the readings of the walk: what a credit off run is read against (quick task 261012-mw2). */
+  readonly walkShownLocked: number;
 }
 
 const microCache = new Map<string, MicroResult>();
@@ -1490,10 +1612,12 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, s
     const registered = variant === "finalsRegistered";
     const nowYear = source.year;
     /**
-     * The further edges and the forced edges are read with the rules on, and with the paid pick rule off (group E:
-     * some of what that rule closes sits on a further edge). Every other rule off run is the ported walk alone.
+     * The further edges and the forced edges are read with the rules on, with the paid pick rule off (group E: some
+     * of what that rule closes sits on a further edge), and with the credit off (quick task 261012-mw2: the forced
+     * awards flag reading and D2's switch are read again without it). Every other rule off run is the ported walk
+     * alone.
      */
-    const furtherEdges = mode === "on" || mode === "paidRuleOff";
+    const furtherEdges = mode === "on" || mode === "paidRuleOff" || mode === "creditOff";
     const where = `${districtKey} ${variant}`;
 
     const playedOf = (key: string): BracketSourceEvent["matches"] => (brackets.get(key)?.matches ?? []).filter((match) => match.actualWinner !== undefined);
@@ -1608,6 +1732,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, s
     /** THE WALK's own tally (the main line, the lattice, the corner by the other order, the end). */
     const walk = newTally();
     let walkReadingsWithFinalsReadAbsent = 0;
+    let walkShownLocked = 0;
     /** The tab's own reading of a world at Now. */
     const read = (label: string, world: World, tally: EdgeTally): MicroReading => {
       const { artifact } = world;
@@ -1632,7 +1757,8 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, s
           const bracket = brackets.get(key);
           if (bracket === undefined) throw new Error(`${districtKey}: no bracket for ${key}`);
           const alliances = (bracket.alliances ?? []).map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
-          const played = playedBracketMatchesFor(bracket, new Set(playedOf(key).slice(0, count).map((match) => match.matchKey)));
+          const playedKeysHere = new Set(playedOf(key).slice(0, count).map((match) => match.matchKey));
+          const played = playedBracketMatchesFor(bracket, playedKeysHere);
           const dcmpBracket = dcmpBracketFactsFor({
             eventKey: key,
             season: source.year,
@@ -1644,7 +1770,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, s
             fieldBackups: played.fieldBackups,
             role: divisioned ? "division" : "championship",
           });
-          distributions.set(key, { eventKey: key, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) });
+          distributions.set(key, { eventKey: key, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...securedElimEntry(bracket, source.year, "dcmp", playedKeysHere), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) });
         }
       }
       if (finalsKey !== undefined && world.finalsRows !== undefined) {
@@ -1693,6 +1819,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, s
         finalsReadAbsent: finalsMayBeAbsent && finalsKey !== undefined && !dcmpEventKeysFor(artifact).includes(finalsKey),
       };
       if (tally === walk && reading.finalsReadAbsent) walkReadingsWithFinalsReadAbsent += 1;
+      if (tally === walk) walkShownLocked += shownLocked;
       return reading;
     };
 
@@ -2014,6 +2141,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, s
       unprovenAgain,
       atMainLineEnd: { joint: mainLineEndReading.joint, jointLocked: mainLineEndReading.jointLocked, shownLocked: mainLineEndReading.shownLocked },
       endShownLocked: end.shownLocked,
+      walkShownLocked,
     };
   });
   microCache.set(cacheKey, result);
@@ -2086,6 +2214,8 @@ interface MicroTotals {
   readonly divisionsWalkedAwardsFirst: number;
   readonly flagHeldWithoutPlayoffPoints: number;
   readonly flagRaisedWithPlayoffPoints: number;
+  /** Teams shown Locked, summed over every reading of the walks. */
+  readonly walkShownLocked: number;
   /** Per district key: Locked lost over the walk's edges, and team margins dropped. Districts at 0 are left out. */
   readonly lostByDistrict: Record<string, number>;
   readonly dropsByDistrict: Record<string, number>;
@@ -2111,10 +2241,11 @@ function microTotals(walks: readonly MicroWalkId[], mode: RuleMode): MicroTotals
     divisionsWalkedAwardsFirst: 0,
     flagHeldWithoutPlayoffPoints: 0,
     flagRaisedWithPlayoffPoints: 0,
+    walkShownLocked: 0,
     lostByDistrict: {},
     dropsByDistrict: {},
   };
-  const sums = { mainLineEdges: 0, fieldProofTurnedTrue: 0, divisionsWalkedAwardsFirst: 0, flagHeldWithoutPlayoffPoints: 0, flagRaisedWithPlayoffPoints: 0, walkReadingsWithFinalsReadAbsent: 0, forcedFlagLostWritingTheFlag: 0 };
+  const sums = { mainLineEdges: 0, fieldProofTurnedTrue: 0, divisionsWalkedAwardsFirst: 0, flagHeldWithoutPlayoffPoints: 0, flagRaisedWithPlayoffPoints: 0, walkReadingsWithFinalsReadAbsent: 0, forcedFlagLostWritingTheFlag: 0, walkShownLocked: 0 };
   for (const [districtKey, variant] of walks) {
     const result = microWalk(districtKey, variant, mode);
     addTally(totals.walk, result.walk);
@@ -2146,6 +2277,7 @@ function microTotals(walks: readonly MicroWalkId[], mode: RuleMode): MicroTotals
     sums.divisionsWalkedAwardsFirst += result.divisionsWalkedAwardsFirst;
     sums.flagHeldWithoutPlayoffPoints += result.flagHeldWithoutPlayoffPoints;
     sums.flagRaisedWithPlayoffPoints += result.flagRaisedWithPlayoffPoints;
+    sums.walkShownLocked += result.walkShownLocked;
     const lost = result.walk.lost.flag + result.walk.lost.step;
     if (lost > 0) totals.lostByDistrict[districtKey] = (totals.lostByDistrict[districtKey] ?? 0) + lost;
     if (result.walk.marginDrops > 0) totals.dropsByDistrict[districtKey] = (totals.dropsByDistrict[districtKey] ?? 0) + result.walk.marginDrops;
@@ -2189,7 +2321,7 @@ function expectMicroWalk(result: MicroResult, fieldFixingKeyCount: number): void
 }
 
 const tallyLine = (tally: EdgeTally): string =>
-  `readings ${String(tally.readings)} (${JSON.stringify(tally.joint)}) | step edges ${String(tally.edges.step)}, flag edges ${String(tally.edges.flag)} | Locked lost ${String(tally.lost.step + tally.lost.flag)} | margin drops ${String(tally.marginDrops)} | applied then refused ${String(tally.appliedThenRefused)}`;
+  `readings ${String(tally.readings)} (${JSON.stringify(tally.joint)}) | step edges ${String(tally.edges.step)}, flag edges ${String(tally.edges.flag)} | Locked lost ${String(tally.lost.step + tally.lost.flag)} | margin drops ${String(tally.marginDrops)} | bounds higher ${String(tally.boundRises)} of ${String(tally.boundComparisons)} | floors lower ${String(tally.floorDrops)} of ${String(tally.floorComparisons)} | applied then refused ${String(tally.appliedThenRefused)}`;
 const microPin = (tally: EdgeTally) => ({ readings: tally.readings, edges: tally.edges.step + tally.edges.flag });
 
 describe("GROUP D, the micro step live walks: a championship walked live one fact at a time through the merge's two entry points and the tab's own status code (quick task 261010-d7r, D3 second half, finding F-D, CONTEXT D7)", () => {
@@ -2329,10 +2461,21 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
         lateRows: { readings: 1235, edges: 1208, walksWhereTheFieldProofTurnedTrue: 27, joint: { noDistributions: 116, fieldNotProven: 337, applied: 782 } },
         // D2's SWITCH TURNING ON, the 13 walks with the finals key on no row (the 12 two division championships and
         // 2026 FIM): on at exactly the tick the field proof turns true in every one, the proof refusing
-        // `fieldNotProven` before it and applied after it, no held team lost over it, and 4 more teams shown Locked
-        // after it than before over the 13. Pinned as the run shows.
-        absentFinalsSwitch: { walks: 13, turnedOn: 13, lost: 0, lockedAdded: 4, joint: { "fieldNotProven then applied": 13 } },
+        // `fieldNotProven` before it and applied after it, no held team lost over it, and 30 more teams shown Locked
+        // after it than before over the 13. Pinned as the run shows. It read 4 until quick task 261012-mw2: at that
+        // tick the other divisions are half way through their playoffs, their teams now carry the playoff points they
+        // have secured in their floors, and more of them are Locked on the tick the proof starts running.
+        absentFinalsSwitch: { walks: 13, turnedOn: 13, lost: 0, lockedAdded: 30, joint: { "fieldNotProven then applied": 13 } },
       });
+      // THE CREDIT SWITCHED OFF (quick task 261012-mw2): the same thirteen walks with nobody credited a secured
+      // playoff minimum hold every rules on requirement, and read D2's switch as this test pinned it before that
+      // task. So the 26 more are the credit's, and the switch reaches the credit.
+      const withoutTheCredit = microTotals([...twoDivisionWalks("finalsOnNoRow"), [MICRO_FIM, "finalsOnNoRow"]], "creditOff");
+      expectMonotone("the credit off, the walks with the finals key on no row", withoutTheCredit.walk);
+      expectMonotone("the credit off, the Winner before the playoff points", withoutTheCredit.winnerFirst);
+      expectMonotone("the credit off, a division's award points before its playoff points", withoutTheCredit.awardsFirst);
+      expectMonotone("the credit off, the last key's rows arriving mid playoffs", withoutTheCredit.lateRows);
+      expect(withoutTheCredit.absentFinalsSwitch).toEqual({ walks: 13, turnedOn: 13, lost: 0, lockedAdded: 4, joint: { "fieldNotProven then applied": 13 } });
     },
     TEST_TIMEOUT_MS
   );
@@ -2405,12 +2548,17 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       const pin = (totals: MicroTotals) => ({ lost: totals.walk.lost.step + totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, dropsByDistrict: totals.dropsByDistrict });
       // NO LOCKED TEAM IS LOST with this rule off, over every walk of this group.
       for (const totals of [single, california, twoNoRow, twoRegistered, fim]) expect(totals.walk.lost.step + totals.walk.lost.flag).toBe(0);
-      // 25 team margins over five of the 31 single championships, each by 1, each at the played row that places an
-      // alliance listing four teams (2023pnw at the second Finals match). None at California, at a two division
-      // championship or at 2026 FIM. The planner of the quick task read the same 25, and one more at 2025 FIM, which
-      // is not walked here.
+      // 20 team margins over six of the 31 single championships, each by 1, each at a played row from Round 4 on
+      // (2023pnw and 2026fnc at the second Finals match). None at California, at a two division championship or at
+      // 2026 FIM.
+      //
+      // UNTIL QUICK TASK 261012-mw2 this read 25 over five championships (2023pnw 17, 2024fnc 1, 2024pch 2, 2026fnc
+      // 3, 2026win 2), each at the played row that places an alliance listing four teams, and the planner of quick
+      // task 261010-d7r read the same 25 and one more at 2025 FIM, which is not walked here. The secured minimums in
+      // the floors moved it: 2023pnw 17 to 12, 2024pch 2 to 3, 2026fnc 3 to 1, and one at 2026fma, which had none.
+      // Still no Locked team is lost with this rule off.
       expect({ single: { ...pin(single), largestDrop: single.walk.largestDrop }, california: pin(california), twoNoRow: pin(twoNoRow), twoRegistered: pin(twoRegistered), fim: pin(fim) }).toEqual({
-        single: { lost: 0, marginDrops: 25, dropsByDistrict: { "2023pnw": 17, "2024fnc": 1, "2024pch": 2, "2026fnc": 3, "2026win": 2 }, largestDrop: 1 },
+        single: { lost: 0, marginDrops: 20, dropsByDistrict: { "2023pnw": 12, "2024fnc": 1, "2024pch": 3, "2026fma": 1, "2026fnc": 1, "2026win": 2 }, largestDrop: 1 },
         california: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
         twoNoRow: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
         twoRegistered: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
@@ -2421,29 +2569,91 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
   );
 
   it(
-    "FORCED, MEASURED AND NOT REQUIRED: a division's awards flag written true by hand before its playoff points (the merge's flag rule never does this: it waits for a playoff point, and `eventAwards.ts` states why), pinned as the run shows",
+    "FORCED, MEASURED AND NOT REQUIRED: a division's awards flag written true by hand before its playoff points (the merge's flag rule never does this: it waits for a playoff point, and `eventAwards.ts` states why) LOSES NO LOCKED TEAM AND DROPS NO MARGIN AND NO FLOOR, where it lost 28 before quick task 261012-mw2, because the floor of a final Playoffs category is the larger of TBA's number and the secured minimum; with the credit switched off it loses the 28 again",
     () => {
-      const noRow = microTotals([...twoDivisionWalks("finalsOnNoRow"), [MICRO_FIM, "finalsOnNoRow"]], "on");
-      const registered = microTotals([...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsRegistered"]], "on");
+      const noRowWalks: readonly MicroWalkId[] = [...twoDivisionWalks("finalsOnNoRow"), [MICRO_FIM, "finalsOnNoRow"]];
+      const registeredWalks: readonly MicroWalkId[] = [...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsRegistered"]];
+      const noRow = microTotals(noRowWalks, "on");
+      const registered = microTotals(registeredWalks, "on");
       console.log(
-        `[261010-d7r group D, FORCED awards flag before the playoff points] finals on no row: ${tallyLine(noRow.forcedFlag)} | distinct district and team pairs lost ${String(noRow.forcedFlag.lostTeams.size)}\n  finals registered: ${tallyLine(registered.forcedFlag)} | distinct district and team pairs lost ${String(registered.forcedFlag.lostTeams.size)}\n${registered.forcedFlag.lostLines.slice(0, 12).map((line) => `  ${line}`).join("\n")}`
+        `[261010-d7r group D, FORCED awards flag before the playoff points] finals on no row: ${tallyLine(noRow.forcedFlag)} | distinct district and team pairs lost ${String(noRow.forcedFlag.lostTeams.size)}\n  finals registered: ${tallyLine(registered.forcedFlag)} | distinct district and team pairs lost ${String(registered.forcedFlag.lostTeams.size)}\n${[...registered.forcedFlag.lostLines, ...registered.forcedFlag.floorLines].slice(0, 12).map((line) => `  ${line}`).join("\n")}`
       );
       // What excludes this edge is asserted above: the merge's own rule kept the flag false at every division.
       expect(noRow.flagHeldWithoutPlayoffPoints).toBe(noRow.divisionsWalkedAwardsFirst);
       expect(registered.flagHeldWithoutPlayoffPoints).toBe(registered.divisionsWalkedAwardsFirst);
-      // 28 divisions in each finals variant, two forced edges each. The Locked lost here are lost when the playoff
-      // points land AFTER a flag that had closed the division's Playoffs with none on a row: points no reading
-      // allowed for. None is lost over the edge that writes the flag itself (counted edge by edge in the walk; the
-      // tally's own lines are capped, so the count is not read off them).
+      // 28 divisions in each finals variant, two forced edges each: the flag written true with no playoff point on
+      // any row, then the playoff and award points landing after it. A true flag closes the division's Playoffs on
+      // a number TBA has not posted. None is lost over the edge that writes the flag itself (counted edge by edge
+      // in the walk; the tally's own lines are capped, so the count is not read off them), and no lost line sits
+      // outside the forced steps.
       expect({ noRow: noRow.forcedFlagLostWritingTheFlag, registered: registered.forcedFlagLostWritingTheFlag }).toEqual({ noRow: 0, registered: 0 });
       for (const totals of [noRow, registered]) expect(totals.forcedFlag.lostLines.filter((line) => !line.includes('(FORCED)" then "'))).toEqual([]);
-      // Pinned as the run shows. Until Task 4 of the quick task (its D2) the two variants together read 34 lost, 28
-      // distinct pairs and 498 margins: with the finals key on no row the proof did not run at these ticks, so only
-      // the ceiling test's locks could be lost there. The proof now runs in both variants and they read the same.
-      const pin = (totals: MicroTotals) => ({ ...microPin(totals.forcedFlag), lost: totals.forcedFlag.lost.step, distinctPairsLost: totals.forcedFlag.lostTeams.size, marginDrops: totals.forcedFlag.marginDrops });
+      // THE READING, in each finals variant, pinned as the run shows:
+      //
+      //                                              before quick task   the credit, TBA's number   the larger
+      //                                              261012-mw2          in its place               of the two
+      //   Locked lost over its two edges             28                  93                         0
+      //   distinct district and team pairs lost      22                  85                         0
+      //   margin drops                               498                 772                        0
+      //   Locked lost at the tick that writes it     0                   65                         0
+      //   floors lower                               0                   684 at the forced edges    0
+      //
+      // BEFORE THAT TASK the Locked were lost when the playoff points landed after the flag: points no reading
+      // allowed for, in no floor and in no ceiling. THE MIDDLE COLUMN is the first form of that task, read by its
+      // planner and never committed: the credit in the floor while the Playoffs are open, and TBA's number in its
+      // place once they read final. The flag then took the credit OUT of the floors at the tick it was written,
+      // and that lost more. THE LARGER OF THE TWO is what is built: where a Playoffs category reads final its floor
+      // counts TBA's number or the secured minimum, whichever is larger, so the flag takes nothing out, the points
+      // that land are points the floors already held, and nothing is lost, no margin drops and no floor falls. It
+      // adds no assumption: the credit already says TBA will pay at least that much.
+      //
+      // THIS STAYS A FORCED READING WITH AN EXACT PIN OF 0, not a rules on requirement: it is still a state the
+      // product's own rules exclude. A Locked lost here would all the same be a finding to report, never a pin to
+      // move. (Until Task 4 of quick task 261010-d7r, its D2, the two variants together read 34 lost, 28 distinct
+      // pairs and 498 margins: with the finals key on no row the proof did not run at these ticks.)
+      const pin = (totals: MicroTotals) => ({
+        ...microPin(totals.forcedFlag),
+        lost: totals.forcedFlag.lost.step,
+        distinctPairsLost: totals.forcedFlag.lostTeams.size,
+        marginDrops: totals.forcedFlag.marginDrops,
+        floorsLower: totals.forcedFlag.floorDrops,
+      });
       expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
-        noRow: { readings: 56, edges: 56, lost: 28, distinctPairsLost: 22, marginDrops: 498 },
-        registered: { readings: 56, edges: 56, lost: 28, distinctPairsLost: 22, marginDrops: 498 },
+        noRow: { readings: 56, edges: 56, lost: 0, distinctPairsLost: 0, marginDrops: 0, floorsLower: 0 },
+        registered: { readings: 56, edges: 56, lost: 0, distinctPairsLost: 0, marginDrops: 0, floorsLower: 0 },
+      });
+      // THE CREDIT SWITCHED OFF: the same walks with nobody credited a secured playoff minimum read what this test
+      // pinned before that task, which shows that the larger of the two is what holds the reading above, and that
+      // the switch reaches every credit. They hold every rules on requirement as well.
+      const noRowOff = microTotals(noRowWalks, "creditOff");
+      const registeredOff = microTotals(registeredWalks, "creditOff");
+      console.log(
+        `[261012-mw2 group D, FORCED awards flag before the playoff points, the credit OFF] finals on no row: ${tallyLine(noRowOff.forcedFlag)} | distinct district and team pairs lost ${String(noRowOff.forcedFlag.lostTeams.size)}\n  finals registered: ${tallyLine(registeredOff.forcedFlag)} | distinct district and team pairs lost ${String(registeredOff.forcedFlag.lostTeams.size)}\n  the walks themselves, the credit OFF: finals on no row ${tallyLine(noRowOff.walk)}\n  finals registered ${tallyLine(registeredOff.walk)}\n  teams shown Locked, summed over the readings of the walks: finals on no row ${String(noRow.walkShownLocked)} with the credit and ${String(noRowOff.walkShownLocked)} without, finals registered ${String(registered.walkShownLocked)} and ${String(registeredOff.walkShownLocked)}\n${registeredOff.forcedFlag.lostLines.slice(0, 8).map((line) => `  ${line}`).join("\n")}`
+      );
+      for (const [label, totals] of [
+        ["the credit off, finals on no row", noRowOff],
+        ["the credit off, finals registered", registeredOff],
+      ] as const) {
+        expectMonotone(`${label}, the walk`, totals.walk);
+        expectMonotone(`${label}, the Winner before the playoff points`, totals.winnerFirst);
+        expectMonotone(`${label}, a division's award points before its playoff points`, totals.awardsFirst);
+        expectMonotone(`${label}, the last key's rows arriving mid playoffs`, totals.lateRows);
+      }
+      expect({ noRow: noRowOff.forcedFlagLostWritingTheFlag, registered: registeredOff.forcedFlagLostWritingTheFlag }).toEqual({ noRow: 0, registered: 0 });
+      expect({ noRow: pin(noRowOff), registered: pin(registeredOff) }).toEqual({
+        noRow: { readings: 56, edges: 56, lost: 28, distinctPairsLost: 22, marginDrops: 498, floorsLower: 0 },
+        registered: { readings: 56, edges: 56, lost: 28, distinctPairsLost: 22, marginDrops: 498, floorsLower: 0 },
+      });
+      // WHAT THE CREDIT ADDED ON THESE WALKS: teams shown Locked, summed over every reading of the walk, with the
+      // credit and without it. Pinned as the run shows: 1,317 more in each variant. Quick task 261012-nff (a
+      // prequalified team uses no district slot), merged after this task, adds 15 to all four counts and leaves the
+      // 1,317 as it was: 16,568, 15,251, 27,338 and 26,021 until then. Re pinned at the merge on Jacob's decision.
+      expect({
+        noRow: { credit: noRow.walkShownLocked, creditOff: noRowOff.walkShownLocked },
+        registered: { credit: registered.walkShownLocked, creditOff: registeredOff.walkShownLocked },
+      }).toEqual({
+        noRow: { credit: 16_583, creditOff: 15_266 },
+        registered: { credit: 27_353, creditOff: 26_036 },
       });
     },
     TEST_TIMEOUT_MS
@@ -2468,13 +2678,25 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       // walks the decided winner's paid backup is now held by the proof (2023pnw frc1983, 2024fnc frc6639, 2025fin
       // frc1747, 2026ca frc3512, 2026fnc frc6639: each is on the winning alliance and holds its Winner award at the
       // season's end), so this forced reading loses those five as well.
-      expect({ ...microPin(all.unprovenAgain), lost: all.unprovenAgain.lost.step, distinctPairsLost: all.unprovenAgain.lostTeams.size, joint: all.unprovenAgain.joint, appliedThenRefused: all.unprovenAgain.appliedThenRefused }).toEqual({
+      //
+      // Quick task 261012-mw2 moved it from 770 to 822, the same 515 distinct pairs: with the secured minimums in
+      // the floors the proof holds more teams while a bracket is under way, and this forced reading loses whatever
+      // the proof alone held. No floor falls over these edges: the capacity moves no floor.
+      expect({
+        ...microPin(all.unprovenAgain),
+        lost: all.unprovenAgain.lost.step,
+        distinctPairsLost: all.unprovenAgain.lostTeams.size,
+        joint: all.unprovenAgain.joint,
+        appliedThenRefused: all.unprovenAgain.appliedThenRefused,
+        floorsLower: all.unprovenAgain.floorDrops,
+      }).toEqual({
         readings: 85,
         edges: 85,
-        lost: 770,
+        lost: 822,
         distinctPairsLost: 515,
         joint: { fieldNotProven: 85 },
         appliedThenRefused: 85,
+        floorsLower: 0,
       });
     },
     TEST_TIMEOUT_MS
@@ -2564,11 +2786,14 @@ describe("GROUP E, the paid pick rule on the live walks: the tick a key's playof
       // points slots); the hand built championship below is where one is.
       const total = Object.values(rises).reduce((sum, count) => sum + count, 0);
       expect(total).toBeGreaterThan(0);
-      // The planner of the quick task read these same 20, over these same 5 edges, on the code of before the rule.
+      // The planner of the quick task read 20, over these same 5 edges, on the code of before the rule (2024fnc 1,
+      // 2025fin 2, 2026ca 16 with 8 on the walk itself, 2026fnc 1), and this test pinned those until quick task
+      // 261012-mw2. With the secured minimums in the floors the same 5 edges read 26: 2025fin 3, 2026ca 20 with 10
+      // on the walk itself, 2026fnc 2. Still each by 1, and still no Locked team lost.
       expect({ rises, onTheWalkItself, total, edgesWithARise, lost, largestRise }).toEqual({
-        rises: { "2024fnc": 1, "2025fin": 2, "2026ca": 16, "2026fnc": 1 },
-        onTheWalkItself: { "2024fnc": 1, "2025fin": 2, "2026ca": 8, "2026fnc": 1 },
-        total: 20,
+        rises: { "2024fnc": 1, "2025fin": 3, "2026ca": 20, "2026fnc": 2 },
+        onTheWalkItself: { "2024fnc": 1, "2025fin": 3, "2026ca": 10, "2026fnc": 2 },
+        total: 26,
         edgesWithARise: 5,
         lost: 0,
         largestRise: 1,
@@ -2671,6 +2896,77 @@ describe("GROUP E by hand, on the committed 2026 PNW fixture: the tick takes a L
     // THE TAKE BACK: shown Locked a tick earlier, and no longer.
     expect(after.status).not.toBe("locked");
   });
+});
+
+// ---------------------------------------------------------------------------
+// NO FLOOR DROPS (quick task 261012-mw2)
+// ---------------------------------------------------------------------------
+
+describe("EVERY RULES ON EDGE OF THIS FILE: no team's floor is lower after an edge than before it, the tick a key's playoff points land included (quick task 261012-mw2)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  const missing = [...MISSING_DIVISIONED, ...MISSING_SINGLE, ...(LOCAL_DISTRICT_FILES.includes(TWO_CHAMPIONSHIP_FILE) ? [] : [TWO_CHAMPIONSHIP_DISTRICT])];
+  if (missing.length > 0) {
+    localDataAbsent(`${missing.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  it(
+    "over every flag edge, stop edge and step edge of groups A to D with the rules on, floors compared and none lower; none lower over the forced edges either; the counts pinned as the run shows",
+    () => {
+      // Every tally below is the one its own group already built and asserted on (they are cached): this test adds
+      // no reading. It names the property on its own and holds how much was compared. A team's floor is compared
+      // wherever both readings carry one for it, whatever the joint proof said.
+      const walks = microTotals([...ONE_EVENT_WALKS, ...twoDivisionWalks("finalsOnNoRow"), ...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "on");
+      const rulesOn: Record<string, EdgeTally> = {
+        "A, the awards order lattice": latticeTotals("on").tally,
+        "B, two division championships out of step": outOfStepTotals(TWO_DIVISION, true, "on").tally,
+        "B, the FIM seasons out of step": outOfStepTotals(FOUR_DIVISION, false, "on").tally,
+        "C, one championship finishing first": oneFinishingFirst("on").tally,
+        "C, the awards lattice of two championships": twoChampionshipLattice("on").tally,
+        "D, the live walks": walks.walk,
+        "D, the Winner before the playoff points": walks.winnerFirst,
+        "D, award points before playoff points": walks.awardsFirst,
+        "D, the last key's rows arriving mid playoffs": walks.lateRows,
+      };
+      const forced: Record<string, EdgeTally> = {
+        "D, FORCED, the awards flag before the playoff points": walks.forcedFlag,
+        "D, FORCED, the field proof not proven again": walks.unprovenAgain,
+      };
+      const all = { ...rulesOn, ...forced };
+      const compared = Object.fromEntries(Object.entries(all).map(([label, tally]) => [label, tally.floorComparisons]));
+      const total = Object.values(compared).reduce((sum, count) => sum + count, 0);
+      console.log(`[261012-mw2 no floor drops] ${Object.entries(all).map(([label, tally]) => `${label}: ${String(tally.floorComparisons)} compared, ${String(tally.floorDrops)} lower`).join(" | ")} | in all ${String(total)}`);
+      // THE REQUIREMENT. A floor that fell with the rules on is a finding, never a pin to move.
+      expect(Object.fromEntries(Object.entries(rulesOn).map(([label, tally]) => [label, { lower: tally.floorDrops, lines: tally.floorLines }]))).toEqual(
+        Object.fromEntries(Object.keys(rulesOn).map((label) => [label, { lower: 0, lines: [] }]))
+      );
+      // THE FORCED EDGES, pinned at exactly 0 (measured, not a rules on requirement): the larger of the two holds
+      // the floors over a flag written before its playoff points, and a capacity moves no floor.
+      expect(Object.fromEntries(Object.entries(forced).map(([label, tally]) => [label, { lower: tally.floorDrops, lines: tally.floorLines }]))).toEqual(
+        Object.fromEntries(Object.keys(forced).map((label) => [label, { lower: 0, lines: [] }]))
+      );
+      // Not vacuous: how many team floors were compared, pinned as the run shows. 2,956,059 over the rules on edges
+      // and 37,972 over the forced ones.
+      expect({ ...compared, total }).toEqual({
+        "A, the awards order lattice": 1_280_928,
+        "B, two division championships out of step": 63_872,
+        "B, the FIM seasons out of step": 130_880,
+        "C, one championship finishing first": 11_248,
+        "C, the awards lattice of two championships": 1_184,
+        "D, the live walks": 1_087_263,
+        "D, the Winner before the playoff points": 89_200,
+        "D, award points before playoff points": 24_464,
+        "D, the last key's rows arriving mid playoffs": 267_020,
+        "D, FORCED, the awards flag before the playoff points": 24_464,
+        "D, FORCED, the field proof not proven again": 13_508,
+        total: 2_994_031,
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
 });
 
 // ---------------------------------------------------------------------------

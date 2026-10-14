@@ -45,6 +45,8 @@ import {
   districtLedgerOutcomeChance,
   districtLedgerOutcomePointsRange,
   districtLedgerPaysLine,
+  DISTRICT_LEDGER_SECURED_PREFIX,
+  districtLedgerSecuredLine,
   districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
   CHAMP_LEDGER_COLUMN_LABELS,
@@ -494,6 +496,35 @@ describe("the open cell's pays line and chance (quick task 261008-3il)", () => {
     expect(districtLedgerCellChance(1)).toBe("99%");
     expect(districtLedgerCellChance(0.004)).toBe("0%");
     expect(districtLedgerCellChance(0)).toBe("0%");
+  });
+});
+
+describe("the secured line of an open Playoffs cell (quick task 261012-mw2)", () => {
+  it("prints at least, the points, a middle dot and then the cell's own small line unchanged", () => {
+    expect(DISTRICT_LEDGER_SECURED_PREFIX).toBe("at least");
+    expect(districtLedgerSecuredLine(60, "pays 90")).toBe("at least 60 · pays 90");
+    expect(districtLedgerSecuredLine(20, "pays 20 or 30")).toBe("at least 20 · pays 20 or 30");
+    expect(districtLedgerSecuredLine(39, "likely 39 to 90")).toBe("at least 39 · likely 39 to 90");
+    // The separator is the middle dot between two spaces, the one the Team cell's meta line already uses.
+    expect(districtLedgerSecuredLine(60, "pays 90")).toBe(`at least 60 ${String.fromCharCode(0xb7)} pays 90`);
+  });
+
+  it("prints at least and the points alone where the cell has no small line", () => {
+    expect(districtLedgerSecuredLine(60)).toBe("at least 60");
+    expect(districtLedgerSecuredLine(60, undefined)).toBe("at least 60");
+  });
+
+  it("rounds the points to a whole number", () => {
+    expect(districtLedgerSecuredLine(59.6, "pays 90")).toBe("at least 60 · pays 90");
+    expect(districtLedgerSecuredLine(20.4)).toBe("at least 20");
+  });
+
+  it("carries no tilde, no hyphen and no dash of any kind: a secured minimum is not a prediction", () => {
+    const every = [districtLedgerSecuredLine(60, "pays 90"), districtLedgerSecuredLine(13), districtLedgerSecuredLine(21, "pays 21 to 90"), DISTRICT_LEDGER_SECURED_PREFIX].join(" ");
+    for (const mark of ["~", "—", "–", "-", "±", "%"]) expect(every).not.toContain(mark);
+    expect(every).not.toMatch(/[‐-―−]/);
+    // Lower case throughout, on the pays line's precedent.
+    expect(every).toBe(every.toLowerCase());
   });
 });
 

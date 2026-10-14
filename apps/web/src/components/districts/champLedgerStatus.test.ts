@@ -1533,6 +1533,421 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
       expect(jointLockBound(guarded, FOURTH)).toBeGreaterThan(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // The secured playoff minimum (quick task 261012-mw2)
+  // -------------------------------------------------------------------------
+
+  describe("the secured playoff minimum in the floors and in the proof (quick task 261012-mw2)", () => {
+    // WHAT THE ROWS SECURE, WORKED BY HAND from TBA's pay rule (`securedPlayoffPoints.ts`) for a robot on the field for
+    // every win of its alliance, at the championship weight 3. `ROUND_FIVE_ROWS` above:
+    //   alliance 1 won sf1 (0), sf7 (13) and sf11 (7): 20 table points, a finalist, 60
+    //   alliance 5 won sf2 (0), sf9 (7), sf12 (6) and sf13 (7): 20, a finalist, 60
+    //   alliance 3 won sf4 (0) and sf8 (13): 13, third, 39
+    //   alliance 2 won sf3 (0) and sf10 (7): 7, fourth, 21
+    //   alliances 4 and 6 won one set that pays nothing, alliances 7 and 8 none.
+    // With the Finals played and won by alliance 1 its robots hold 20 plus 5 for each of the two Finals wins: 90.
+    const AT_ROUND_FIVE: ReadonlyMap<number, number> = new Map([
+      [1, 60],
+      [5, 60],
+      [3, 39],
+      [2, 21],
+    ]);
+    const AT_THE_END: ReadonlyMap<number, number> = new Map([
+      [1, 90],
+      [5, 60],
+      [3, 39],
+      [2, 21],
+    ]);
+    const FINAL_ONE_WINS: PlayedBracketMatch[] = [1, 2].map((matchNumber) => ({ compLevel: "f", setNumber: 1, matchNumber, winningAllianceNumber: 1 }));
+    const DECIDED = [...ROUND_FIVE_ROWS, ...FINAL_ONE_WINS];
+    const paidAt = (artifact: DistrictArtifact, teamKey: string): number =>
+      artifact.teams.find((team) => team.teamKey === teamKey)?.eventPoints.find((row) => row.eventKey === DCMP_KEY)?.elim ?? 0;
+    /**
+     * Each rebuilt pick's secured minimum: its alliance's value, and never above what the fixture's own row was
+     * finally paid. frc3663 sat out part of alliance 2's playoffs and was paid 12 of 21, so 12 is what it secured.
+     */
+    function securedFor(byAlliance: ReadonlyMap<number, number>, alliances: readonly { allianceNumber: number; picks: readonly string[] }[] = ALLIANCES): Map<string, number> {
+      const out = new Map<string, number>();
+      for (const alliance of alliances) {
+        const value = byAlliance.get(alliance.allianceNumber);
+        if (value === undefined) continue;
+        for (const pick of alliance.picks) {
+          const secured = Math.min(value, paidAt(FIXTURE, pick));
+          if (secured > 0) out.set(pick, secured);
+        }
+      }
+      return out;
+    }
+    const withSecured = (distributions: ReadonlyMap<string, DistrictEventDistributions>, secured: ReadonlyMap<string, number>): ReadonlyMap<string, DistrictEventDistributions> =>
+      new Map([...distributions].map(([key, entry]) => [key, key === DCMP_KEY ? { ...entry, securedElimByTeam: secured } : entry] as const));
+    const roundFive = (alliances: typeof ALLIANCES = ALLIANCES) =>
+      distributionsWith(dcmpBracketMilestonesByTeam(alliances, ROUND_FIVE_ROWS), factsAt(FNC_LIKE_STOP.get(DCMP_KEY)!, ROUND_FIVE_ROWS, alliances));
+    const inputOf = (model: ReturnType<typeof modelAtStop>): JointLockInput => {
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "single") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+      return model.jointProof.input;
+    };
+    const rivalOf = (input: JointLockInput, teamKey: string) => input.pool.find((rival) => rival.teamKey === teamKey);
+    const allianceOf = (input: JointLockInput, allianceNumber: number) => input.alliances.find((alliance) => alliance.allianceNumber === allianceNumber)!;
+    const floorOf = (model: ReturnType<typeof modelAtStop>, teamKey: string): number => model.floorByTeam!.get(teamKey)!;
+    const ceilingOf = (model: ReturnType<typeof modelAtStop>, teamKey: string): number => model.ceilingByTeam!.get(teamKey)!;
+    /** The fixture with its championship finished at Now, so a decided team's settled value is TBA's own number, exact. */
+    const DCMP_FINISHED: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team) => ({
+        ...team,
+        eventPoints: team.eventPoints.map((row) =>
+          row.eventKey === DCMP_KEY ? { ...row, state: { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } } : row
+        ),
+      })),
+    });
+    /** A pool team with a championship row that no alliance picked: 0 alliance selection points and 0 playoff points there. */
+    const FOURTH = "frc492";
+    const listedOn = (allianceNumber: number) => ALLIANCES.map((alliance) => (alliance.allianceNumber === allianceNumber ? { ...alliance, picks: [...alliance.picks, FOURTH] } : alliance));
+
+    it("the hand built secured minimums fit the fixture: every one is at or below what the fixture's row was finally paid, and frc3663 holds 12", () => {
+      const atRoundFive = securedFor(AT_ROUND_FIVE);
+      const atTheEnd = securedFor(AT_THE_END);
+      expect(atRoundFive.size).toBe(12);
+      for (const secured of [atRoundFive, atTheEnd]) for (const [teamKey, value] of secured) expect(value, teamKey).toBeLessThanOrEqual(paidAt(FIXTURE, teamKey));
+      expect(Object.fromEntries(atRoundFive)).toEqual({
+        frc2046: 60,
+        frc2910: 60,
+        frc2811: 60,
+        frc955: 21,
+        frc4915: 21,
+        frc3663: 12,
+        frc5468: 39,
+        frc360: 39,
+        frc9450: 39,
+        frc1540: 60,
+        frc948: 60,
+        frc2412: 60,
+      });
+      for (const teamKey of ALLIANCES[0]!.picks) expect(atTheEnd.get(teamKey)).toBe(90);
+      const row = FIXTURE.teams.find((team) => team.teamKey === FOURTH)!.eventPoints.find((entry) => entry.eventKey === DCMP_KEY)!;
+      expect({ alliance: row.alliance, elim: row.elim }).toEqual({ alliance: 0, elim: 0 });
+      expect(ALLIANCES.some((alliance) => alliance.picks.includes(FOURTH))).toBe(false);
+    });
+
+    it("a team still in its championship's bracket reads its secured minimum as that much more floor, the same ceiling, and that much less extra in the proof", () => {
+      const secured = securedFor(AT_ROUND_FIVE);
+      const base = modelAtStop(FIXTURE, FNC_LIKE_STOP, roundFive());
+      const credited = modelAtStop(FIXTURE, FNC_LIKE_STOP, withSecured(roundFive(), secured));
+      let inThePool = 0;
+      for (const teamKey of [...ALLIANCES[0]!.picks, ...ALLIANCES[4]!.picks]) {
+        // A finalist: 60 secured, and no settled value.
+        expect(secured.get(teamKey), teamKey).toBe(60);
+        expect(floorOf(credited, teamKey), teamKey).toBe(floorOf(base, teamKey) + 60);
+        expect(ceilingOf(credited, teamKey), teamKey).toBe(ceilingOf(base, teamKey));
+        const before = rivalOf(inputOf(base), teamKey);
+        const after = rivalOf(inputOf(credited), teamKey);
+        expect(after === undefined, teamKey).toBe(before === undefined);
+        if (before === undefined || after === undefined) continue;
+        inThePool += 1;
+        // The proof models an unsettled open Playoffs category whole, so the credit leaves `extra`: the sum is the sum of before.
+        expect(after, teamKey).toEqual({ ...before, floor: before.floor + 60, extra: before.extra - 60 });
+      }
+      expect(inThePool).toBeGreaterThan(0);
+      // A team on no alliance that won a paying set reads exactly as before.
+      for (const teamKey of [...ALLIANCES[3]!.picks, ...ALLIANCES[7]!.picks, FOURTH]) {
+        expect(floorOf(credited, teamKey), teamKey).toBe(floorOf(base, teamKey));
+        expect(ceilingOf(credited, teamKey), teamKey).toBe(ceilingOf(base, teamKey));
+      }
+    });
+
+    it("the same at a district tier source: that much more floor and the same ceiling", () => {
+      // One district event of the fixture rewound to its playoffs, with 13 secured there for one of its teams: the
+      // sf7 or sf8 winner's 13 table points over two semifinal wins, both with the robot on the field, weight 1.
+      const source = FIXTURE.teams.find((team) => team.eventPoints.some((row) => row.tier === "district" && row.elim >= 13))!;
+      const eventKey = source.eventPoints.find((row) => row.tier === "district" && row.elim >= 13)!.eventKey;
+      const stop = new Map(eventKeysOf(FIXTURE).map((key) => [key, key === eventKey ? { qual: true, alliance: true, elim: false, award: false } : key === DCMP_KEY ? ALL_OPEN : ALL_FINAL] as const));
+      const at = (secured: number | undefined) => {
+        const distributions: ReadonlyMap<string, DistrictEventDistributions> = new Map([
+          [eventKey, { eventKey, byTeam: new Map(), ...(secured === undefined ? {} : { securedElimByTeam: new Map([[source.teamKey, secured]]) }) }],
+        ]);
+        const rows = buildChampLedgerRows({ artifact: FIXTURE, distributions, stageByEvent: stop, dcmpStarted: false });
+        return computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: 2026, distributions });
+      };
+      const base = at(undefined);
+      const credited = at(13);
+      expect(credited.floorByTeam!.get(source.teamKey)).toBe(base.floorByTeam!.get(source.teamKey)! + 13);
+      expect(credited.ceilingByTeam!.get(source.teamKey)).toBe(base.ceilingByTeam!.get(source.teamKey));
+      // Nobody else moved.
+      for (const [teamKey, floor] of base.floorByTeam!) if (teamKey !== source.teamKey) expect(credited.floorByTeam!.get(teamKey), teamKey).toBe(floor);
+      for (const [teamKey, ceiling] of base.ceilingByTeam!) expect(credited.ceilingByTeam!.get(teamKey), teamKey).toBe(ceiling);
+    });
+
+    it("a knocked out team whose settled value is not exact reads its secured minimum in the floor and the rest of the placement's ceiling open", () => {
+      // The fixture carries no state block, so its championship is not finished at Now and a decided placement is
+      // settled off the placement table: not exact, and before this task only a ceiling.
+      const secured = securedFor(AT_ROUND_FIVE);
+      const base = modelAtStop(FIXTURE, FNC_LIKE_STOP, roundFive());
+      const credited = modelAtStop(FIXTURE, FNC_LIKE_STOP, withSecured(roundFive(), secured));
+      // Third place, every robot on the field for both wins: 39 of the placement's 39 is held, nothing of it left open.
+      for (const teamKey of ALLIANCES[2]!.picks) {
+        expect(floorOf(credited, teamKey), teamKey).toBe(floorOf(base, teamKey) + 39);
+        expect(ceilingOf(credited, teamKey), teamKey).toBe(ceilingOf(base, teamKey));
+      }
+      // Fourth place, and a robot that sat a win out: 12 of the placement's 21 is held and 9 stays open.
+      expect(floorOf(credited, "frc3663")).toBe(floorOf(base, "frc3663") + 12);
+      expect(ceilingOf(credited, "frc3663")).toBe(ceilingOf(base, "frc3663"));
+      expect(ceilingOf(credited, "frc3663") - floorOf(credited, "frc3663")).toBe(ceilingOf(base, "frc3663") - floorOf(base, "frc3663") - 12);
+      // A settled value that is not exact stays in the proof's `extra` as a ceiling; the secured part moves to the floor.
+      const before = rivalOf(inputOf(base), "frc3663");
+      const after = rivalOf(inputOf(credited), "frc3663");
+      if (before !== undefined && after !== undefined) expect(after.floor + after.extra).toBe(before.floor + before.extra);
+    });
+
+    it("a knocked out team whose settled value is exact reads exactly as before", () => {
+      // The same stop over a championship finished at Now: a decided team's value is TBA's own number.
+      const secured = securedFor(AT_ROUND_FIVE);
+      const base = modelAtStop(DCMP_FINISHED, FNC_LIKE_STOP, roundFive());
+      const credited = modelAtStop(DCMP_FINISHED, FNC_LIKE_STOP, withSecured(roundFive(), secured));
+      let exact = 0;
+      for (const teamKey of [...ALLIANCES[2]!.picks, ...ALLIANCES[1]!.picks]) {
+        exact += 1;
+        expect(floorOf(credited, teamKey), teamKey).toBe(floorOf(base, teamKey));
+        expect(ceilingOf(credited, teamKey), teamKey).toBe(ceilingOf(base, teamKey));
+      }
+      expect(exact).toBe(6);
+      // The finalists are still in the bracket there and still gain their 60.
+      for (const teamKey of ALLIANCES[0]!.picks) expect(floorOf(credited, teamKey), teamKey).toBe(floorOf(base, teamKey) + 60);
+    });
+
+    it("THE LARGER OF THE TWO: a Playoffs category that reads final on a number below the secured minimum counts the secured minimum, and the team's ceiling rises with it", () => {
+      const STALE = ALLIANCES[0]!.picks[0]!;
+      // A number that reads final and is older than the rows: the champion's captain at 30 on its row where the rows
+      // say 90 is secured (TBA's own final number is 90).
+      expect(paidAt(FIXTURE, STALE)).toBe(90);
+      const stale: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...FIXTURE,
+        teams: FIXTURE.teams.map((team) =>
+          team.teamKey !== STALE ? team : { ...team, pointTotal: team.pointTotal - 60, eventPoints: team.eventPoints.map((row) => (row.eventKey === DCMP_KEY ? { ...row, elim: 30, total: row.total - 60 } : row)) }
+        ),
+      });
+      const secured = securedFor(AT_THE_END);
+      const finalDistributions = distributionsWith(dcmpBracketMilestonesByTeam(ALLIANCES, DECIDED), factsAt(PLAYOFFS_FINAL_STOP.get(DCMP_KEY)!, DECIDED));
+      const base = modelAtStop(stale, PLAYOFFS_FINAL_STOP, finalDistributions);
+      const credited = modelAtStop(stale, PLAYOFFS_FINAL_STOP, withSecured(finalDistributions, secured));
+      // 90 secured against 30 posted: 60 more in the floor, and the ceiling rises by the same 60.
+      expect(floorOf(credited, STALE)).toBe(floorOf(base, STALE) + 60);
+      expect(ceilingOf(credited, STALE)).toBe(ceilingOf(base, STALE) + 60);
+      // Every other team's number is at or above what it secured: nothing of theirs moves.
+      for (const [teamKey, floor] of base.floorByTeam!) if (teamKey !== STALE) expect(floorOf(credited, teamKey), teamKey).toBe(floor);
+      for (const [teamKey, ceiling] of base.ceilingByTeam!) if (teamKey !== STALE) expect(ceilingOf(credited, teamKey), teamKey).toBe(ceiling);
+
+      // ON A NUMBER AT OR ABOVE IT NOTHING CHANGES: the fixture as published, every floor and every ceiling.
+      const published = modelAtStop(FIXTURE, PLAYOFFS_FINAL_STOP, finalDistributions);
+      const publishedCredited = modelAtStop(FIXTURE, PLAYOFFS_FINAL_STOP, withSecured(finalDistributions, secured));
+      expect(publishedCredited.floorByTeam).toEqual(published.floorByTeam);
+      expect(publishedCredited.ceilingByTeam).toEqual(published.ceilingByTeam);
+      expect(publishedCredited.byTeam).toEqual(published.byTeam);
+    });
+
+    it("a team outside the field reads no secured minimum, whatever its championship source carries", () => {
+      // The floors and the ceilings are read with no joint proof (no distributions handed to the status module).
+      const rows = buildChampLedgerRows({ artifact: FIXTURE, distributions: roundFive(), stageByEvent: FNC_LIKE_STOP, dcmpStarted: true });
+      const TEAM = ALLIANCES[0]!.picks[0]!;
+      const statusOf = (membership: "in" | "out", securedElim: number | undefined) =>
+        computeChampLedgerStatuses({
+          artifact: FIXTURE,
+          nowYear: 2026,
+          teams: rows.teams.map((team) =>
+            team.teamKey !== TEAM
+              ? team
+              : {
+                  ...team,
+                  membership,
+                  dcmpRow: { ...team.dcmpRow, sources: team.dcmpRow.sources.map((source) => (securedElim === undefined ? source : { ...source, securedElim })) },
+                }
+          ),
+        });
+      // The control: in the field, the injected 60 is 60 more floor.
+      expect(statusOf("in", 60).floorByTeam!.get(TEAM)).toBe(statusOf("in", undefined).floorByTeam!.get(TEAM)! + 60);
+      // Outside the field its championship rows are not read at all.
+      expect(statusOf("out", 60).floorByTeam!.get(TEAM)).toBe(statusOf("out", undefined).floorByTeam!.get(TEAM));
+      expect(statusOf("out", 60).ceilingByTeam!.get(TEAM)).toBe(statusOf("out", undefined).ceilingByTeam!.get(TEAM));
+    });
+
+    it("THE WITHHELD CREDIT: while the key's Playoffs are open, a pick with no alliance selection points enters the proof's pool with the floor and the extra it had before, and the ceiling test reads its credit", () => {
+      for (const [allianceNumber, creditOfTheFourth, working] of [
+        // Listed fourth on the finalist alliance 1, on the field for one of its three semifinal wins: 20 x 1 / 3 = 6.67, rounded up to 7, times 3.
+        [1, 21, "one of three wins of 20"],
+        // Listed fourth on alliance 3, placed third, on the field for one of its two semifinal wins: 13 x 1 / 2 = 6.5, rounded up to 7, times 3.
+        [3, 21, "one of two wins of 13"],
+      ] as const) {
+        const alliances = listedOn(allianceNumber);
+        const secured = securedFor(AT_ROUND_FIVE);
+        secured.set(FOURTH, creditOfTheFourth);
+        const base = modelAtStop(FIXTURE, FNC_LIKE_STOP, roundFive(alliances));
+        const credited = modelAtStop(FIXTURE, FNC_LIKE_STOP, withSecured(roundFive(alliances), secured));
+        // The lock math outside the proof reads the credit: floor up, ceiling where it was.
+        expect(floorOf(credited, FOURTH), working).toBe(floorOf(base, FOURTH) + creditOfTheFourth);
+        expect(ceilingOf(credited, FOURTH), working).toBe(ceilingOf(base, FOURTH));
+        // The proof is handed the pair of before this task, whole: floor, extra and the listed only reading.
+        const before = rivalOf(inputOf(base), FOURTH)!;
+        const after = rivalOf(inputOf(credited), FOURTH)!;
+        expect(before.floor, working).toBe(148);
+        expect(after, working).toEqual(before);
+        expect(floorOf(credited, FOURTH) - after.floor, working).toBe(creditOfTheFourth);
+        // A pick WITH alliance selection points enters with the credit in its floor and out of its extra.
+        for (const teamKey of ALLIANCES[allianceNumber - 1]!.picks) {
+          const credit = secured.get(teamKey)!;
+          const pickBefore = rivalOf(inputOf(base), teamKey);
+          const pickAfter = rivalOf(inputOf(credited), teamKey);
+          if (pickBefore === undefined || pickAfter === undefined) continue;
+          expect(pickAfter.floor, teamKey).toBe(pickBefore.floor + credit);
+          expect(pickAfter.floor, teamKey).toBe(floorOf(credited, teamKey));
+          expect(pickAfter.floor + pickAfter.extra, teamKey).toBe(pickBefore.floor + pickBefore.extra);
+        }
+        // No bound is higher than without the credit, for any team of the pool.
+        for (const rival of inputOf(base).pool) expect(jointLockBound(inputOf(credited), rival.teamKey), `${working} ${rival.teamKey}`).toBeLessThanOrEqual(jointLockBound(inputOf(base), rival.teamKey));
+      }
+    });
+
+    it("the credit in a floor is named per key only while that key's Playoffs are open: nothing is withheld once they read final", () => {
+      // dcmpCreditByEvent is read in one place, the pool's withheld credit, so it is read here through the pool:
+      // a rival's pool floor is below its floor by exactly its credit where it holds no alliance selection points.
+      const alliances = listedOn(1);
+      const secured = securedFor(AT_ROUND_FIVE);
+      secured.set(FOURTH, 21);
+      const open = modelAtStop(FIXTURE, FNC_LIKE_STOP, withSecured(roundFive(alliances), secured));
+      const allianceSelectionPoints = (teamKey: string): number => FIXTURE.teams.find((team) => team.teamKey === teamKey)!.eventPoints.find((row) => row.eventKey === DCMP_KEY)?.alliance ?? 0;
+      let withheld = 0;
+      for (const rival of inputOf(open).pool) {
+        const expected = allianceSelectionPoints(rival.teamKey) > 0 ? 0 : (secured.get(rival.teamKey) ?? 0);
+        expect(floorOf(open, rival.teamKey) - rival.floor, rival.teamKey).toBe(expected);
+        if (expected > 0) withheld += 1;
+      }
+      // Exactly one team of the pool: the listed fourth.
+      expect(withheld).toBe(1);
+
+      // The Playoffs final at the position: every pool floor is the team's floor.
+      const finalSecured = securedFor(AT_THE_END);
+      finalSecured.set(FOURTH, 36);
+      const finalDistributions = distributionsWith(dcmpBracketMilestonesByTeam(alliances, DECIDED), factsAt(PLAYOFFS_FINAL_STOP.get(DCMP_KEY)!, DECIDED, alliances));
+      const final = modelAtStop(FIXTURE, PLAYOFFS_FINAL_STOP, withSecured(finalDistributions, finalSecured));
+      for (const rival of inputOf(final).pool) expect(rival.floor, rival.teamKey).toBe(floorOf(final, rival.teamKey));
+    });
+
+    it("WHAT THE PROOF IS HANDED: the same championship read with and without the credit hands it the same pool, the same floor plus extra for every rival and the same everything else; only floors differ, upward", () => {
+      const secured = securedFor(AT_ROUND_FIVE);
+      const { pool: basePool, ...baseRest } = inputOf(modelAtStop(FIXTURE, FNC_LIKE_STOP, roundFive()));
+      const { pool: creditedPool, ...creditedRest } = inputOf(modelAtStop(FIXTURE, FNC_LIKE_STOP, withSecured(roundFive(), secured)));
+      expect(creditedRest).toEqual(baseRest);
+      // The same teams. The pool's ORDER follows the floors, so it is read by team.
+      expect(creditedPool.map((rival) => rival.teamKey).sort()).toEqual(basePool.map((rival) => rival.teamKey).sort());
+      const creditedByTeam = new Map(creditedPool.map((rival) => [rival.teamKey, rival] as const));
+      let higherFloors = 0;
+      basePool.forEach((before) => {
+        const after = creditedByTeam.get(before.teamKey)!;
+        expect(after.floor + after.extra, before.teamKey).toBe(before.floor + before.extra);
+        expect(after.floor, before.teamKey).toBeGreaterThanOrEqual(before.floor);
+        expect(after.listedOnly, before.teamKey).toEqual(before.listedOnly);
+        if (after.floor > before.floor) {
+          higherFloors += 1;
+          expect(after.floor - before.floor, before.teamKey).toBe(secured.get(before.teamKey));
+        }
+      });
+      expect(higherFloors).toBeGreaterThan(0);
+    });
+
+    it("THE PAID PICK RULE reads the larger of the two: at a key whose Playoffs read final, a listed pick with no alliance selection points and no playoff point on its row is on its alliance where a secured minimum is supplied for it", () => {
+      // The window after the Finals with the playoff points not on the fourth's row and no Winner listed.
+      const artifact: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...FIXTURE,
+        teams: FIXTURE.teams.map((team) => ({ ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => !(award.eventKey === DCMP_KEY && award.awardType === 1)) })),
+      });
+      const alliances = listedOn(1);
+      const distributions = distributionsWith(dcmpBracketMilestonesByTeam(alliances, DECIDED), factsAt(PLAYOFFS_FINAL_STOP.get(DCMP_KEY)!, DECIDED, alliances));
+      // WITHOUT a secured minimum for it: a listed pick that is not confirmed, and the winner's seat stays open.
+      const unconfirmed = inputOf(modelAtStop(artifact, PLAYOFFS_FINAL_STOP, distributions));
+      expect(unconfirmed.candidateWinners).toEqual([1]);
+      expect(allianceOf(unconfirmed, 1)).toEqual({ allianceNumber: 1, members: ALLIANCES[0]!.picks, spareSeats: 1 });
+      expect(rivalOf(unconfirmed, FOURTH)).toEqual({ teamKey: FOURTH, floor: 148, extra: 0 });
+      // WITH one. The fourth was on the field for one of the champion's three semifinal wins and one of its two
+      // Finals wins: 20 x 1 / 3 rounded up to 7, plus 5, is 12, times 3 is 36. It is on the winner, the seat it holds
+      // is closed, and the 36 is in its floor beside a row that still reads 0.
+      const secured = securedFor(AT_THE_END);
+      secured.set(FOURTH, 36);
+      const confirmed = inputOf(modelAtStop(artifact, PLAYOFFS_FINAL_STOP, withSecured(distributions, secured)));
+      expect(allianceOf(confirmed, 1)).toEqual({ allianceNumber: 1, members: [...ALLIANCES[0]!.picks, FOURTH], spareSeats: 0 });
+      expect(rivalOf(confirmed, FOURTH)).toEqual({ teamKey: FOURTH, floor: 184, extra: 0 });
+      // Nobody else's alliance moved, and no bound is higher than on the unconfirmed reading.
+      expect(confirmed.alliances.filter((alliance) => alliance.allianceNumber !== 1)).toEqual(unconfirmed.alliances.filter((alliance) => alliance.allianceNumber !== 1));
+      for (const rival of unconfirmed.pool) {
+        if (rivalOf(confirmed, rival.teamKey) === undefined) continue;
+        expect(jointLockBound(confirmed, rival.teamKey), rival.teamKey).toBeLessThanOrEqual(jointLockBound(unconfirmed, rival.teamKey));
+      }
+      // While the key's Playoffs are open a secured minimum confirms nobody: that reading is the listed only one above.
+      const openAlliance = allianceOf(inputOf(modelAtStop(artifact, FNC_LIKE_STOP, withSecured(roundFive(alliances), securedFor(AT_ROUND_FIVE).set(FOURTH, 21)))), 1);
+      expect(openAlliance.members).toEqual(ALLIANCES[0]!.picks);
+    });
+
+    describe("the forced flag on the committed fixture: the playoffs done on the field, then the awards flag true with no playoff point on any row, then the points landing", () => {
+      /** The fixture with every championship playoff point taken off its row: the points have not landed. */
+      const NO_PLAYOFF_POINTS: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...FIXTURE,
+        teams: FIXTURE.teams.map((team) => {
+          const paid = paidAt(FIXTURE, team.teamKey);
+          return paid === 0 ? team : { ...team, pointTotal: team.pointTotal - paid, eventPoints: team.eventPoints.map((row) => (row.eventKey === DCMP_KEY ? { ...row, elim: 0, total: row.total - paid } : row)) };
+        }),
+      });
+      const ALL_FINAL_STOP = new Map(eventKeysOf(FIXTURE).map((key) => [key, ALL_FINAL] as const));
+      const milestones = dcmpBracketMilestonesByTeam(ALLIANCES, DECIDED);
+      /** The three readings, in order, with or without the secured minimums the played rows give. */
+      function readings(credit: boolean) {
+        const secured = securedFor(AT_THE_END);
+        const dress = (distributions: ReadonlyMap<string, DistrictEventDistributions>) => (credit ? withSecured(distributions, secured) : distributions);
+        return [
+          { label: "the playoffs done on the field", model: modelAtStop(NO_PLAYOFF_POINTS, FNC_LIKE_STOP, dress(distributionsWith(milestones, factsAt(FNC_LIKE_STOP.get(DCMP_KEY)!, DECIDED)))) },
+          { label: "the awards flag true, no playoff point on any row", model: modelAtStop(NO_PLAYOFF_POINTS, ALL_FINAL_STOP, dress(distributionsWith(milestones, undefined))) },
+          { label: "the points landed", model: modelAtStop(FIXTURE, ALL_FINAL_STOP, dress(distributionsWith(milestones, undefined))) },
+        ] as const;
+      }
+      const HELD = ["locked", "lockedAward", "prequalified"];
+      function tally(credit: boolean) {
+        const steps = readings(credit);
+        const lost: string[] = [];
+        let floorsLower = 0;
+        let held = 0;
+        for (let index = 0; index + 1 < steps.length; index++) {
+          const before = steps[index]!;
+          const after = steps[index + 1]!;
+          for (const result of before.model.byTeam.values()) {
+            if (!HELD.includes(result.verdict)) continue;
+            held += 1;
+            if (!HELD.includes(after.model.byTeam.get(result.teamKey)!.verdict)) lost.push(`${result.teamKey} after ${before.label}`);
+          }
+          for (const [teamKey, floor] of before.model.floorByTeam!) if (after.model.floorByTeam!.get(teamKey)! < floor) floorsLower += 1;
+        }
+        return { lost, floorsLower, held };
+      }
+
+      it("with the credit, no team held at one of the three is not held at the next, and no floor is lower", () => {
+        const withCredit = tally(true);
+        expect(withCredit.lost).toEqual([]);
+        expect(withCredit.floorsLower).toBe(0);
+        expect(withCredit.held).toBeGreaterThan(20);
+        // The middle reading counts what the rows secured beside a row that reads 0: the champion's captain holds its 90.
+        const [, flagTrue, landed] = readings(true);
+        const CAPTAIN = ALLIANCES[0]!.picks[0]!;
+        expect(floorOf(flagTrue.model, CAPTAIN)).toBe(floorOf(landed.model, CAPTAIN));
+        expect(floorOf(readings(false)[1].model, CAPTAIN)).toBe(floorOf(landed.model, CAPTAIN) - 90);
+      });
+
+      it("THE TEST BITES: without the credit the same three readings take a Locked back when the points land (pinned as the run shows)", () => {
+        // With no secured minimum, the flag turning true on rows with no playoff point closes every Playoffs
+        // category at 0. Rivals read weaker than they are, frc3674 reads held, and it is not once the points land.
+        const without = tally(false);
+        expect(without.lost).toEqual(["frc3674 after the awards flag true, no playoff point on any row"]);
+        expect(without.floorsLower).toBe(0);
+        // Held team readings over the two edges: 31 without the credit, 32 with it.
+        expect({ without: without.held, with: tally(true).held }).toEqual({ without: 31, with: 32 });
+      });
+    });
+  });
 });
 
 /**
@@ -2797,6 +3212,124 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     }
     // Quick task 261009-tx9 leaves the single shape alone: no seat groups.
     expect(model.jointProof.input.seatGroups).toBeUndefined();
+  });
+
+  describe("the secured playoff minimum at a divisioned championship (quick task 261012-mw2)", () => {
+    /** A team no alliance picked, moved into division 1 here so division 1's alliance 1 can list it as a fourth pick: 0 alliance selection points there. */
+    const FOURTH = others[24]!;
+    const WITH_FOURTH: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => {
+        if (team.teamKey !== FOURTH) return team;
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === DIV2 ? { ...row, eventKey: DIV1 } : row);
+        return { ...team, eventPoints: team.eventPoints.map(relabel), remainingEvents: team.remainingEvents.map(relabel) };
+      }),
+    });
+    const DIV1_WITH_FOURTH = DIV1_ALLIANCES.map((alliance) => (alliance.allianceNumber === 1 ? { ...alliance, picks: [...alliance.picks, FOURTH] } : alliance));
+    /**
+     * Round 5 in division 1 with the fourth listed on its finalist alliance 1, nothing played in division 2.
+     * `secured` is division 1's map, or absent for the reading of before this task.
+     */
+    function distributionsAt(secured: ReadonlyMap<string, number> | undefined): ReadonlyMap<string, DistrictEventDistributions> {
+      const [div1Key, div1Entry] = entry(DIV1, facts(DIV1, OPEN_PLAYOFFS, DIV1_WITH_FOURTH, ROUND_FIVE, "division"), dcmpBracketMilestonesByTeam(DIV1_WITH_FOURTH, ROUND_FIVE));
+      return new Map([[div1Key, secured === undefined ? div1Entry : { ...div1Entry, securedElimByTeam: secured }] as const, entry(DIV2, facts(DIV2, OPEN_PLAYOFFS, DIV2_ALLIANCES, [], "division"))]);
+    }
+    const inputOf = (model: ReturnType<typeof modelAt>): JointLockInput => {
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "divisioned") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+      return model.jointProof.input;
+    };
+    const rivalOf = (input: JointLockInput, teamKey: string) => input.pool.find((rival) => rival.teamKey === teamKey);
+
+    it("the fixture fits: the fourth has a division 1 row with no alliance selection points and no playoff points, and no alliance of either division picked it", () => {
+      const row = WITH_FOURTH.teams.find((team) => team.teamKey === FOURTH)!.eventPoints.find((entry) => entry.eventKey === DIV1)!;
+      expect({ alliance: row.alliance, elim: row.elim }).toEqual({ alliance: 0, elim: 0 });
+      expect([...DIV1_ALLIANCES, ...DIV2_ALLIANCES].some((alliance) => alliance.picks.includes(FOURTH))).toBe(false);
+    });
+
+    it("THE WITHHELD CREDIT, per division key: a pick with no alliance selection points enters the pool with the pair it had before, a pick with them enters with the credit in its floor and out of its extra", () => {
+      // Division 1's alliance 1 is a finalist of its division after Round 5: 20 table points over three semifinal
+      // wins. Its three picks were on the field for all three: 20, times 3, is 60. The fourth was on the field for
+      // one: 20 x 1 / 3 = 6.67, rounded up to 7, times 3 is 21.
+      const secured = new Map<string, number>([...DIV1_ALLIANCES[0]!.picks.map((pick) => [pick, 60] as const), [FOURTH, 21]]);
+      const base = modelAt(WITH_FOURTH, ROUND_FIVE_STAGES, distributionsAt(undefined));
+      const credited = modelAt(WITH_FOURTH, ROUND_FIVE_STAGES, distributionsAt(secured));
+      // Outside the proof the fourth's credit is read: floor up by 21, the ceiling where it was.
+      expect(credited.floorByTeam!.get(FOURTH)).toBe(base.floorByTeam!.get(FOURTH)! + 21);
+      expect(credited.ceilingByTeam!.get(FOURTH)).toBe(base.ceilingByTeam!.get(FOURTH));
+      // The proof is handed the pair of before this task.
+      const before = rivalOf(inputOf(base), FOURTH)!;
+      const after = rivalOf(inputOf(credited), FOURTH)!;
+      expect(after).toEqual(before);
+      expect(credited.floorByTeam!.get(FOURTH)! - after.floor).toBe(21);
+      // The three picks with alliance selection points: the credit is in the pool floor and out of the extra.
+      let compared = 0;
+      for (const teamKey of DIV1_ALLIANCES[0]!.picks) {
+        expect(credited.floorByTeam!.get(teamKey), teamKey).toBe(base.floorByTeam!.get(teamKey)! + 60);
+        expect(credited.ceilingByTeam!.get(teamKey), teamKey).toBe(base.ceilingByTeam!.get(teamKey));
+        const pickBefore = rivalOf(inputOf(base), teamKey);
+        const pickAfter = rivalOf(inputOf(credited), teamKey);
+        if (pickBefore === undefined || pickAfter === undefined) continue;
+        compared += 1;
+        expect(pickAfter, teamKey).toEqual({ ...pickBefore, floor: pickBefore.floor + 60, extra: pickBefore.extra - 60 });
+        expect(pickAfter.floor, teamKey).toBe(credited.floorByTeam!.get(teamKey));
+      }
+      expect(compared).toBeGreaterThan(0);
+      // Everything else the proof is handed is what it was, and no bound is higher.
+      const { pool: basePool, ...baseRest } = inputOf(base);
+      const { pool: creditedPool, ...creditedRest } = inputOf(credited);
+      expect(creditedRest).toEqual(baseRest);
+      // The same teams. The pool's ORDER follows the floors, so it is read by team.
+      expect(creditedPool.map((rival) => rival.teamKey).sort()).toEqual(basePool.map((rival) => rival.teamKey).sort());
+      const creditedByTeam = new Map(creditedPool.map((rival) => [rival.teamKey, rival] as const));
+      for (const rival of basePool) expect(creditedByTeam.get(rival.teamKey)!.floor + creditedByTeam.get(rival.teamKey)!.extra, rival.teamKey).toBe(rival.floor + rival.extra);
+      // Every pool team, two divisioned proofs each: about five seconds under a loaded suite, so the timeout is stated.
+      const creditedInput = inputOf(credited);
+      const baseInput = inputOf(base);
+      for (const rival of basePool) expect(jointLockBound(creditedInput, rival.teamKey), rival.teamKey).toBeLessThanOrEqual(jointLockBound(baseInput, rival.teamKey));
+    }, 120_000);
+
+    it("a finals key's source never contributes: a secured minimum on it moves no floor and no ceiling, open or final, where the same on the division's source does", () => {
+      const CHAMPION_PICK = DIV1_ALLIANCES[0]!.picks[0]!;
+      const FINALS_OPEN = new Map([
+        [DIV1, PLAYOFFS_FINAL],
+        [DIV2, PLAYOFFS_FINAL],
+        [PARENT, OPEN_PLAYOFFS],
+      ]);
+      const FINALS_FINAL = new Map([
+        [DIV1, PLAYOFFS_FINAL],
+        [DIV2, PLAYOFFS_FINAL],
+        [PARENT, PLAYOFFS_FINAL],
+      ]);
+      for (const stages of [ROUND_FIVE_STAGES, FINALS_OPEN, FINALS_FINAL]) {
+        const rows = rowsAt(DIVISIONED, stages, new Map());
+        expect(rows.teams.find((team) => team.teamKey === CHAMPION_PICK)!.dcmpRow.sources.map((source) => source.eventKey).sort()).toEqual([PARENT, DIV1].sort());
+        const statusOf = (at: string | undefined) =>
+          computeChampLedgerStatuses({
+            artifact: DIVISIONED,
+            nowYear: 2026,
+            teams: rows.teams.map((team) =>
+              team.teamKey !== CHAMPION_PICK ? team : { ...team, dcmpRow: { ...team.dcmpRow, sources: team.dcmpRow.sources.map((source) => (source.eventKey === at ? { ...source, securedElim: 30 } : source)) } }
+            ),
+          });
+        const none = statusOf(undefined);
+        const atTheFinals = statusOf(PARENT);
+        expect(atTheFinals.floorByTeam!.get(CHAMPION_PICK)).toBe(none.floorByTeam!.get(CHAMPION_PICK));
+        expect(atTheFinals.ceilingByTeam!.get(CHAMPION_PICK)).toBe(none.ceilingByTeam!.get(CHAMPION_PICK));
+      }
+      // The control, while the division's Playoffs are open: the same 30 on the division's source is 30 more floor.
+      const rows = rowsAt(DIVISIONED, ROUND_FIVE_STAGES, new Map());
+      const floorWith = (securedElim: number | undefined): number =>
+        computeChampLedgerStatuses({
+          artifact: DIVISIONED,
+          nowYear: 2026,
+          teams: rows.teams.map((team) =>
+            team.teamKey !== CHAMPION_PICK || securedElim === undefined
+              ? team
+              : { ...team, dcmpRow: { ...team.dcmpRow, sources: team.dcmpRow.sources.map((source) => (source.eventKey === DIV1 ? { ...source, securedElim } : source)) } }
+          ),
+        }).floorByTeam!.get(CHAMPION_PICK)!;
+      expect(floorWith(30)).toBe(floorWith(undefined) + 30);
+    });
   });
 });
 

@@ -36,11 +36,45 @@
  * shown lock was taken back.
  *
  * Why it is sound. `PLAYOFF_POOL` is an upper bound on ALL the playoff points
- * an event hands out (the measured maximum, `pointPool.ts`). The total is
- * what has been handed out plus what remains, so what remains is at most the
- * pool minus what has been handed out. Points handed to teams outside the
+ * an event hands out. Since quick task 261013-lve it is PROVEN and no longer a
+ * measured maximum: it is the most TBA's playoff pay rule can pay all robots
+ * of one eight alliance event together, 216 (`pointPool.ts` carries the
+ * derivation; the highest total ever handed out is 212, and the pool this
+ * replaced was 213). Proven for the seasons with a declared pay rule, 2023
+ * on; for the seasons before, 216 is a measured margin over the 210 none of
+ * their events passed. The total is what has been handed out plus what
+ * remains, so what remains is at most the pool minus what has been handed
+ * out. The same holds for a secured minimum of a team still in the bracket
+ * (quick task 261012-mw2): it is a lower bound on what that team is finally
+ * paid, so the pool less everything the floors hold is still at least what
+ * the event can add above those floors. Points handed to teams outside the
  * district are not known and are not subtracted, which only leaves the pool
  * larger: the conservative side.
+ *
+ * THE BOUND IN A FEW LINES (the whole derivation and what it rests on are in
+ * `pointPool.ts`). An alliance's playoff points are shared among its robots
+ * by the wins each was on the field for, each share rounded UP, three robots
+ * credited a win. With three robots nothing is rounded and an event pays the
+ * placement table times three, 210. A fourth robot leaves part shares: at
+ * most 62 for a finalist's 20 (20 + 14 + 14 + 14), 40 for third place's 13
+ * and 22 for fourth place's 7, and the champion's two Finals wins pay 30
+ * more. Since 2024 that is 92 + 62 + 40 + 22 = 216; in 2023 it was 214. The
+ * pool is the larger, for every season.
+ *
+ * HELD BY: `pointPool.test.ts` ("PLAYOFF_POOL", "the most the pay rule can
+ * pay all robots of one event" and "the most the pay rule can pay against a
+ * search that shares no code with its derivation": every bracket and every
+ * lineup of a roster of four, asked only of the pay rule's own function),
+ * and on the corpus `scripts/securedPlayoffCorpus.test.ts` ("the playoff
+ * pool's bound and what it rests on") and
+ * `pointPool.reconciliation.test.ts`.
+ *
+ * WHICH POOLS ARE STILL MEASURED. The selection pool is proven too (the
+ * formula summed over eight alliances). The AWARD pool is a measured maximum
+ * by attending rookie count and cannot be proven from a rule, because an
+ * event chooses which awards it gives. The QUALIFICATION pool is the
+ * manual's formula at a field three teams larger than the artifact shows,
+ * and the three is measured. Neither is netted here.
  *
  * Why no lock is taken back. In the pooled test each rival's cost falls by at
  * most the points it banked, and the pool falls by the sum of everything

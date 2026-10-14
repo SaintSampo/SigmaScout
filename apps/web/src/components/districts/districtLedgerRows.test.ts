@@ -43,11 +43,17 @@ import {
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
   liveStageByEvent,
+  openPlayoffBounds,
   playedBracketMatchesFor,
   pointMassDistribution,
+  rowCountedPoints,
+  securedBeyondPosted,
+  securedElimByTeamFor,
+  securedElimEntry,
   settledElimBounds,
   settledPlayoffPoints,
   teamNotPickedAtPosition,
+  type BracketSourceEvent,
   type DistrictEventDistributions,
   type DistrictPointDistribution,
   type DistrictStageFinality,
@@ -2811,6 +2817,443 @@ describe("the live stage: a row's category is final only once its points are in 
         }
       }
       expect(checked).toBeGreaterThan(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The secured playoff minimum on the rows (quick task 261012-mw2)
+// ---------------------------------------------------------------------------
+
+describe("the secured playoff minimum on the rows (quick task 261012-mw2)", () => {
+  // EVERY EXPECTED CREDIT BELOW IS WORKED BY HAND from TBA's pay rule as
+  // `packages/core/districts/securedPlayoffPoints.ts` states it for 2024 on:
+  // an alliance's table points (sf7 and sf8 pay 13, sf9, sf10, sf11 and sf13
+  // pay 7, sf12 pays 6, sf1 to sf6 pay 0) times the semifinal wins the robot
+  // was on the field for, over the semifinal wins of its alliance, rounded up,
+  // and then times the tier weight (1 at a district event, 3 at a championship).
+  const EVENT = "2026wasec";
+  const picksOf = (allianceNumber: number): string[] => [`frc${String(allianceNumber)}01`, `frc${String(allianceNumber)}02`, `frc${String(allianceNumber)}03`];
+  /** Eight alliances of three. Alliance 1 also lists a fourth pick, frc104: the listed backup of the sat out test. */
+  const ALLIANCES = Array.from({ length: 8 }, (_unused, i) => ({ allianceNumber: i + 1, picks: i === 0 ? [...picksOf(1), "frc104"] : picksOf(i + 1) }));
+  type SourceMatch = BracketSourceEvent["matches"][number];
+
+  function playoffRow(
+    setNumber: number,
+    red: readonly string[],
+    blue: readonly string[],
+    actualWinner: "red" | "blue" | "tie" | undefined,
+    options: { readonly compLevel?: string; readonly matchNumber?: number } = {}
+  ): SourceMatch {
+    const compLevel = options.compLevel ?? "sf";
+    const matchNumber = options.matchNumber ?? 1;
+    return {
+      matchKey: `${EVENT}_${compLevel}${String(setNumber)}m${String(matchNumber)}`,
+      compLevel,
+      setNumber,
+      matchNumber,
+      redTeams: [...red],
+      blueTeams: [...blue],
+      ...(actualWinner === undefined ? {} : { actualWinner }),
+    };
+  }
+  /** `null` publishes no alliance list at all (an explicit `undefined` would fall back to the default). */
+  const eventOf = (matches: readonly SourceMatch[], alliances: NonNullable<BracketSourceEvent["alliances"]> | null = ALLIANCES): BracketSourceEvent => ({ ...(alliances === null ? {} : { alliances }), matches });
+
+  // Round 1, red winning every set: 1 beats 8, 4 beats 5, 2 beats 7, 3 beats 6.
+  const ROUND_ONE: readonly SourceMatch[] = [
+    playoffRow(1, picksOf(1), picksOf(8), "red"),
+    playoffRow(2, picksOf(4), picksOf(5), "red"),
+    playoffRow(3, picksOf(2), picksOf(7), "red"),
+    playoffRow(4, picksOf(3), picksOf(6), "red"),
+  ];
+  // The lower half of Round 2: sf5 is the losers of sf1 and sf2 (8 against 5), sf6 the losers of sf3 and sf4 (7 against 6).
+  const LOWER_ROUND_TWO: readonly SourceMatch[] = [playoffRow(5, picksOf(8), picksOf(5), "blue"), playoffRow(6, picksOf(7), picksOf(6), "blue")];
+  // sf7 is the winners of sf1 and sf2: alliance 1 against alliance 4.
+  const UPPER_SEVEN = playoffRow(7, picksOf(1), picksOf(4), "red");
+  const THROUGH_SEVEN: readonly SourceMatch[] = [...ROUND_ONE, ...LOWER_ROUND_TWO, UPPER_SEVEN];
+  const asObject = (map: ReadonlyMap<string, number>): Record<string, number> => Object.fromEntries([...map].sort(([a], [b]) => a.localeCompare(b)));
+
+  describe("openPlayoffBounds, the one rule of an open Playoffs category", () => {
+    const WHOLE = 30;
+    it("reads an exact settled value as the larger of it and the secured minimum, with no ceiling", () => {
+      const exact = { points: 21, exact: true, ceiling: 0 };
+      expect(openPlayoffBounds({ settledElim: exact }, WHOLE)).toEqual({ floor: 21, ceiling: 0 });
+      expect(openPlayoffBounds({ settledElim: exact, securedElim: 13 }, WHOLE)).toEqual({ floor: 21, ceiling: 0 });
+      expect(openPlayoffBounds({ settledElim: exact, securedElim: 21 }, WHOLE)).toEqual({ floor: 21, ceiling: 0 });
+      // THE LARGER OF THE TWO: a secured minimum above the number counts, and still nothing is left open.
+      expect(openPlayoffBounds({ settledElim: exact, securedElim: 39 }, WHOLE)).toEqual({ floor: 39, ceiling: 0 });
+      // With no secured minimum it is the settled rule of before this task.
+      expect(openPlayoffBounds({ settledElim: exact }, WHOLE)).toEqual(settledElimBounds(exact));
+    });
+
+    it("under a settled value that is not exact, reads the secured minimum and the rest of the placement's ceiling", () => {
+      // A decided second place at a district event: 20 printed, 25 the most that place can pay.
+      const second = { points: 20, exact: false, ceiling: 25 };
+      expect(openPlayoffBounds({ settledElim: second, securedElim: 20 }, WHOLE)).toEqual({ floor: 20, ceiling: 5 });
+      expect(openPlayoffBounds({ settledElim: second, securedElim: 14 }, WHOLE)).toEqual({ floor: 14, ceiling: 11 });
+      // With no secured minimum it is the settled rule of before this task: nothing in the floor.
+      expect(openPlayoffBounds({ settledElim: second }, WHOLE)).toEqual({ floor: 0, ceiling: 25 });
+      expect(openPlayoffBounds({ settledElim: second }, WHOLE)).toEqual(settledElimBounds(second));
+    });
+
+    it("with no settled value, reads the secured minimum and the rest of the whole ceiling", () => {
+      expect(openPlayoffBounds({ securedElim: 13 }, WHOLE)).toEqual({ floor: 13, ceiling: 17 });
+      expect(openPlayoffBounds({ securedElim: 20 }, WHOLE)).toEqual({ floor: 20, ceiling: 10 });
+      expect(openPlayoffBounds({ securedElim: 30 }, WHOLE)).toEqual({ floor: 30, ceiling: 0 });
+    });
+
+    it("clamps a secured minimum above the most to the most, and reads none, zero or a negative one as floor 0", () => {
+      expect(openPlayoffBounds({ securedElim: 45 }, WHOLE)).toEqual({ floor: 30, ceiling: 0 });
+      // Above a decided placement's ceiling: clamped to that ceiling, never to the whole one.
+      expect(openPlayoffBounds({ settledElim: { points: 13, exact: false, ceiling: 13 }, securedElim: 20 }, WHOLE)).toEqual({ floor: 13, ceiling: 0 });
+      expect(openPlayoffBounds({}, WHOLE)).toEqual({ floor: 0, ceiling: 30 });
+      expect(openPlayoffBounds({ securedElim: undefined, settledElim: undefined }, WHOLE)).toEqual({ floor: 0, ceiling: 30 });
+      expect(openPlayoffBounds({ securedElim: 0 }, WHOLE)).toEqual({ floor: 0, ceiling: 30 });
+      expect(openPlayoffBounds({ securedElim: -4 }, WHOLE)).toEqual({ floor: 0, ceiling: 30 });
+    });
+
+    it("never moves the most: in every open case floor plus ceiling is what the category could pay before this task", () => {
+      const settledCases = [undefined, { points: 20, exact: false, ceiling: 25 }, { points: 7, exact: false, ceiling: 7 }, { points: 0, exact: false, ceiling: 0 }];
+      let checked = 0;
+      for (const settledElim of settledCases) {
+        const most = settledElim === undefined ? WHOLE : settledElim.ceiling;
+        for (const securedElim of [undefined, -3, 0, 1, 7, 13, 14, 20, 25, 30, 31, 90]) {
+          const bounds = openPlayoffBounds({ settledElim, securedElim }, WHOLE);
+          expect(bounds.floor + bounds.ceiling, `${JSON.stringify(settledElim)} with ${String(securedElim)}`).toBe(most);
+          expect(bounds.floor).toBeGreaterThanOrEqual(0);
+          expect(bounds.ceiling).toBeGreaterThanOrEqual(0);
+          checked += 1;
+        }
+      }
+      expect(checked).toBe(48);
+    });
+  });
+
+  describe("securedBeyondPosted, what a final Playoffs category counts beyond TBA's number", () => {
+    it("reads 0 where TBA's number is at or above the secured minimum", () => {
+      expect(securedBeyondPosted({ earned: { elim: 30 }, securedElim: 20 })).toBe(0);
+      expect(securedBeyondPosted({ earned: { elim: 20 }, securedElim: 20 })).toBe(0);
+    });
+    it("reads the difference where the number is lower, and the whole secured minimum where TBA has no row", () => {
+      expect(securedBeyondPosted({ earned: { elim: 7 }, securedElim: 20 })).toBe(13);
+      expect(securedBeyondPosted({ earned: { elim: 0 }, securedElim: 20 })).toBe(20);
+      expect(securedBeyondPosted({ earned: undefined, securedElim: 20 })).toBe(20);
+      expect(securedBeyondPosted({ securedElim: 20 })).toBe(20);
+    });
+    it("reads 0 where no secured minimum is supplied", () => {
+      expect(securedBeyondPosted({ earned: { elim: 20 } })).toBe(0);
+      expect(securedBeyondPosted({ earned: { elim: 0 }, securedElim: undefined })).toBe(0);
+      expect(securedBeyondPosted({})).toBe(0);
+    });
+  });
+
+  describe("securedElimByTeamFor, the tab's reader", () => {
+    it("credits nobody after Round 1, or after the lower half of Round 2: sf1 to sf6 pay nothing", () => {
+      expect(securedElimByTeamFor(eventOf(ROUND_ONE), SEASON, "district").size).toBe(0);
+      expect(securedElimByTeamFor(eventOf([...ROUND_ONE, ...LOWER_ROUND_TWO]), SEASON, "district").size).toBe(0);
+      expect(securedElimEntry(eventOf(ROUND_ONE), SEASON, "district")).toEqual({});
+    });
+
+    it("credits the three robots on the field for a sf7 win, and nobody else", () => {
+      // Alliance 1 holds 0 (sf1) plus 13 (sf7) = 13 table points over 2 semifinal wins. Each of its three robots was
+      // on the field for both: 13 x 2 / 2 = 13. Winning nothing more is its least future (20 x 2 / 3 rounds up to 14).
+      expect(asObject(securedElimByTeamFor(eventOf(THROUGH_SEVEN), SEASON, "district"))).toEqual({ frc101: 13, frc102: 13, frc103: 13 });
+      // The championship tier: the same 13, times the weight 3.
+      expect(asObject(securedElimByTeamFor(eventOf(THROUGH_SEVEN), SEASON, "dcmp"))).toEqual({ frc101: 39, frc102: 39, frc103: 39 });
+      // Alliances 5 and 6 won a set that pays 0 and alliance 4 lost sf7: none of them is in the map.
+      const entry = securedElimEntry(eventOf(THROUGH_SEVEN), SEASON, "district");
+      expect(asObject(entry.securedElimByTeam!)).toEqual({ frc101: 13, frc102: 13, frc103: 13 });
+    });
+
+    it("credits a listed robot that sat the win out with its smaller share, rounded up before the weight", () => {
+      // sf7 won with the listed fourth pick frc104 in for frc103. Alliance 1: 13 table points, 2 semifinal wins.
+      //   frc101 and frc102, both wins:      13 x 2 / 2 = 13
+      //   frc103, sf1 only, and frc104, sf7 only: 13 x 1 / 2 = 6.5, rounded up to 7
+      // The least future of a robot with one win is still 7: with a third alliance win the points are 20, and
+      // 20 x 1 / 3 = 6.67 rounds up to 7.
+      const rows = [...ROUND_ONE, ...LOWER_ROUND_TWO, playoffRow(7, ["frc101", "frc102", "frc104"], picksOf(4), "red")];
+      expect(asObject(securedElimByTeamFor(eventOf(rows), SEASON, "district"))).toEqual({ frc101: 13, frc102: 13, frc103: 7, frc104: 7 });
+      // At the championship tier the rounding comes BEFORE the weight: 7 x 3 = 21, never 6.5 x 3 = 19.5 rounded to 20.
+      expect(asObject(securedElimByTeamFor(eventOf(rows), SEASON, "dcmp"))).toEqual({ frc101: 39, frc102: 39, frc103: 21, frc104: 21 });
+    });
+
+    it("credits nobody a list does not name: a backup on no pick list keeps its whole open cell", () => {
+      // frc999 is on the field for the sf7 win and on no list. frc103 sat that win out: 13 x 1 / 2 rounds up to 7.
+      const rows = [...ROUND_ONE, ...LOWER_ROUND_TWO, playoffRow(7, ["frc101", "frc102", "frc999"], picksOf(4), "red")];
+      const secured = securedElimByTeamFor(eventOf(rows), SEASON, "district");
+      expect(asObject(secured)).toEqual({ frc101: 13, frc102: 13, frc103: 7 });
+      expect(secured.has("frc999")).toBe(false);
+    });
+
+    it("reads a tie and an unplayed row as nothing, and the replay of a tied set as the set's one decisive row", () => {
+      const tied = [...ROUND_ONE, ...LOWER_ROUND_TWO, playoffRow(7, picksOf(1), picksOf(4), "tie"), playoffRow(8, picksOf(2), picksOf(3), undefined)];
+      expect(securedElimByTeamFor(eventOf(tied), SEASON, "district").size).toBe(0);
+      const replayed = [...tied, playoffRow(7, picksOf(1), picksOf(4), "red", { matchNumber: 2 })];
+      expect(asObject(securedElimByTeamFor(eventOf(replayed), SEASON, "district"))).toEqual({ frc101: 13, frc102: 13, frc103: 13 });
+    });
+
+    it("reads nothing after the cut of onlyMatchKeys, and credits nobody where the cut leaves a row without the rows before it", () => {
+      const event = eventOf(THROUGH_SEVEN);
+      const keysOf = (rows: readonly SourceMatch[]): Set<string> => new Set(rows.map((row) => row.matchKey));
+      // The stop before sf7: the win is not read.
+      expect(securedElimByTeamFor(event, SEASON, "district", keysOf([...ROUND_ONE, ...LOWER_ROUND_TWO])).size).toBe(0);
+      expect(securedElimByTeamFor(event, SEASON, "district", new Set()).size).toBe(0);
+      // Every key: the same reading as no cut at all.
+      expect(securedElimByTeamFor(event, SEASON, "district", keysOf(THROUGH_SEVEN))).toEqual(securedElimByTeamFor(event, SEASON, "district"));
+      // sf7 inside the cut and sf1 outside it: sf7's own participants are undecided, so the whole event credits nobody.
+      expect(securedElimByTeamFor(event, SEASON, "district", keysOf(THROUGH_SEVEN.filter((row) => row.setNumber !== 1))).size).toBe(0);
+    });
+
+    it("ignores a qualification row, whatever its winner", () => {
+      const withQual = [playoffRow(12, picksOf(1), picksOf(2), "blue", { compLevel: "qm" }), ...THROUGH_SEVEN];
+      expect(securedElimByTeamFor(eventOf(withQual), SEASON, "district")).toEqual(securedElimByTeamFor(eventOf(THROUGH_SEVEN), SEASON, "district"));
+    });
+
+    it("returns an empty map, for the whole event, wherever the bracket cannot be read whole", () => {
+      const empty = (event: BracketSourceEvent, season = SEASON, label = ""): void => {
+        expect(securedElimByTeamFor(event, season, "district").size, label).toBe(0);
+        expect(securedElimEntry(event, season, "district"), label).toEqual({});
+      };
+      // The control: the same rows with the eight alliances as published credit alliance 1.
+      expect(securedElimByTeamFor(eventOf(THROUGH_SEVEN), SEASON, "district").size).toBe(3);
+      empty(eventOf(THROUGH_SEVEN, null), SEASON, "no published alliances");
+      empty(eventOf(THROUGH_SEVEN, ALLIANCES.slice(0, 7)), SEASON, "seven alliances");
+      empty(eventOf(THROUGH_SEVEN, ALLIANCES.map((alliance) => (alliance.allianceNumber === 8 ? { ...alliance, picks: alliance.picks.slice(0, 2) } : alliance))), SEASON, "an alliance of two picks");
+      empty(eventOf(THROUGH_SEVEN, ALLIANCES.map((alliance) => (alliance.allianceNumber === 8 ? { ...alliance, picks: [...alliance.picks, "frc101"] } : alliance))), SEASON, "a team on two lists");
+      // sf8 decided with a side no list names: alliance 1's credit does not stand beside a row the tab cannot map.
+      empty(eventOf([...THROUGH_SEVEN, playoffRow(8, ["frc901", "frc902", "frc903"], picksOf(3), "blue")]), SEASON, "a decisive row with a side on no alliance");
+      // sf8 decided with a side that spans alliances 2 and 3.
+      empty(eventOf([...THROUGH_SEVEN, playoffRow(8, ["frc201", "frc202", "frc301"], picksOf(3), "red")]), SEASON, "a decisive row with a side on two alliances");
+      // Both sides of a decisive row on ONE alliance.
+      empty(eventOf([...THROUGH_SEVEN, playoffRow(8, ["frc201", "frc202"], ["frc203"], "red")]), SEASON, "a decisive row whose two sides are one alliance");
+      empty(eventOf(THROUGH_SEVEN), 2022, "a season with no declared pay rule");
+      empty(eventOf(THROUGH_SEVEN), 2027, "a season not registered yet");
+    });
+  });
+
+  describe("the row, its Playoffs cell and the header", () => {
+    const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+    const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+    /** The playoffs under way on the field at Now: alliances picked, nothing later. */
+    const UNDER_WAY = state({ alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+
+    function elimDistribution(): DistrictPointDistribution {
+      const counts = new Float64Array(maxEventPoints(SEASON, "district").elim + 1);
+      counts[13] = 60;
+      counts[20] = 30;
+      counts[30] = 10;
+      return { counts, denominator: 100 };
+    }
+
+    interface BuiltOptions {
+      /** The artifact's own playoff and award points on the row. Qualification is 18 and Alliance selection 9 throughout. */
+      readonly elim: number;
+      readonly award?: number;
+      readonly rowState?: DistrictEventState;
+      /** The stage at a REWOUND position, or absent for Now. */
+      readonly stage?: DistrictStageFinality;
+      /** frc1's value in `securedElimByTeam`, or absent for an entry with no such map at all. */
+      readonly secured?: number;
+      readonly milestone?: AllianceBracketMilestone;
+      readonly extra?: Partial<DistrictEventDistributions>;
+    }
+
+    function built(options: BuiltOptions) {
+      const award = options.award ?? 5;
+      const total = 18 + 9 + options.elim + award;
+      const artifact = artifactOf([
+        team({
+          teamKey: "frc1",
+          pointTotal: total,
+          eventPoints: [eventPoints({ eventKey: EVENT, qual: 18, alliance: 9, elim: options.elim, award, total, state: options.rowState ?? state() })],
+          awardProfile: { bucket: "none", rookie: false },
+        }),
+      ]);
+      const record = { qual: undefined, alliance: undefined, elim: elimDistribution(), award: undefined, eventTotal: undefined, grandTotal: undefined };
+      const entry: DistrictEventDistributions = {
+        eventKey: EVENT,
+        byTeam: new Map([["frc1", record]]),
+        ...(options.milestone === undefined ? {} : { playoffMilestoneByTeam: new Map([["frc1", options.milestone]]) }),
+        ...(options.secured === undefined ? {} : { securedElimByTeam: new Map([["frc1", options.secured]]) }),
+        ...options.extra,
+      };
+      const rows = buildDistrictLedgerRows({
+        artifact,
+        distributions: new Map([[EVENT, entry]]),
+        ...(options.stage === undefined ? {} : { stageByEvent: new Map([[EVENT, options.stage]]) }),
+      });
+      const ledgerTeam = rows.teams[0]!;
+      const row = ledgerTeam.rows[0]!;
+      return { team: ledgerTeam, row, elimCell: row.cells[2]! };
+    }
+
+    it("a row carries securedElim wherever one is supplied, open or final, and its open Playoffs cell carries securedAtLeast", () => {
+      const open = built({ elim: 20, stage: OPEN_PLAYOFFS, secured: 13 });
+      expect(open.row.securedElim).toBe(13);
+      expect(open.elimCell.kind).toBe("open");
+      if (open.elimCell.kind !== "open") throw new Error("unreachable");
+      expect(open.elimCell.cell).toBe("elim");
+      expect(open.elimCell.securedAtLeast).toBe(13);
+      // No other cell of the row carries it.
+      for (const cell of open.row.cells) if (cell.cell !== "elim") expect("securedAtLeast" in cell, cell.cell).toBe(false);
+
+      // FINAL at a rewound stop and FINAL at Now: the row still carries it, and the grey cell prints TBA's number alone.
+      for (const final of [built({ elim: 20, stage: ALL_FINAL, secured: 13 }), built({ elim: 20, secured: 13 })]) {
+        expect(final.row.stage.final.elim).toBe(true);
+        expect(final.row.securedElim).toBe(13);
+        expect(final.elimCell).toEqual({ id: districtCellId(EVENT, "elim"), cell: "elim", kind: "final", earned: 20 });
+        expect("securedAtLeast" in final.elimCell).toBe(false);
+      }
+    });
+
+    it("a team priced from awards alone never carries one, and its header does not move", () => {
+      const awardOnly = { awardOnlyTeams: new Set(["frc1"]) };
+      const without = built({ elim: 0, stage: OPEN_PLAYOFFS, extra: awardOnly });
+      const supplied = built({ elim: 0, stage: OPEN_PLAYOFFS, secured: 13, extra: awardOnly });
+      expect("securedElim" in supplied.row).toBe(false);
+      expect(JSON.stringify(supplied.row)).not.toContain("securedAtLeast");
+      expect(supplied.team).toEqual(without.team);
+      // Qualification 18 and Alliance selection 9 are final at the stop, and nothing of the Playoffs is counted.
+      expect(supplied.team.earnedAtPosition).toBe(27);
+    });
+
+    it("a grey Playoffs cell never carries securedAtLeast: a knocked out team's cell is what it was", () => {
+      // Third place decided on the field with the playoffs still open at Now: 13 printed behind up to, not exact.
+      const without = built({ elim: 0, award: 0, rowState: UNDER_WAY, milestone: { kind: "decided", placement: 3 } });
+      const supplied = built({ elim: 0, award: 0, rowState: UNDER_WAY, milestone: { kind: "decided", placement: 3 }, secured: 13 });
+      expect(supplied.row.settledElim).toEqual({ points: 13, exact: false, ceiling: 13 });
+      expect(supplied.elimCell).toEqual({ id: districtCellId(EVENT, "elim"), cell: "elim", kind: "final", earned: 13, upTo: true });
+      expect(supplied.elimCell).toEqual(without.elimCell);
+      expect("securedAtLeast" in supplied.elimCell).toBe(false);
+      expect(supplied.row.securedElim).toBe(13);
+    });
+
+    it("a not picked cell never carries securedAtLeast", () => {
+      const slot = (draws: number): DistrictSelectionRouteObservation => ({ draws, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 0, possibleMaxPoints: 16 });
+      const nobodyTookIt: DistrictSelectionRoutes = { bySlot: [slot(0), slot(0), slot(0), slot(0)], notSelectedDraws: 1000 };
+      const notPicked = { selectionRoutesByTeam: new Map([["frc1", nobodyTookIt]]), rankingFixed: true };
+      const supplied = built({ elim: 0, stage: OPEN_PLAYOFFS, secured: 13, extra: notPicked });
+      expect(supplied.elimCell.kind).toBe("open");
+      if (supplied.elimCell.kind !== "open") throw new Error("unreachable");
+      expect(supplied.elimCell.notPicked).toBe(true);
+      expect("securedAtLeast" in supplied.elimCell).toBe(false);
+      // The reader never credits a team no list names (the reader's own tests above), so this pairing is built by hand.
+    });
+
+    it("the header at a REWOUND stop is the final categories plus the Playoffs bound's floor", () => {
+      // Qualification 18 and Alliance selection 9 are final at the stop: 27. The row's own 20 and 5 landed later.
+      expect(built({ elim: 20, stage: OPEN_PLAYOFFS }).team.earnedAtPosition).toBe(27);
+      // With 13 secured the floor of the open category is 13: 27 + 13.
+      expect(built({ elim: 20, stage: OPEN_PLAYOFFS, secured: 13 }).team.earnedAtPosition).toBe(40);
+      // A finalist in the Finals row with 20 secured: 27 + 20.
+      expect(built({ elim: 20, stage: OPEN_PLAYOFFS, secured: 20, milestone: { kind: "finals" } }).team.earnedAtPosition).toBe(47);
+    });
+
+    it("a knocked out team's exact settled value is in the header, as the larger of it and the secured minimum", () => {
+      // Third place decided at a stop over a finished event: the settled value is TBA's own 13, exact.
+      const third = { kind: "decided", placement: 3 } as const;
+      const settled = built({ elim: 13, stage: OPEN_PLAYOFFS, milestone: third });
+      expect(settled.row.settledElim).toEqual({ points: 13, exact: true, ceiling: 0 });
+      // 27 + 13. Before this task the header left the 13 out and read 27 while the lock math counted 40.
+      expect(settled.team.earnedAtPosition).toBe(40);
+      // A secured minimum at or below TBA's number changes nothing.
+      expect(built({ elim: 13, stage: OPEN_PLAYOFFS, milestone: third, secured: 13 }).team.earnedAtPosition).toBe(40);
+      expect(built({ elim: 13, stage: OPEN_PLAYOFFS, milestone: third, secured: 7 }).team.earnedAtPosition).toBe(40);
+      // THE LARGER OF THE TWO: a robot that sat a win out was paid 7 of its alliance's 13 while the rows say 13 is
+      // secured. No such pair is in the corpus; the rule is that the larger one is counted: 27 + 13.
+      const satOut = built({ elim: 7, stage: OPEN_PLAYOFFS, milestone: third, secured: 13 });
+      expect(satOut.row.settledElim).toEqual({ points: 7, exact: true, ceiling: 0 });
+      expect(satOut.team.earnedAtPosition).toBe(40);
+    });
+
+    it("under a settled value that is not exact the header counts the secured minimum and nothing of the placement table", () => {
+      // Second place decided on the field, the playoff points not in: 20 printed behind up to, 25 the most.
+      const second = { kind: "decided", placement: 2 } as const;
+      const without = built({ elim: 0, award: 0, rowState: UNDER_WAY, stage: OPEN_PLAYOFFS, milestone: second });
+      expect(without.row.settledElim).toEqual({ points: 20, exact: false, ceiling: 25 });
+      expect(without.team.earnedAtPosition).toBe(27);
+      // 20 secured from the rows: 27 + 20.
+      expect(built({ elim: 0, award: 0, rowState: UNDER_WAY, stage: OPEN_PLAYOFFS, milestone: second, secured: 20 }).team.earnedAtPosition).toBe(47);
+      // A robot that sat one of three wins out has 14 secured (20 x 2 / 3 rounded up): 27 + 14.
+      expect(built({ elim: 0, award: 0, rowState: UNDER_WAY, stage: OPEN_PLAYOFFS, milestone: second, secured: 14 }).team.earnedAtPosition).toBe(41);
+    });
+
+    it("at NOW with the category open the header adds only what the floor counts beyond the number TBA has posted", () => {
+      // Nothing posted for the playoffs yet: the published total is 27, and 13 is secured. 27 + 13.
+      expect(built({ elim: 0, award: 0, rowState: UNDER_WAY, secured: 13 }).team.earnedAtPosition).toBe(40);
+      expect(built({ elim: 0, award: 0, rowState: UNDER_WAY }).team.earnedAtPosition).toBe(27);
+      // TBA has posted an interim 7 (published total 34) and 13 is secured: 34 + (13 - 7), the same points never twice.
+      expect(built({ elim: 7, award: 0, rowState: UNDER_WAY, secured: 13 }).team.earnedAtPosition).toBe(40);
+      // TBA has posted 20, above the 13 secured: the published total 47 alone. The header never falls below it.
+      expect(built({ elim: 20, award: 0, rowState: UNDER_WAY, secured: 13 }).team.earnedAtPosition).toBe(47);
+    });
+
+    it("with the category FINAL the header adds only what the secured minimum holds beyond TBA's number, at Now and rewound alike", () => {
+      for (const stage of [ALL_FINAL, undefined]) {
+        const at = stage === undefined ? "Now" : "rewound";
+        // TBA's 20 is at or above the 13 secured: the row's own total, 18 + 9 + 20 + 5.
+        expect(built({ elim: 20, ...(stage === undefined ? {} : { stage }), secured: 13 }).team.earnedAtPosition, at).toBe(52);
+        expect(built({ elim: 20, ...(stage === undefined ? {} : { stage }) }).team.earnedAtPosition, at).toBe(52);
+        // A number that reads final and is older than the rows: 7 posted, 13 secured. 18 + 9 + 7 + 5 = 39, plus 6.
+        expect(built({ elim: 7, ...(stage === undefined ? {} : { stage }), secured: 13 }).team.earnedAtPosition, at).toBe(45);
+        expect(built({ elim: 7, ...(stage === undefined ? {} : { stage }) }).team.earnedAtPosition, at).toBe(39);
+      }
+    });
+
+    it("rowCountedPoints is the final categories plus the Playoffs floor, and equals the header wherever the header is the floor", () => {
+      // Open and rewound: 18 + 9 final, and the bound's floor.
+      const open = built({ elim: 20, stage: OPEN_PLAYOFFS, secured: 13 });
+      expect(rowCountedPoints(open.row)).toBe(40);
+      expect(rowCountedPoints(open.row)).toBe(open.team.earnedAtPosition);
+      expect(rowCountedPoints(built({ elim: 20, stage: OPEN_PLAYOFFS }).row)).toBe(27);
+      // Open with an exact settled value: the larger of it and the secured minimum.
+      const settled = built({ elim: 13, stage: OPEN_PLAYOFFS, milestone: { kind: "decided", placement: 3 } });
+      expect(rowCountedPoints(settled.row)).toBe(40);
+      expect(rowCountedPoints(settled.row)).toBe(settled.team.earnedAtPosition);
+      // Open with a settled value that is not exact: the secured minimum alone.
+      const second = built({ elim: 0, award: 0, rowState: UNDER_WAY, stage: OPEN_PLAYOFFS, milestone: { kind: "decided", placement: 2 }, secured: 14 });
+      expect(rowCountedPoints(second.row)).toBe(41);
+      expect(rowCountedPoints(second.row)).toBe(second.team.earnedAtPosition);
+      // Final: all four categories, and what the secured minimum holds beyond TBA's number.
+      for (const stage of [ALL_FINAL, undefined]) {
+        const exact = built({ elim: 20, ...(stage === undefined ? {} : { stage }), secured: 13 });
+        expect(rowCountedPoints(exact.row)).toBe(52);
+        const older = built({ elim: 7, ...(stage === undefined ? {} : { stage }), secured: 13 });
+        expect(rowCountedPoints(older.row)).toBe(45);
+        expect(rowCountedPoints(older.row)).toBe(older.team.earnedAtPosition);
+      }
+      // A row TBA has no numbers for counts nothing beyond the Playoffs floor.
+      const noNumbers = { stage: { final: OPEN_PLAYOFFS, stateKnown: true, started: true, finished: false }, earned: undefined };
+      expect(rowCountedPoints(noNumbers)).toBe(0);
+      expect(rowCountedPoints({ ...noNumbers, securedElim: 13 })).toBe(13);
+      expect(rowCountedPoints({ ...noNumbers, stage: { ...noNumbers.stage, final: ALL_FINAL }, securedElim: 13 })).toBe(13);
+    });
+
+    it("at NOW with the category open, what a row counts is never above the header, which is the published total there", () => {
+      // TBA has posted 20 with 13 secured: the header is the published 47 and the lock math counts 18 + 9 + 13.
+      const posted = built({ elim: 20, award: 0, rowState: UNDER_WAY, secured: 13 });
+      expect(posted.row.stage.final).toEqual({ qual: true, alliance: true, elim: false, award: false });
+      expect(rowCountedPoints(posted.row)).toBe(40);
+      expect(posted.team.earnedAtPosition).toBe(47);
+    });
+
+    it("with no secured minimum supplied a row and its cells deep equal what they were", () => {
+      for (const options of [
+        { elim: 20, stage: OPEN_PLAYOFFS },
+        { elim: 20, stage: ALL_FINAL },
+        { elim: 20 },
+        { elim: 0, award: 0, rowState: UNDER_WAY },
+        { elim: 20, stage: OPEN_PLAYOFFS, milestone: { kind: "finals" } as const },
+      ] satisfies BuiltOptions[]) {
+        const without = built(options);
+        expect(JSON.stringify(without.team)).not.toContain("secured");
+        // A map that holds nothing for the team, a zero and a negative value are all no credit.
+        expect(built({ ...options, extra: { securedElimByTeam: new Map() } }).team).toEqual(without.team);
+        expect(built({ ...options, extra: { securedElimByTeam: new Map([["frc2", 13]]) } }).team).toEqual(without.team);
+        expect(built({ ...options, secured: 0 }).team).toEqual(without.team);
+        expect(built({ ...options, secured: -5 }).team).toEqual(without.team);
+      }
     });
   });
 });

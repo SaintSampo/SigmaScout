@@ -48,7 +48,14 @@ const SKIP_MESSAGE = `skipped: ${CORPUS_PATH} not found -- run the ingest pipeli
  * hiding behind an inequality.
  */
 const MEASURED_DISTRICT_TIER_EVENTS = 951;
-/** The highest award, selection and playoff totals ever handed out at one district event. */
+/**
+ * The highest award, selection and playoff totals ever handed out at one district event.
+ *
+ * THE PLAYOFF POOL IS NOT THE THIRD OF THESE PLUS A MARGIN ANY MORE. Since quick task 261013-lve it is the most TBA's
+ * playoff pay rule can pay one event, 216, proven (`pointPool.ts`). The 212 stays here as what has been SEEN, so a
+ * higher total shows in a failure message. A total of 213 to 216 would be a pin to read again and not a broken
+ * pool; a total above 216 would be a broken pool.
+ */
 const MEASURED_MAX_AWARD_TOTAL = 91;
 const MEASURED_MAX_SELECTION_TOTAL = 236;
 const MEASURED_MAX_PLAYOFF_TOTAL = 212;
@@ -147,6 +154,15 @@ if (!CORPUS_AVAILABLE) {
       const over = events.filter(([, totals]) => totals.elim > PLAYOFF_POOL).map(([key, totals]) => `${key}: ${String(totals.elim)}`);
       expect(over).toEqual([]);
       expect(Math.max(...events.map(([, totals]) => totals.elim))).toBe(MEASURED_MAX_PLAYOFF_TOTAL);
+      // The pool is proven from the pay rule (quick task 261013-lve), so it is above anything seen.
+      expect(PLAYOFF_POOL).toBeGreaterThan(MEASURED_MAX_PLAYOFF_TOTAL);
+      // The totals by value, for the record. 210 is the placement table times three; every point above it is a
+      // share rounded up for an alliance that fielded a fourth robot.
+      const byValue = new Map<number, number>();
+      for (const [, totals] of events) if (totals.elim >= 210) byValue.set(totals.elim, (byValue.get(totals.elim) ?? 0) + 1);
+      console.log(
+        `[playoff totals handed out, district tier, every season] events ${String(events.length)}, pool ${String(PLAYOFF_POOL)}, events by total at 210 and above ${JSON.stringify(Object.fromEntries([...byValue].sort(([a], [b]) => a - b)))}, below 210 ${String(events.filter(([, totals]) => totals.elim < 210).length)}`
+      );
     });
 
     it("never hands out more AWARD points than awardPool declares for its attending rookie count", () => {

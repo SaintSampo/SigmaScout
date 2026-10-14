@@ -13,6 +13,22 @@
  * readings. If the implementation ever differs, check the inputs first (floors
  * at Round 5, C 6, K 14, one award per team, placement values 75, 39 and 21,
  * alive alliances 1 and 2) and never change the proof to meet a pin.
+ *
+ * QUICK TASK 261012-mw2 (a team still in the bracket is credited the playoff
+ * points it has secured) moved two pins, to the values the run showed and
+ * never fitted. FNC Round 5: the locked set gains frc4561 (the team Jacob
+ * asked about, a finalist with 60 secured), five teams become six, and the
+ * bounds of the four finalists' robots pinned here read 11 (frc9496 and
+ * frc9032 were 12, frc4795 14, frc4561 16). California Round 5: 15 Locked
+ * become 17, frc7415 and frc3128 join. No team left a set and no other pin
+ * of this file moved.
+ *
+ * THE FNC ROWS NOW CARRY WHO WAS ON THE FIELD. The credit is read from each
+ * winning side's three robots, so a row that fields an alliance's first
+ * three picks where a backup played would credit a robot for a win it sat
+ * out. `FNC_FIELDED` names the seven sides a backup played on, from the
+ * corpus, and a corpus gated test below holds every row written here equal
+ * to the corpus row.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -20,7 +36,7 @@ import { DistrictArtifactSchema, type DistrictArtifact } from "../packages/harne
 import { jointLockBound } from "../packages/core/districts/champJointLock.js";
 import type { BracketSourceEvent } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
-import { bracketsFromCorpus, championshipStops, CORPUS_PATH, dcmpStops, statusesAtChampionshipStop, statusesAtStop } from "./measureChampJointLocks.js";
+import { bracketFromCorpus, bracketsFromCorpus, championshipStops, CORPUS_PATH, dcmpStops, statusesAtChampionshipStop, statusesAtStop, sweepJoint } from "./measureChampJointLocks.js";
 
 const FNC_PATH = "data/local-publish/districts/v1__district__2026fnc.json";
 const FNC_AVAILABLE = existsSync(FNC_PATH);
@@ -56,8 +72,25 @@ const FNC_ROWS: readonly (readonly [string, number, number, "red" | "blue"])[] =
   ["f1m2", 2, 1, "red"],
 ];
 
+/**
+ * THE SIDES A BACKUP PLAYED ON (quick task 261012-mw2), by match key suffix and alliance number, from the corpus.
+ * Every other side fielded its alliance's first three picks. frc6004 played for alliance 1 from sf7 to the first
+ * Finals match and frc8205 came back for the second; frc6639 played alliance 2's sf11 in frc7763's place (TBA paid
+ * frc7763 72 of the champion's 90 for it, and frc6639 21); frc11179 played alliance 5's sf5 in frc3229's place.
+ */
+const FNC_FIELDED: Readonly<Record<string, Readonly<Record<number, readonly string[]>>>> = {
+  sf5m1: { 5: ["frc8738", "frc11179", "frc4828"] },
+  sf7m1: { 1: ["frc9032", "frc6004", "frc9496"] },
+  sf9m1: { 1: ["frc9032", "frc6004", "frc9496"] },
+  sf11m1: { 2: ["frc6639", "frc4795", "frc4561"] },
+  sf12m1: { 1: ["frc9032", "frc6004", "frc9496"] },
+  sf13m1: { 1: ["frc9032", "frc6004", "frc9496"] },
+  f1m1: { 1: ["frc9032", "frc6004", "frc9496"] },
+};
+
 function fncBracket(): BracketSourceEvent {
   const firstThree = (allianceNumber: number): string[] => FNC_ALLIANCES[allianceNumber - 1]!.picks.slice(0, 3);
+  const fielded = (suffix: string, allianceNumber: number): string[] => [...(FNC_FIELDED[suffix]?.[allianceNumber] ?? firstThree(allianceNumber))];
   return {
     alliances: FNC_ALLIANCES,
     matches: FNC_ROWS.map(([suffix, red, blue, winner]) => {
@@ -67,8 +100,8 @@ function fncBracket(): BracketSourceEvent {
         compLevel: parsed[1]!,
         setNumber: Number(parsed[2]),
         matchNumber: Number(parsed[3]),
-        redTeams: firstThree(red),
-        blueTeams: firstThree(blue),
+        redTeams: fielded(suffix, red),
+        blueTeams: fielded(suffix, blue),
         actualWinner: winner,
       };
     }),
@@ -103,7 +136,11 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
     ]);
   });
 
-  it("Round 5: 15 points slots, and the joint proof locks exactly frc2724, frc9496, frc9032, frc4795 and frc3506", () => {
+  // QUICK TASK 261012-mw2: frc4561 joins. It is a finalist on alliance 2 and has secured 60, so its floor reads 292
+  // where it read 232, and 11 rivals at most can finish ahead of it where 16 could. Before this task the set was
+  // frc2724, frc3506, frc4795, frc9032 and frc9496, and the bounds of frc9496, frc9032, frc4795 and frc4561 read
+  // 12, 12, 14 and 16. The six bounds below them did not move.
+  it("Round 5: 15 points slots, and the joint proof locks exactly frc2724, frc3506, frc4561, frc4795, frc9032 and frc9496", () => {
     const model = statusesAtStop(artifact, stopNamed("Round 5"), bracket, true);
     expect(model.pointsSlots).toBe(15);
     expect(model.jointProof?.applied).toBe(true);
@@ -113,19 +150,21 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
     expect(input.consumingAwards).toBe(6);
     expect(input.judgedAwards).toBe(14);
     expect(input.aliveAlliances).toEqual([1, 2]);
-    expect([...model.jointProof.locked].sort()).toEqual(["frc2724", "frc3506", "frc4795", "frc9032", "frc9496"]);
+    expect([...model.jointProof.locked].sort()).toEqual(["frc2724", "frc3506", "frc4561", "frc4795", "frc9032", "frc9496"]);
     const jointByLockedBy = [...model.byTeam.values()].filter((result) => result.lockedBy?.includes("joint") === true).map((result) => result.teamKey).sort();
-    expect(jointByLockedBy).toEqual(["frc2724", "frc3506", "frc4795", "frc9032", "frc9496"]);
+    expect(jointByLockedBy).toEqual(["frc2724", "frc3506", "frc4561", "frc4795", "frc9032", "frc9496"]);
+    // The team Jacob asked about, 2026-10-12: Locked, by the ceiling test and by the joint proof.
+    expect({ status: model.byTeam.get("frc4561")?.status, lockedBy: model.byTeam.get("frc4561")?.lockedBy, floor: model.floorByTeam?.get("frc4561") }).toEqual({ status: "locked", lockedBy: "ceiling+joint", floor: 292 });
     const bounds = Object.fromEntries(
       ["frc2724", "frc9496", "frc9032", "frc4795", "frc3506", "frc4561", "frc8429", "frc1533", "frc7890", "frc6500"].map((teamKey) => [teamKey, jointLockBound(input, teamKey)])
     );
     expect(bounds).toEqual({
       frc2724: 12,
-      frc9496: 12,
-      frc9032: 12,
-      frc4795: 14,
+      frc9496: 11,
+      frc9032: 11,
+      frc4795: 11,
       frc3506: 14,
-      frc4561: 16,
+      frc4561: 11,
       frc8429: 17,
       frc1533: 18,
       frc7890: 18,
@@ -153,6 +192,49 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
       expect(model.jointProof.locked.has(teamKey), teamKey).toBe(false);
       expect(jointLockBound(input, teamKey), teamKey).toBe(13);
     }
+  });
+
+  it("the sweep's stop records carry the secured minimums in floors and the headers checked, and the artifact as published breaks nothing (quick task 261012-mw2)", () => {
+    const sweep = sweepJoint(artifact, bracket);
+    expect(sweep.violations).toEqual([]);
+    // Pinned as the run showed. A secured minimum is counted where the Playoffs are open at the stop and no exact
+    // settled value stands there: nobody has one before Round 2 (sf1 to sf6 pay nothing), and none is counted once
+    // the Playoffs read final. Every one of the 90 teams has its earned figure checked against its floor at every stop.
+    expect(sweep.stops.map((stop) => ({ label: stop.label, securedInFloors: stop.securedInFloors, headerChecked: stop.headerChecked }))).toEqual([
+      { label: "Alliances final", securedInFloors: 0, headerChecked: 90 },
+      { label: "Round 1", securedInFloors: 0, headerChecked: 90 },
+      { label: "Round 2", securedInFloors: 6, headerChecked: 90 },
+      { label: "Round 3", securedInFloors: 13, headerChecked: 90 },
+      { label: "Round 4", securedInFloors: 11, headerChecked: 90 },
+      { label: "Round 5", securedInFloors: 8, headerChecked: 90 },
+      { label: "Playoffs final, awards open", securedInFloors: 0, headerChecked: 90 },
+      { label: "Now", securedInFloors: 0, headerChecked: 90 },
+    ]);
+  });
+
+  it("creditAbovePaid bites: with frc4561 paid 30 on a copy of the artifact, the sweep reports its secured minimum above the payment at six stops (quick task 261012-mw2)", () => {
+    // THE COPY IS BUILT HERE, IN MEMORY: frc4561's playoff points at the championship lowered from TBA's 90 to 30,
+    // below what the rows secure it from Round 2 on. Alliance 2 held 13 table points after sf8 (39 at the
+    // championship weight), 20 after sf11 (60), and won the Finals (90). frc4561 was on the field for every win.
+    const dcmpKey = "2026nccmp";
+    const lowered: DistrictArtifact = {
+      ...artifact,
+      teams: artifact.teams.map((team) =>
+        team.teamKey !== "frc4561" ? team : { ...team, eventPoints: team.eventPoints.map((row) => (row.eventKey !== dcmpKey ? row : { ...row, elim: 30, total: row.total - row.elim + 30 })) }
+      ),
+    };
+    expect(artifact.teams.find((team) => team.teamKey === "frc4561")!.eventPoints.find((row) => row.eventKey === dcmpKey)!.elim).toBe(90);
+    const reported = sweepJoint(lowered, bracket).violations.filter((violation) => violation.kind === "creditAbovePaid");
+    expect(reported.map((violation) => ({ stop: violation.stop, teamKey: violation.teamKey, detail: violation.detail }))).toEqual([
+      { stop: "Round 2", teamKey: "frc4561", detail: "secured 39 at 2026nccmp, paid 30" },
+      { stop: "Round 3", teamKey: "frc4561", detail: "secured 39 at 2026nccmp, paid 30" },
+      { stop: "Round 4", teamKey: "frc4561", detail: "secured 60 at 2026nccmp, paid 30" },
+      { stop: "Round 5", teamKey: "frc4561", detail: "secured 60 at 2026nccmp, paid 30" },
+      { stop: "Playoffs final, awards open", teamKey: "frc4561", detail: "secured 90 at 2026nccmp, paid 30" },
+      { stop: "Now", teamKey: "frc4561", detail: "secured 90 at 2026nccmp, paid 30" },
+    ]);
+    // And nothing of the kind over the artifact as published (the test above holds every kind at none).
+    expect(sweepJoint(artifact, bracket).violations.filter((violation) => violation.kind === "creditAbovePaid")).toEqual([]);
   });
 
   it("at every stop, every joint locked team qualified at Now, frc6500 is never joint locked, and nothing is a violation", () => {
@@ -232,7 +314,9 @@ describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)"
   }
   const db = openCorpusReadOnly(CORPUS_PATH);
   const loaded = new Map<string, { artifact: DistrictArtifact; brackets: ReadonlyMap<string, BracketSourceEvent> }>();
+  let fncCorpusBracket: BracketSourceEvent | undefined;
   try {
+    fncCorpusBracket = bracketFromCorpus(db, new Map(), 2026, "2026nccmp");
     for (const district of ["fim", "ne", "ca"]) {
       const artifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(`data/local-publish/districts/v1__district__2026${district}.json`, "utf8")));
       const found = bracketsFromCorpus(db, new Map(), artifact);
@@ -242,6 +326,19 @@ describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)"
   } finally {
     db.close();
   }
+
+  it("the 2026nccmp rows written out for the FNC pins are the corpus rows: the lists, each side's three robots and the winner, match for match (quick task 261012-mw2)", () => {
+    if (fncCorpusBracket === undefined) throw new Error("no corpus bracket for 2026nccmp");
+    const shape = (bracket: BracketSourceEvent) => ({
+      alliances: (bracket.alliances ?? []).map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] })),
+      rows: bracket.matches
+        .filter((match) => match.compLevel !== "qm")
+        .map((match) => ({ matchKey: match.matchKey, red: [...match.redTeams].sort(), blue: [...match.blueTeams].sort(), winner: match.actualWinner }))
+        .sort((a, b) => a.matchKey.localeCompare(b.matchKey)),
+    });
+    expect(shape(fncBracket())).toEqual(shape(fncCorpusBracket));
+    expect(shape(fncBracket()).rows).toHaveLength(15);
+  });
 
   const pins: readonly { district: string; stop: string; slots: number; shape: string; locked: string; nearMisses: string }[] = [
     {
@@ -283,8 +380,10 @@ describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)"
       stop: "Round 5",
       slots: 46,
       shape: "multiple",
-      locked: "frc1323 frc1538 frc1678 frc254 frc294 frc3256 frc3476 frc4414 frc581 frc5940 frc6036 frc9408 frc9470 frc972 frc973",
-      nearMisses: "frc7415 frc6995 frc3128 frc971 frc599 frc687 frc8 frc604",
+      // QUICK TASK 261012-mw2: 15 Locked become 17. frc7415 and frc3128 join, each still in its championship's
+      // bracket with playoff points secured; both were on the near miss list, which keeps the six it still names.
+      locked: "frc1323 frc1538 frc1678 frc254 frc294 frc3128 frc3256 frc3476 frc4414 frc581 frc5940 frc6036 frc7415 frc9408 frc9470 frc972 frc973",
+      nearMisses: "frc6995 frc971 frc599 frc687 frc8 frc604",
     },
     {
       district: "ca",

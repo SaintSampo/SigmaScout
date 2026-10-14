@@ -208,12 +208,15 @@ function ChampCell({
   interaction,
   variant,
   pricing,
+  least,
 }: {
   cell: ChampLedgerCell;
   interaction: CellInteraction;
   variant?: "total";
   /** The DCMP row prices its cells at the dcmp tier; the District points row, a sum over events, passes none. */
   pricing?: DistrictCellPricing;
+  /** THE LEAST A TOTAL MAY PRINT (quick task 261012-mw2, `LedgerParts.tsx`'s header): a Subtotal's own row's counted points. Print only. */
+  least?: number | undefined;
 }) {
   if (cell.kind === "notInField" || cell.kind === "notYetPriced" || cell.kind === "outOfRange") {
     const dataCell = cell.kind === "notInField" ? "not-in-field" : cell.kind === "notYetPriced" ? "not-yet-priced" : "out-of-range";
@@ -229,7 +232,7 @@ function ChampCell({
       </TableCell>
     );
   }
-  return <LedgerCell cell={cell} interaction={interaction} variant={variant} pricing={pricing} />;
+  return <LedgerCell cell={cell} interaction={interaction} variant={variant} pricing={pricing} least={least} />;
 }
 
 /**
@@ -1047,6 +1050,12 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                 onToggle: (cellId) => handleCellToggle(team.teamNumber, cellId),
               };
               const status = displayStatuses.byTeam.get(team.teamKey);
+              // THE LEAST A TOTAL MAY PRINT (quick task 261012-mw2, `LedgerParts.tsx`'s
+              // header): the status model's own floor for the team, which is
+              // what the lock math counts for it. Handed to the Team cell and
+              // the grand total, which PRINT, and to nothing else; a team the
+              // model has no floor for is handed none.
+              const floor = statuses.floorByTeam?.get(team.teamKey);
               const dataRows = team.rows.map((row, rowIndex) => (
                 <TableRow
                   key={`${team.teamKey}-${row.kind}`}
@@ -1072,6 +1081,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                       }}
                       season={season}
                       algorithm={algorithm}
+                      least={floor}
                     />
                   )}
                   {rowIndex === 0 && (
@@ -1085,7 +1095,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                   )}
                   {rowIndex === 0 && (
                     <TableCell rowSpan={CHAMP_ROW_SPAN} data-testid="champ-ledger-grand-total" className="numeric-cell align-middle">
-                      <GrandTotalContent cell={team.grandTotal} interaction={interaction} />
+                      <GrandTotalContent cell={team.grandTotal} interaction={interaction} least={floor} />
                       {team.grandTotalIsDistrictOnly && (
                         <span className="district-ledger-team-meta block whitespace-nowrap" data-testid="champ-ledger-district-only">
                           {CHAMP_LEDGER_DISTRICT_ONLY_LINE}
@@ -1094,7 +1104,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                     </TableCell>
                   )}
                   <SourceCell row={row} team={team} />
-                  <ChampCell cell={row.subtotal} interaction={interaction} variant="total" />
+                  {/* Each row's Subtotal is held at what the lock math counts for that row. */}
+                  <ChampCell cell={row.subtotal} interaction={interaction} variant="total" least={row.countedAtPosition} />
                   {row.cells.map((cell) => (
                     <ChampCell
                       key={cell.id}

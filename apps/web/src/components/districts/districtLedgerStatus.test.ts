@@ -28,6 +28,7 @@ import {
   DISTRICT_CATEGORIES,
   buildDistrictLedgerRows,
   districtTierEvents,
+  rowCountedPoints,
   type DistrictEventDistributions,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
@@ -984,6 +985,290 @@ describe("a decided playoff placement settles that team's playoff points (261008
       // The live event of `knockedOutArtifact`: a placement table value, a
       // ceiling only.
       expect(modelWith(decided("a", { frc2: 5, frc3: 6 })).pooledRemainingPoints).toBe(modelWith(NO_DISTRIBUTIONS).pooledRemainingPoints);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 261012-mw2: a team still in a playoff bracket carries the playoff
+// points it has secured in its floor.
+// ---------------------------------------------------------------------------
+
+describe("the secured playoff minimum in the District Locks floors (quick task 261012-mw2)", () => {
+  // EVERY SECURED VALUE BELOW IS WORKED BY HAND from TBA's pay rule
+  // (`packages/core/districts/securedPlayoffPoints.ts`) at the district tier:
+  // an alliance that has won sf7 or sf8 holds 13 table points over two
+  // semifinal wins, so a robot on the field for both has secured 13 and a
+  // robot on the field for one has secured 13 x 1 / 2 = 6.5, rounded up to 7;
+  // a finalist's robot on the field for all three wins has secured 20.
+  /** Qualification and alliance selection done, playoffs and awards open: the event at Now, mid playoffs. */
+  const LIVE: DistrictEventState = { qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false };
+  const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+
+  function eventRow(eventKey: string, points: { qual: number; alliance: number; elim: number; award: number }, state: DistrictEventState, week = 2) {
+    const total = points.qual + points.alliance + points.elim + points.award;
+    return { eventKey, eventName: `Event ${eventKey}`, week, tier: "district" as const, ...points, total, state };
+  }
+
+  /** One event's distributions entry: the secured minimums and, where given, the decided placements. No histogram is needed. */
+  function entryOf(eventKey: string, facts: { secured?: Readonly<Record<string, number>>; placements?: Readonly<Record<string, number>> }): [string, DistrictEventDistributions] {
+    return [
+      eventKey,
+      {
+        eventKey,
+        byTeam: new Map(),
+        ...(facts.placements === undefined
+          ? {}
+          : { playoffMilestoneByTeam: new Map(Object.entries(facts.placements).map(([teamKey, placement]) => [teamKey, { kind: "decided" as const, placement }])) }),
+        ...(facts.secured === undefined ? {} : { securedElimByTeam: new Map(Object.entries(facts.secured)) }),
+      },
+    ];
+  }
+
+  function boundsFor(artifact: DistrictArtifact, entries: readonly [string, DistrictEventDistributions][], stageByEvent?: ReadonlyMap<string, DistrictStageFinality>) {
+    const rows = buildDistrictLedgerRows({ artifact, distributions: new Map(entries), ...(stageByEvent === undefined ? {} : { stageByEvent }) });
+    return districtLockBounds(artifact.teams[0]!, rows.teams.find((entry) => entry.teamKey === artifact.teams[0]!.teamKey)!.rows, CEILINGS);
+  }
+
+  describe("districtLockBounds", () => {
+    /** One team at one finished event, rewound to its playoffs: qual 20, alliance 10, and TBA's own playoff number. */
+    const finished = (elim: number): DistrictArtifact =>
+      artifactOf([team("frc1", { pointTotal: 30 + elim, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim, award: 0 }, FINISHED)] })]);
+    const REWOUND = new Map([["a", OPEN_PLAYOFFS]]);
+
+    it("reads a secured minimum of an open category as that much more floor and that much less open ceiling", () => {
+      // Before this task, and with no secured minimum: the whole Playoffs ceiling open, nothing of it in the floor.
+      const without = boundsFor(finished(20), [entryOf("a", {})], REWOUND);
+      expect(without).toEqual({ floor: 30, openCeiling: CEILINGS.elim + CEILINGS.award });
+      // 13 secured (the sf7 winner's robot, on the field for both wins).
+      const credited = boundsFor(finished(20), [entryOf("a", { secured: { frc1: 13 } })], REWOUND);
+      expect(credited).toEqual({ floor: 43, openCeiling: CEILINGS.elim - 13 + CEILINGS.award });
+      // Floor plus open ceiling is what it was: no ceiling moved.
+      expect(credited.floor + credited.openCeiling).toBe(without.floor + without.openCeiling);
+      // A finalist with 20 secured.
+      expect(boundsFor(finished(20), [entryOf("a", { secured: { frc1: 20 } })], REWOUND)).toEqual({ floor: 50, openCeiling: CEILINGS.elim - 20 + CEILINGS.award });
+      // A map that holds nothing for the team, and a zero, are no credit.
+      expect(boundsFor(finished(20), [entryOf("a", { secured: { frc9: 13 } })], REWOUND)).toEqual(without);
+      expect(boundsFor(finished(20), [entryOf("a", { secured: { frc1: 0 } })], REWOUND)).toEqual(without);
+    });
+
+    it("reads an exact settled value as the larger of it and the secured minimum", () => {
+      // Third place decided at a stop over a finished event: TBA's own 13, exact, in the floor and nothing open.
+      const settled = boundsFor(finished(13), [entryOf("a", { placements: { frc1: 3 } })], REWOUND);
+      expect(settled).toEqual({ floor: 43, openCeiling: CEILINGS.award });
+      // A secured minimum at or below the number changes nothing.
+      expect(boundsFor(finished(13), [entryOf("a", { placements: { frc1: 3 }, secured: { frc1: 13 } })], REWOUND)).toEqual(settled);
+      expect(boundsFor(finished(13), [entryOf("a", { placements: { frc1: 3 }, secured: { frc1: 7 } })], REWOUND)).toEqual(settled);
+      // THE LARGER OF THE TWO: TBA's row reads 7 where the rows say 13 is secured. 20 + 10 + 13, and still nothing open.
+      expect(boundsFor(finished(7), [entryOf("a", { placements: { frc1: 3 }, secured: { frc1: 13 } })], REWOUND)).toEqual({ floor: 43, openCeiling: CEILINGS.award });
+      expect(boundsFor(finished(7), [entryOf("a", { placements: { frc1: 3 } })], REWOUND)).toEqual({ floor: 37, openCeiling: CEILINGS.award });
+    });
+
+    it("under a settled value that is not exact, reads the secured minimum and the rest of its placement's ceiling", () => {
+      // Live, third place decided on the field, no playoff point in yet: 13 is the most the placement pays.
+      const live = artifactOf([team("frc1", { pointTotal: 30, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim: 0, award: 0 }, LIVE)] })]);
+      const without = boundsFor(live, [entryOf("a", { placements: { frc1: 3 } })]);
+      expect(without).toEqual({ floor: 30, openCeiling: CEILINGS.award + 13 });
+      // A robot on the field for one of the alliance's two semifinal wins has secured 7: 7 in the floor, 6 left open.
+      const credited = boundsFor(live, [entryOf("a", { placements: { frc1: 3 }, secured: { frc1: 7 } })]);
+      expect(credited).toEqual({ floor: 37, openCeiling: CEILINGS.award + 6 });
+      expect(credited.floor + credited.openCeiling).toBe(without.floor + without.openCeiling);
+      // On the field for both: the whole 13 is held and none of the placement stays open.
+      expect(boundsFor(live, [entryOf("a", { placements: { frc1: 3 }, secured: { frc1: 13 } })])).toEqual({ floor: 43, openCeiling: CEILINGS.award });
+    });
+
+    it("THE LARGER OF THE TWO at a FINAL category: a number below the secured minimum counts the secured minimum, and the open ceiling does not move", () => {
+      for (const stageByEvent of [new Map([["a", ALL_FINAL]]), undefined]) {
+        const at = stageByEvent === undefined ? "Now" : "rewound";
+        // 7 posted, 13 secured: 6 more floor than the published 37.
+        expect(boundsFor(finished(7), [entryOf("a", { secured: { frc1: 13 } })], stageByEvent), at).toEqual({ floor: 43, openCeiling: 0 });
+        expect(boundsFor(finished(7), [entryOf("a", {})], stageByEvent), at).toEqual({ floor: 37, openCeiling: 0 });
+        // On a number at or above it the floor is what it was.
+        expect(boundsFor(finished(13), [entryOf("a", { secured: { frc1: 13 } })], stageByEvent), at).toEqual({ floor: 43, openCeiling: 0 });
+        expect(boundsFor(finished(20), [entryOf("a", { secured: { frc1: 13 } })], stageByEvent), at).toEqual({ floor: 50, openCeiling: 0 });
+      }
+    });
+  });
+
+  describe("the pooled test nets what the floors hold out of that event's playoff pool, once", () => {
+    /**
+     * Twelve teams at one finished event rewound to Playoffs open, nine DCMP slots, one held back for the event's
+     * Impact award: eight rivals must pass the leader. The leader holds `leaderQual`; eleven rivals hold 58.
+     */
+    /**
+     * `leaderQual` and what TBA finally paid the leader for its playoffs; frc2 to frc4 hold 58 and were finally paid
+     * 13 (their alliance won sf7 and finished third), frc5 to frc7 hold 58 and were finally paid 20 (a finalist), and
+     * five more hold 58 and were paid nothing. At the stop none of those playoff points is in a floor on its own.
+     */
+    function district(leaderQual: number, leaderElim = 0): DistrictArtifact {
+      const row = (qual: number, elim: number) => eventRow("a", { qual, alliance: 0, elim, award: 0 }, FINISHED);
+      return artifactOf(
+        [
+          team("frc1", { pointTotal: leaderQual + leaderElim, eventPoints: [row(leaderQual, leaderElim)] }),
+          ...["frc2", "frc3", "frc4"].map((teamKey) => team(teamKey, { pointTotal: 71, eventPoints: [row(58, 13)] })),
+          ...["frc5", "frc6", "frc7"].map((teamKey) => team(teamKey, { pointTotal: 78, eventPoints: [row(58, 20)] })),
+          ...Array.from({ length: 5 }, (_, index) => team(`frc${String(index + 8)}`, { pointTotal: 58, eventPoints: [row(58, 0)] })),
+        ],
+        { dcmpSlots: 9 }
+      );
+    }
+    function at(artifact: DistrictArtifact, facts: { secured?: Readonly<Record<string, number>>; placements?: Readonly<Record<string, number>> }) {
+      const rows = buildDistrictLedgerRows({ artifact, distributions: new Map([entryOf("a", facts)]), stageByEvent: new Map([["a", OPEN_PLAYOFFS]]) });
+      return { rows, model: computeDistrictLedgerStatuses({ artifact, teams: rows.teams }) };
+    }
+    const SETTLED_THIRD = { frc2: 3, frc3: 3, frc4: 3 };
+
+    it("takes a secured minimum off the pool by exactly what the floors gained", () => {
+      const before = at(district(100), {}).model;
+      expect(before.pooledRemainingPoints).toBe(PLAYOFF_POOL + awardPool(2));
+      // The sf7 winner's three robots, 13 each: 39 in floors, 39 off the pool.
+      const credited = at(district(100), { secured: { frc2: 13, frc3: 13, frc4: 13 } });
+      expect(credited.model.pooledRemainingPoints).toBe(before.pooledRemainingPoints - 39);
+      for (const teamKey of ["frc2", "frc3", "frc4"]) expect(credited.rows.teams.find((entry) => entry.teamKey === teamKey)!.rows[0]!.securedElim, teamKey).toBe(13);
+      // A robot that sat one win out holds 7: 13 + 13 + 7.
+      expect(at(district(100), { secured: { frc2: 13, frc3: 13, frc4: 7 } }).model.pooledRemainingPoints).toBe(before.pooledRemainingPoints - 33);
+    });
+
+    it("counts a team's points once where its settled value is exact and a secured minimum stands beside it", () => {
+      const open = at(district(100), {}).model.pooledRemainingPoints;
+      // Third place decided: TBA's own 13 on three rows, exact, 39 off the pool (quick task 261009-uhb).
+      expect(at(district(100), { placements: SETTLED_THIRD }).model.pooledRemainingPoints).toBe(open - 39);
+      // The same 13 secured beside the exact 13: 39 off the pool, never 78.
+      expect(at(district(100), { placements: SETTLED_THIRD, secured: { frc2: 13, frc3: 13, frc4: 13 } }).model.pooledRemainingPoints).toBe(open - 39);
+      // Settled teams and teams still in the bracket together: 39 settled and a finalist alliance's 3 x 20 secured.
+      expect(at(district(100), { placements: SETTLED_THIRD, secured: { frc5: 20, frc6: 20, frc7: 20 } }).model.pooledRemainingPoints).toBe(open - 39 - 60);
+    });
+
+    it("a team In range without the credit is Locked on points with it, by the pooled test alone", () => {
+      // The leader holds 85 at the stop (TBA finally paid it 13 for its playoffs). Eight of the rivals at 58 can pass
+      // it out of what is left to hand out, so it is not Locked.
+      const without = at(district(85, 13), {});
+      const before = without.model.byTeam.get("frc1")!;
+      expect({ status: before.status, verdict: before.verdict, lockedBy: before.lockedBy }).toEqual({ status: "inRange", verdict: "contending", lockedBy: null });
+      // With its 13 secured its floor is 98 and the pool holds 13 less. A rival's ceiling (58 + 30 + 15 = 103) still
+      // reaches 98, so the ceiling test does not lock it; the pooled test does.
+      const credited = at(district(85, 13), { secured: { frc1: 13 } });
+      const leader = credited.model.byTeam.get("frc1")!;
+      expect({ status: leader.status, verdict: leader.verdict, lockedBy: leader.lockedBy }).toEqual({ status: "locked", verdict: "locked", lockedBy: "pooled" });
+      expect(58 + CEILINGS.elim + CEILINGS.award).toBeGreaterThanOrEqual(98);
+      expect(credited.model.pooledRemainingPoints).toBe(without.model.pooledRemainingPoints - 13);
+      // Nobody Locked without the credit is not Locked with it.
+      for (const result of without.model.byTeam.values()) if (result.status === "locked") expect(credited.model.byTeam.get(result.teamKey)!.status, result.teamKey).toBe("locked");
+    });
+  });
+
+  describe("a team In range without the credit is Locked on points with it, by the ceiling test", () => {
+    /**
+     * Three teams at one event mid playoffs at Now, two DCMP slots, one held back for the event's Impact award, so
+     * one slot is in the points race. The leader holds 30 and is still in the bracket. Both rivals hold 20 and are
+     * knocked out at fifth and sixth: each can still reach 20 + 15 award points = 35.
+     */
+    const artifact = artifactOf(
+      [
+        team("frc1", { pointTotal: 30, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim: 0, award: 0 }, LIVE)] }),
+        team("frc2", { pointTotal: 20, eventPoints: [eventRow("a", { qual: 15, alliance: 5, elim: 0, award: 0 }, LIVE)] }),
+        team("frc3", { pointTotal: 20, eventPoints: [eventRow("a", { qual: 15, alliance: 5, elim: 0, award: 0 }, LIVE)] }),
+      ],
+      { dcmpSlots: 2 }
+    );
+    const KNOCKED_OUT = { frc2: 5, frc3: 6 };
+    const modelWith = (secured: Readonly<Record<string, number>> | undefined) => {
+      const rows = buildDistrictLedgerRows({ artifact, distributions: new Map([entryOf("a", { placements: KNOCKED_OUT, ...(secured === undefined ? {} : { secured }) })]) });
+      return computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+    };
+
+    it("reads the leader In range while a rival's ceiling reaches its floor, and Locked once its own secured 13 is in its floor", () => {
+      const without = modelWith(undefined);
+      expect(without.reservedSlots).toBe(1);
+      expect(20 + CEILINGS.award).toBeGreaterThanOrEqual(30);
+      expect({ status: without.byTeam.get("frc1")!.status, lockedBy: without.byTeam.get("frc1")!.lockedBy }).toEqual({ status: "inRange", lockedBy: null });
+      // The leader's alliance won sf7 with it on the field for both wins: 13 secured, floor 43, above each rival's 35.
+      const credited = modelWith({ frc1: 13 });
+      expect(20 + CEILINGS.award).toBeLessThan(43);
+      expect(credited.byTeam.get("frc1")!.status).toBe("locked");
+      expect(credited.byTeam.get("frc1")!.verdict).toBe("locked");
+      expect(["ceiling", "both"]).toContain(credited.byTeam.get("frc1")!.lockedBy);
+      // Nobody Locked without the credit is not Locked with it, and no rival's verdict moved.
+      for (const result of without.byTeam.values()) {
+        if (result.status === "locked") expect(credited.byTeam.get(result.teamKey)!.status, result.teamKey).toBe("locked");
+        if (result.teamKey !== "frc1") expect(credited.byTeam.get(result.teamKey)!.verdict, result.teamKey).toBe(result.verdict);
+      }
+    });
+  });
+
+  describe("what the rows count is the floor (reading R17)", () => {
+    const outsideTheRows = (source: DistrictTeam): number => source.pointTotal - source.eventPoints.reduce((sum, entry) => sum + entry.total, 0);
+    const countedOf = (rows: readonly Parameters<typeof rowCountedPoints>[0][]): number => rows.reduce((sum, row) => sum + rowCountedPoints(row), 0);
+
+    it("on every row of a hand built district: final, open with a secured minimum, settled exact, settled not exact, final on an older number, and an event not played yet", () => {
+      // One team per kind of row, each with a rookie bonus of 5 and an adjustment of 2 outside its rows.
+      const kinds: readonly { teamKey: string; row: ReturnType<typeof eventRow>; stage?: DistrictStageFinality; facts: Parameters<typeof entryOf>[1]; floor: number }[] = [
+        // Every category final: the row's own 20 + 10 + 13 + 5, and the 7 outside the rows.
+        { teamKey: "frc1", row: eventRow("a", { qual: 20, alliance: 10, elim: 13, award: 5 }, FINISHED), stage: ALL_FINAL, facts: {}, floor: 55 },
+        // Playoffs and awards open, 13 secured: 20 + 10 + 13 + 7.
+        { teamKey: "frc2", row: eventRow("b", { qual: 20, alliance: 10, elim: 20, award: 5 }, FINISHED), stage: OPEN_PLAYOFFS, facts: { secured: { frc2: 13 } }, floor: 50 },
+        // Playoffs open, third place decided, TBA's own 13 exact: 20 + 10 + 13 + 7.
+        { teamKey: "frc3", row: eventRow("c", { qual: 20, alliance: 10, elim: 13, award: 0 }, FINISHED), stage: OPEN_PLAYOFFS, facts: { placements: { frc3: 3 } }, floor: 50 },
+        // Live, third place decided and not exact, 7 secured: 20 + 10 + 7 + 7.
+        { teamKey: "frc4", row: eventRow("d", { qual: 20, alliance: 10, elim: 0, award: 0 }, LIVE), facts: { placements: { frc4: 3 }, secured: { frc4: 7 } }, floor: 44 },
+        // Final on a number older than the rows: 7 posted, 13 secured. 20 + 10 + 7 + 0, plus 6, plus 7.
+        { teamKey: "frc5", row: eventRow("e", { qual: 20, alliance: 10, elim: 7, award: 0 }, FINISHED), stage: ALL_FINAL, facts: { secured: { frc5: 13 } }, floor: 50 },
+        // Playoffs open and nothing secured: 20 + 10 + 7.
+        { teamKey: "frc6", row: eventRow("f", { qual: 20, alliance: 10, elim: 20, award: 5 }, FINISHED), stage: OPEN_PLAYOFFS, facts: {}, floor: 37 },
+      ];
+      const artifact = artifactOf(
+        kinds.map((kind) =>
+          team(kind.teamKey, { pointTotal: kind.row.total + 7, rookieBonus: 5, adjustments: 2, eventPoints: [kind.row], remainingEvents: [ahead(`z${kind.teamKey}`)], maxRemainingDistrict: EVENT_MAX })
+        ),
+        { dcmpSlots: 2 }
+      );
+      const stageByEvent = new Map<string, DistrictStageFinality>();
+      for (const kind of kinds) {
+        if (kind.stage !== undefined) stageByEvent.set(kind.row.eventKey, kind.stage);
+        else stageByEvent.set(kind.row.eventKey, OPEN_PLAYOFFS);
+        stageByEvent.set(`z${kind.teamKey}`, ALL_OPEN);
+      }
+      const rows = buildDistrictLedgerRows({ artifact, distributions: new Map(kinds.map((kind) => entryOf(kind.row.eventKey, kind.facts))), stageByEvent });
+      for (const kind of kinds) {
+        const source = artifact.teams.find((entry) => entry.teamKey === kind.teamKey)!;
+        const built = rows.teams.find((entry) => entry.teamKey === kind.teamKey)!;
+        expect(built.rows, kind.teamKey).toHaveLength(2);
+        const floor = districtLockBounds(source, built.rows, CEILINGS).floor;
+        expect(floor, kind.teamKey).toBe(kind.floor);
+        expect(countedOf(built.rows) + outsideTheRows(source), kind.teamKey).toBe(floor);
+        // The header counts the event rows only: it is the floor less what sits outside the rows.
+        expect(built.earnedAtPosition + outsideTheRows(source), kind.teamKey).toBe(floor);
+        // The event not played yet counts nothing.
+        expect(rowCountedPoints(built.rows.find((row) => row.eventKey === `z${kind.teamKey}`)!), kind.teamKey).toBe(0);
+      }
+    });
+
+    it("on the committed 2026 PNW fixture rewound into one event's playoffs with secured minimums, for all 126 teams", () => {
+      const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8")));
+      const EVENT = "2026waahs";
+      // Every team TBA paid at least 13 playoff points at the event is handed 13 secured: never above its payment.
+      const secured: Record<string, number> = {};
+      const stageByEvent = new Map<string, DistrictStageFinality>();
+      for (const source of FIXTURE.teams) {
+        for (const entry of districtTierEvents(source)) {
+          stageByEvent.set(entry.eventKey, entry.eventKey === EVENT ? OPEN_PLAYOFFS : ALL_FINAL);
+          if (entry.eventKey === EVENT && entry.earned !== undefined && entry.earned.elim >= 13) secured[source.teamKey] = 13;
+        }
+      }
+      expect(Object.keys(secured).length).toBeGreaterThanOrEqual(6);
+      const sourceByKey = new Map(FIXTURE.teams.map((source) => [source.teamKey, source] as const));
+      let credited = 0;
+      for (const facts of [{}, { secured }]) {
+        const rows = buildDistrictLedgerRows({ artifact: FIXTURE, distributions: new Map([entryOf(EVENT, facts)]), stageByEvent });
+        expect(rows.teams).toHaveLength(126);
+        for (const built of rows.teams) {
+          const source = sourceByKey.get(built.teamKey)!;
+          const floor = districtLockBounds(source, built.rows, CEILINGS).floor;
+          expect({ teamKey: built.teamKey, counted: countedOf(built.rows) + outsideTheRows(source) }).toEqual({ teamKey: built.teamKey, counted: floor });
+          if (built.rows.some((row) => row.securedElim !== undefined)) credited += 1;
+        }
+      }
+      expect(credited).toBe(Object.keys(secured).length);
     });
   });
 });

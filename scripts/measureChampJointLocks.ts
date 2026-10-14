@@ -16,9 +16,10 @@
  * `ChampLocksLedger` computes them (`champTierEvents`, `buildDistrictTimeline`,
  * the district pass for the locked out set, `buildChampLedgerRows`,
  * `computeChampLedgerStatuses`), with distributions that carry the bracket
- * facts and nothing else: the milestones (`dcmpBracketMilestonesByTeam`) in
- * both runs, so the SHIPPED run is the tab as it renders today, and the joint
- * proof's `dcmpBracket` (`dcmpBracketFactsFor`) in the combined run only. No
+ * facts and nothing else: the milestones (`dcmpBracketMilestonesByTeam`) and
+ * the secured playoff minimums (`securedElimEntry`, quick task 261012-mw2) in
+ * both runs, and the joint proof's `dcmpBracket` (`dcmpBracketFactsFor`) in
+ * the combined run only. So the two runs differ by the joint proof alone. No
  * Monte Carlo runs.
  *
  * THE YARDSTICK is the artifact's own published `champLock.status` at Now: the
@@ -46,8 +47,41 @@
  * list may hold only `no capacity`, `no District Championship` and
  * `unsupportedShape`, and the last must be empty for 2023 to 2026.
  *
- * Exit code 1 on any tenet A violation, any team the shipped run locks that
- * the combined run does not, or any floor gap.
+ * THE CREDIT AND THE HEADER (quick task 261012-mw2). A team still in a
+ * playoff bracket carries the playoff points it has secured in its floor
+ * (`packages/core/districts/securedPlayoffPoints.ts` and
+ * `districtLedgerRows.ts`). Both recipes hand the championship's entry the
+ * secured minimums read from the rows at or before the stop, never at a
+ * finals key, and the D3 assertion allows a secured minimum beside a settled
+ * value. Two tenets are added, read off the rows the combined statuses came
+ * from, at EVERY stop:
+ *
+ *   `creditAbovePaid`  no secured playoff minimum on a source is above the
+ *                      playoff points the artifact's own row finally carries
+ *                      for that team at that event. This is the floor that
+ *                      must never be too high. It bites: with frc4561's paid
+ *                      playoff points lowered to 30 on a copy of the 2026 FNC
+ *                      artifact the sweep reports it at six stops
+ *                      (`measureChampJointLocks.test.ts`).
+ *   `headerGap`        the earned figure a team's row prints is the floor
+ *                      the lock math counts. The planner of this task read
+ *                      666 team stops differing at 9a6c9fae, the commit
+ *                      before it (the settled playoff points the lock
+ *                      counted and the header left out). It reads 0 now.
+ *                      No doctored copy shows it
+ *                      biting, because the header and the floor read the
+ *                      same fields: the reading at 9a6c9fae is what does.
+ *
+ * Each stop record carries `securedInFloors` (counted where the Playoffs are
+ * open at the stop and no exact settled value stands there) and
+ * `headerChecked`. As this task executed the sweep over 48 championships and
+ * 412 stops: secured minimums in floors 2,452 (single event 1,047,
+ * divisioned 1,338, two championships 67), headers checked 67,336, both new
+ * tenets 0, `VIOLATIONS: none` and `SKIPPED (0)`.
+ *
+ * Exit code 1 on any violation: tenet A, a team the shipped run locks that
+ * the combined run does not, a floor gap, a credit above the payment, or a
+ * header that is not the floor.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -63,6 +97,8 @@ import {
   dcmpBracketMilestonesByTeam,
   deriveStageFromState,
   playedBracketMatchesFor,
+  securedElimByTeamFor,
+  securedElimEntry,
   tierEvents,
   type BracketSourceEvent,
   type DistrictEventDistributions,
@@ -75,7 +111,7 @@ import {
   type DistrictTimeline,
 } from "../apps/web/src/components/districts/districtTimeline.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
-import { buildChampLedgerRows, champTierEvents, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
+import { buildChampLedgerRows, champTierEvents, dcmpEventKeysFor, type ChampLedgerRowsResult } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses, jointProofBound, type ChampLedgerStatusModel } from "../apps/web/src/components/districts/champLedgerStatus.js";
 
 export const LOCAL_DISTRICT_DIR = "data/local-publish/districts";
@@ -161,13 +197,18 @@ export function dcmpStops(artifact: DistrictArtifact, bracket: BracketSourceEven
   return stops;
 }
 
+/** Where a caller wants the champ rows a stop's statuses were computed from (quick task 261012-mw2): the sweep reads the header and the secured minimums off them. */
+export interface StopCapture {
+  rows?: ChampLedgerRowsResult;
+}
+
 /**
  * The tab's statuses at one stop. The district pass gives the locked out set,
  * the played rows give the bracket facts and the milestones, and the champ
  * rows and statuses are built by the tab's own functions. `withJoint` adds the
  * `dcmpBracket` facts, which is the only thing the joint proof reads.
  */
-export function statusesAtStop(artifact: DistrictArtifact, stop: ChampJointStop, bracket: BracketSourceEvent, withJoint: boolean): ChampLedgerStatusModel {
+export function statusesAtStop(artifact: DistrictArtifact, stop: ChampJointStop, bracket: BracketSourceEvent, withJoint: boolean, capture?: StopCapture): ChampLedgerStatusModel {
   const { context, index } = stop;
   const { timeline, dcmpKey } = context;
   const atNow = index >= timeline.nowIndex;
@@ -195,6 +236,7 @@ export function statusesAtStop(artifact: DistrictArtifact, stop: ChampJointStop,
     eventKey: dcmpKey,
     byTeam: new Map(),
     playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches),
+    ...securedElimEntry(bracket, artifact.year, "dcmp", stop.playedKeys),
     ...(withJoint && facts !== undefined ? { dcmpBracket: facts } : {}),
   };
   const distributions: ReadonlyMap<string, DistrictEventDistributions> = new Map([[dcmpKey, entry]]);
@@ -209,6 +251,7 @@ export function statusesAtStop(artifact: DistrictArtifact, stop: ChampJointStop,
     startedDcmpEventKeys,
     atLivePosition: atNow,
   });
+  if (capture !== undefined) capture.rows = rows;
   return computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions });
 }
 
@@ -343,7 +386,8 @@ export function statusesAtChampionshipStop(
   stop: ChampionshipStop,
   brackets: ReadonlyMap<string, BracketSourceEvent>,
   withJoint: boolean,
-  finalsMayBeAbsent = false
+  finalsMayBeAbsent = false,
+  capture?: StopCapture
 ): ChampLedgerStatusModel {
   const shape = championshipShape(dcmpEventKeysFor(artifact), finalsMayBeAbsent);
   const now = nowStages(artifact);
@@ -378,7 +422,7 @@ export function statusesAtChampionshipStop(
     distributions.set(key, {
       eventKey: key,
       byTeam: new Map(),
-      ...(isFinals ? {} : { playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches) }),
+      ...(isFinals ? {} : { playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...securedElimEntry(bracket, artifact.year, "dcmp", playedKeys) }),
       ...(withJoint && facts !== undefined ? { dcmpBracket: facts } : {}),
     });
   }
@@ -390,6 +434,7 @@ export function statusesAtChampionshipStop(
     startedDcmpEventKeys: stop.startedKeys,
     atLivePosition: stop.atNow,
   });
+  if (capture !== undefined) capture.rows = rows;
   return computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions, ...(finalsMayBeAbsent ? { finalsMayBeAbsent } : {}) });
 }
 
@@ -406,10 +451,14 @@ export interface JointStopRecord {
   readonly jointOnly: number;
   readonly combinedLocked: number;
   readonly violations: number;
+  /** Rows of the combined run whose floor holds a secured playoff minimum (quick task 261012-mw2). */
+  readonly securedInFloors: number;
+  /** Teams of the combined run whose header was checked against its floor. */
+  readonly headerChecked: number;
 }
 
 export interface JointViolation {
-  readonly kind: "tenetA" | "shippedLostLock" | "floorGap";
+  readonly kind: "tenetA" | "shippedLostLock" | "floorGap" | "creditAbovePaid" | "headerGap";
   readonly districtKey: string;
   readonly stop: string;
   readonly teamKey: string;
@@ -445,13 +494,13 @@ const lockedOnPoints = (model: ChampLedgerStatusModel): string[] =>
 /** One stop of any shape, as the sweep reads it. */
 interface SweepStop {
   readonly label: string;
-  readonly compute: (withJoint: boolean) => ChampLedgerStatusModel;
+  readonly compute: (withJoint: boolean, capture?: StopCapture) => ChampLedgerStatusModel;
   /**
    * The D3 floor assertion's facts (divisioned only): every dcmp key's stage at
    * the stop, and per key the teams whose Playoffs are settled there (a decided
    * placement, whose exact value may rejoin the floor).
    */
-  readonly d3?: { readonly stageByKey: ReadonlyMap<string, DistrictStageFinality>; readonly settledByKey: ReadonlyMap<string, ReadonlySet<string>> };
+  readonly d3?: { readonly stageByKey: ReadonlyMap<string, DistrictStageFinality>; readonly settledByKey: ReadonlyMap<string, ReadonlySet<string>>; readonly securedByKey?: ReadonlyMap<string, ReadonlyMap<string, number>> };
 }
 
 function sweepStops(artifact: DistrictArtifact, shape: SweptShape, dcmpKey: string, stops: readonly SweepStop[]): JointSweep {
@@ -460,10 +509,14 @@ function sweepStops(artifact: DistrictArtifact, shape: SweptShape, dcmpKey: stri
   const violations: JointViolation[] = [];
   const firstBefore = new Map<string, number>();
   const firstAfter = new Map<string, number>();
+  // `eventKey|teamKey` -> the playoff points TBA finally paid there, off the artifact's own rows.
+  const paidElim = new Map<string, number>();
+  for (const team of artifact.teams) for (const row of team.eventPoints) paidElim.set(`${row.eventKey}|${team.teamKey}`, row.elim);
 
   stops.forEach((stop, stopIndex) => {
     const shipped = stop.compute(false);
-    const combined = stop.compute(true);
+    const captured: StopCapture = {};
+    const combined = stop.compute(true, captured);
     const shippedKeys = new Set(lockedOnPoints(shipped));
     const combinedKeys = lockedOnPoints(combined);
     let stopViolations = 0;
@@ -502,6 +555,7 @@ function sweepStops(artifact: DistrictArtifact, shape: SweptShape, dcmpKey: stri
             if (stage[category]) continue;
             if (category === "elim" && d3.settledByKey.get(row.eventKey)?.has(team.teamKey) === true) continue;
             most -= row[category];
+            if (category === "elim") most += Math.min(row.elim, d3.securedByKey?.get(row.eventKey)?.get(team.teamKey) ?? 0);
           }
         }
         for (const model of [shipped, combined]) {
@@ -522,6 +576,31 @@ function sweepStops(artifact: DistrictArtifact, shape: SweptShape, dcmpKey: stri
       }
     }
 
+    // THE CREDIT AND THE HEADER (quick task 261012-mw2), read off the rows the combined statuses came from. No
+    // secured playoff minimum in a floor is above what TBA finally paid at that event, and the earned figure a
+    // team's row prints is the floor the lock math counts.
+    let securedInFloors = 0;
+    let headerChecked = 0;
+    for (const team of captured.rows?.teams ?? []) {
+      const floor = combined.floorByTeam?.get(team.teamKey);
+      if (floor !== undefined) {
+        headerChecked += 1;
+        if (team.earnedAtPosition !== floor) {
+          stopViolations += 1;
+          violations.push({ kind: "headerGap", districtKey: artifact.districtKey, stop: stop.label, teamKey: team.teamKey, pointsSlots: combined.pointsSlots, bound: null, finalStatus: finalStatus.get(team.teamKey) ?? "unknown", detail: `header ${String(team.earnedAtPosition)}, floor ${String(floor)}` });
+        }
+      }
+      for (const source of [...team.districtRow.sources, ...team.dcmpRow.sources]) {
+        if (source.securedElim === undefined) continue;
+        // Counted where the secured minimum is what the floor holds: the Playoffs open at the stop and no exact settled value.
+        if (!source.stage.final.elim && source.settledElim?.exact !== true) securedInFloors += 1;
+        const paid = paidElim.get(`${source.eventKey}|${team.teamKey}`) ?? 0;
+        if (source.securedElim <= paid) continue;
+        stopViolations += 1;
+        violations.push({ kind: "creditAbovePaid", districtKey: artifact.districtKey, stop: stop.label, teamKey: team.teamKey, pointsSlots: combined.pointsSlots, bound: null, finalStatus: finalStatus.get(team.teamKey) ?? "unknown", detail: `secured ${String(source.securedElim)} at ${source.eventKey}, paid ${String(paid)}` });
+      }
+    }
+
     for (const [teamKey, result] of shipped.byTeam) if (result.status === "locked" && !firstBefore.has(teamKey)) firstBefore.set(teamKey, stopIndex);
     for (const [teamKey, result] of combined.byTeam) if (result.status === "locked" && !firstAfter.has(teamKey)) firstAfter.set(teamKey, stopIndex);
 
@@ -533,6 +612,8 @@ function sweepStops(artifact: DistrictArtifact, shape: SweptShape, dcmpKey: stri
       jointOnly: [...combined.byTeam.values()].filter((result) => result.lockedBy === "joint").length,
       combinedLocked: combinedKeys.length,
       violations: stopViolations,
+      securedInFloors,
+      headerChecked,
     });
   });
 
@@ -555,10 +636,11 @@ function d3Facts(
   brackets: ReadonlyMap<string, BracketSourceEvent>,
   keys: readonly string[],
   divisionKeys: readonly string[]
-): { stageByKey: Map<string, DistrictStageFinality>; settledByKey: Map<string, Set<string>> } {
+): { stageByKey: Map<string, DistrictStageFinality>; settledByKey: Map<string, Set<string>>; securedByKey: Map<string, ReadonlyMap<string, number>> } {
   const now = nowStages(artifact).stageByEvent;
   const stageByKey = new Map(keys.map((key) => [key, (stop.atNow ? now.get(key) : stop.stageByKey.get(key)) ?? ALL_OPEN] as const));
   const settledByKey = new Map<string, Set<string>>();
+  const securedByKey = new Map<string, ReadonlyMap<string, number>>();
   for (const key of divisionKeys) {
     const bracket = brackets.get(key);
     const settled = new Set<string>();
@@ -568,8 +650,9 @@ function d3Facts(
       for (const [teamKey, milestone] of dcmpBracketMilestonesByTeam(alliances, played.matches)) if (milestone.kind === "decided") settled.add(teamKey);
     }
     settledByKey.set(key, settled);
+    if (bracket !== undefined) securedByKey.set(key, securedElimByTeamFor(bracket, artifact.year, "dcmp", stop.playedKeysByKey.get(key) ?? new Set()));
   }
-  return { stageByKey, settledByKey };
+  return { stageByKey, settledByKey, securedByKey };
 }
 
 /** The single event sweep, exactly as shipped (261009-2tr). */
@@ -579,7 +662,7 @@ export function sweepJoint(artifact: DistrictArtifact, bracket: BracketSourceEve
     artifact,
     "single",
     stops[0]?.context.dcmpKey ?? "",
-    stops.map((stop) => ({ label: stop.label, compute: (withJoint: boolean) => statusesAtStop(artifact, stop, bracket, withJoint) }))
+    stops.map((stop) => ({ label: stop.label, compute: (withJoint: boolean, capture?: StopCapture) => statusesAtStop(artifact, stop, bracket, withJoint, capture) }))
   );
 }
 
@@ -594,7 +677,7 @@ export function sweepChampionship(artifact: DistrictArtifact, brackets: Readonly
     shape.kind === "divisioned" ? shape.finalsKey : shape.keys.join("+"),
     stops.map((stop) => ({
       label: stop.label,
-      compute: (withJoint: boolean) => statusesAtChampionshipStop(artifact, stop, brackets, withJoint),
+      compute: (withJoint: boolean, capture?: StopCapture) => statusesAtChampionshipStop(artifact, stop, brackets, withJoint, false, capture),
       ...(shape.kind === "divisioned" ? { d3: d3Facts(artifact, stop, brackets, [...shape.divisionKeys, shape.finalsKey], shape.divisionKeys) } : {}),
     }))
   );
@@ -704,6 +787,8 @@ function reportTotals(label: string, sweeps: readonly JointSweep[]): void {
   console.log(`  Locked by the joint proof alone      ${String(sum((stop) => stop.jointOnly))}`);
   console.log(`  Locked on points, combined           ${String(sum((stop) => stop.combinedLocked))}`);
   console.log(`  violations                           ${String(sum((stop) => stop.violations))}`);
+  console.log(`  secured minimums in floors           ${String(sum((stop) => stop.securedInFloors))}`);
+  console.log(`  headers checked against the floor    ${String(sum((stop) => stop.headerChecked))}`);
   console.log(`  qualifiers locked at an earlier stop ${String(sweeps.reduce((acc, sweep) => acc + sweep.earlier.length, 0))}`);
 }
 
@@ -742,7 +827,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     console.log(``);
     console.log(`CHAMP JOINT LOCKS — the Champ Locks tab's own status code at every DCMP stop, shipped and with the joint proof.`);
     console.log(`  tenet A:    a team shown "Locked" on points at any stop is locked or lockedAward in the published champLock.status at Now`);
-    console.log(`  D3:         no team carries an open category of any of its dcmp rows in its floor`);
+    console.log(`  D3:         no team carries an open category of any of its dcmp rows in its floor, a settled value and a secured playoff minimum excepted`);
+    console.log(`  credit:     no secured playoff minimum in a floor is above the playoff points TBA finally paid at that event`);
+    console.log(`  header:     the earned figure a team's row prints is the floor the lock math counts`);
     console.log(`  sources:    ${LOCAL_DISTRICT_DIR}, ${CORPUS_PATH} (read only, no network, no credential)`);
     for (const sweep of sweeps) reportSweep(sweep);
     const single = sweeps.filter((sweep) => sweep.shape === "single");
