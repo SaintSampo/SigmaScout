@@ -26,6 +26,7 @@ import {
   DISTRICT_LEDGER_VERDICT_CHIP_LABELS,
   DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS,
   DISTRICT_LEDGER_VERDICT_POINT_NOUNS,
+  DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL,
   DISTRICT_LEDGER_VERDICT_TILE_LABELS,
   champLedgerVerdictFieldSuffix,
   districtLedgerRookieBonusLine,
@@ -143,6 +144,10 @@ export class MissingTotalContextError extends Error {
  * read it; `buildVerdictModel` drops that row from the rendered Playoffs and
  * Awards lists (261007-3ik).
  *
+ * A PLAYOFFS CELL THAT CARRIES THE RUN'S ROUTE VIEW (quick task 261014-jfx) gets
+ * the zero point mass split into two rows, picked but out and not picked, from
+ * the same `cell.selection` the cell's own best guess reads.
+ *
  * THE ALLIANCE SELECTION LIST is chosen by DATA, not by category: a run that
  * reported its routes can name them, and a baked event's pmf cannot. Playoffs
  * and Awards list their outcomes by category, priced at the tier's own weight.
@@ -170,7 +175,7 @@ export function verdictOutcomeRows(
   if (districtCellRendersOutcomeList(cell.cell)) {
     const rows: VerdictOutcomeRow[] =
       cell.cell === "elim"
-        ? districtPlayoffOutcomes(season, tier, cell.distribution, cell.playoffMilestone).map((row) => ({
+        ? districtPlayoffOutcomes(season, tier, cell.distribution, cell.playoffMilestone, cell.selection).map((row) => ({
             key: row.id,
             label: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS[row.id],
             points: row.points,
@@ -233,8 +238,8 @@ export interface BuildVerdictModelInput {
   readonly sourceChips?: readonly VerdictSourceChip[];
 }
 
-function tile(key: VerdictTile["key"], value: string): VerdictTile {
-  return { key, label: DISTRICT_LEDGER_VERDICT_TILE_LABELS[key], value };
+function tile(key: VerdictTile["key"], value: string, label: string = DISTRICT_LEDGER_VERDICT_TILE_LABELS[key]): VerdictTile {
+  return { key, label, value };
 }
 
 /** Builds the whole pane for one open cell. */
@@ -251,7 +256,8 @@ export function buildVerdictModel(input: BuildVerdictModelInput): VerdictModel {
     // A PLAYOFFS DRAWER NAMES THE CELL'S BEST GUESS FINISH (third and fourth
     // grouped, ties to the better finish), so the cell and its drawer read one
     // finish, while the list below keeps every row separate. Where no single
-    // finish describes the cell the per row pick above stands.
+    // finish describes the cell the per row pick above stands. The finish can be
+    // not picked (quick task 261014-jfx), named only past half of the runs.
     const guess =
       cell.cell === "elim" ? districtPlayoffBestGuess(cell, { season: input.season, tier: input.tier, isRookie: input.isRookie }) : undefined;
     const headlineLabel = guess === undefined ? top.label : DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS[guess.id];
@@ -259,18 +265,28 @@ export function buildVerdictModel(input: BuildVerdictModelInput): VerdictModel {
     const chanceOfPoints = outcomes.rows.reduce((sum, row) => ((row.pointsHigh ?? row.points) > 0 ? sum + row.chance : sum), 0);
     // The "Out before the top four" and "No award" rows are implicit, and Jacob
     // asked for them gone from the drawer list (quick task 261007-3ik,
-    // 2026-10-07). The headline and both tiles still read them, which is why
-    // this filter runs after `top` and `chanceOfPoints`. It tests the cell kind,
-    // so the Alliance selection list keeps its Not selected row by construction.
+    // 2026-10-07). A Playoffs list with the route view has a second implicit
+    // zero point row, "Not picked" (quick task 261014-jfx), dropped the same way,
+    // so the shown list stays the paying rows. The headline and both tiles still
+    // read them, which is why this filter runs after `top` and `chanceOfPoints`.
+    // It tests the cell kind, so the Alliance selection list keeps its Not
+    // selected row by construction.
     // A list holding only the implicit row would render zero rows, and
     // `DistrictOutcomeList` draws nothing for that. No cell reaches here in that
     // state today: an alliance placed fifth to eighth is a settled grey cell
     // (quick task 261008-26o), not an open one with a drawer.
-    const shownRows = cell.cell === "elim" || cell.cell === "award" ? outcomes.rows.filter((row) => row.key !== "none") : outcomes.rows;
+    const shownRows =
+      cell.cell === "elim" || cell.cell === "award" ? outcomes.rows.filter((row) => row.key !== "none" && row.key !== "notPicked") : outcomes.rows;
     return {
       eyebrow,
       headline: districtLedgerVerdictOutcomeHeadline(headlineLabel, headlineChance),
-      tiles: [tile("mostLikely", headlineLabel), tile("chanceOfPoints", districtLedgerVerdictChanceOfPoints(chanceOfPoints))],
+      // The Playoffs tile reads `best guess`: a picked finish can be the cell's
+      // best guess while not picked is the single largest outcome, so `most
+      // likely` would sometimes be false there (Jacob, 2026-10-14).
+      tiles: [
+        tile("mostLikely", headlineLabel, cell.cell === "elim" ? DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL : undefined),
+        tile("chanceOfPoints", districtLedgerVerdictChanceOfPoints(chanceOfPoints)),
+      ],
       chart: { kind: "outcomes", label: outcomes.label, rows: shownRows },
       sourceChips,
     };

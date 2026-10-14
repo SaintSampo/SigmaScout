@@ -80,14 +80,24 @@ const PLUS_MINUS = String.fromCharCode(0x00b1);
  * and a finish, an optional `at least <n> · ` prefix, a percent, ` · pays ` and
  * the pay text. Checks that the pay text is the named finish's pay at the tab's
  * tier, built from `playoffPoints`, and returns the parts.
+ *
+ * THE NOT PICKED FORM (quick task 261014-jfx): `~not picked` over `<n>% on an
+ * alliance`, with no secured prefix and no pays line. It returns the finish
+ * `not picked` and `chance` is the printed share on an alliance.
  */
 const PLAYOFF_FINISH_LABELS: Readonly<Record<string, string>> = {
   "1st": "Wins the event",
   "2nd": "Finalist",
   "3rd or 4th": "Third or fourth place",
   "5th to 8th": "Out before the top four",
+  "not picked": "Not picked",
 };
 function parseBestGuess(text: string, tier: "district" | "dcmp"): { finish: string; secured: number | undefined; chance: number } {
+  const notPicked = /^~not picked(\d+)% on an alliance$/.exec(text);
+  if (notPicked !== null) {
+    expect(text).not.toContain("100%");
+    return { finish: "not picked", secured: undefined, chance: Number(notPicked[1]) };
+  }
   const match = /^~(1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
   expect(match, text).not.toBeNull();
   const [, finish, secured, chance, pays] = match!;
@@ -1703,7 +1713,10 @@ describe("DistrictLedger — the drawer", () => {
     expect(match, verdictHeadline(drawer)).not.toBeNull();
     expect(match![1]).toBe(PLAYOFF_FINISH_LABELS[guess.finish]);
     // The headline is a run count and may read 100; a printed chance stops at 99 (261008-3il).
-    expect(Math.min(Number(match![2]), 99)).toBe(guess.chance);
+    // A not picked cell prints the share ON an alliance, so the headline's run count and the printed
+    // percent add to 100 (quick task 261014-jfx).
+    if (guess.finish === "not picked") expect(100 - Number(match![2])).toBe(guess.chance);
+    else expect(Math.min(Number(match![2]), 99)).toBe(guess.chance);
 
     expect(verdictTiles(drawer).map((tile) => tile.key)).toEqual(["mostLikely", "chanceOfPoints"]);
     expect(verdictTile(drawer, "mostLikely")).toBe(match![1]);
@@ -2423,8 +2436,9 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     for (const teamKey of allianceRoster(1)) {
       const guess = parseBestGuess(elimTextFor(teamKey), "district");
       expect(guess.secured, teamKey).toBe(13);
-      // A secured top four never reads 5th to 8th.
+      // A secured top four never reads 5th to 8th, and never not picked.
       expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
+      expect(guess.finish, teamKey).not.toBe("not picked");
     }
   });
 
@@ -2931,6 +2945,7 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
         const guess = parseBestGuess(textOf(teamKey, "elim"), "district");
         expect(guess.secured, teamKey).toBe(13);
         expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
+        expect(guess.finish, teamKey).not.toBe("not picked");
       }
       // Alliance 4 has won only sf2, which pays nothing: no secured line.
       for (const teamKey of allianceRoster(4)) expect(parseBestGuess(textOf(teamKey, "elim"), "district").secured, teamKey).toBeUndefined();
@@ -3081,7 +3096,8 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
       const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
       expect(free, teamCellText(FREE)).not.toBeNull();
       expect(Number(free![1])).toBe(24 + 9 + alliancePointsOf(FREE) + 13);
-      expect(parseBestGuess(textOf(FREE, "elim"), "district").secured).toBe(13);
+      expect(parseBestGuess(textOf(FREE, "elim"), "district")).toMatchObject({ secured: 13 });
+      expect(parseBestGuess(textOf(FREE, "elim"), "district").finish).not.toBe("not picked");
       expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
       expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
 
