@@ -303,9 +303,9 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   });
 
   it("prints the Awards cell as its chance, the word award, then what an award pays", () => {
-    expect(lines(AWARD, DISTRICT_2026)).toEqual({ bold: "56% award", small: "pays 5 or 10" });
+    expect(lines(AWARD, DISTRICT_2026)).toEqual({ bold: "56% award", small: "pays 5 to 10" });
     expect(lines(AWARD, { season: 2026, tier: "district", isRookie: true })).toEqual({ bold: "56% award", small: "pays 5 to 10" });
-    expect(lines(AWARD, DCMP_2026)).toEqual({ bold: "56% award", small: "pays 15 or 30" });
+    expect(lines(AWARD, DCMP_2026)).toEqual({ bold: "56% award", small: "pays 15 to 30" });
   });
 
   it("names the likelier selection route after its chance, over what that route paid", () => {
@@ -382,7 +382,7 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   });
 
   it("never prints it on a cell of another category, even one handed the field", () => {
-    expect(lines({ ...AWARD, securedAtLeast: 5 }, DISTRICT_2026)).toEqual({ bold: "56% award", small: "pays 5 or 10" });
+    expect(lines({ ...AWARD, securedAtLeast: 5 }, DISTRICT_2026)).toEqual({ bold: "56% award", small: "pays 5 to 10" });
     expect(lines({ ...CAPTAIN_LIKELIER, securedAtLeast: 9 }, DISTRICT_2026)).toEqual({ bold: "60% captain", small: "pays 9 to 16" });
     expect(lines({ ...BAKED_ALLIANCE, securedAtLeast: 9 }, DISTRICT_2026)).toEqual({ bold: "45% picked", small: "pays 3 to 16" });
     expect(lines({ ...SETTLED_FIRST_PICK, securedAtLeast: 12 }, DISTRICT_2026)).toEqual({ bold: "~12", small: "first pick, alliance 5" });

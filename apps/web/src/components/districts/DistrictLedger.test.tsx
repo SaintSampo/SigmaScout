@@ -1556,15 +1556,18 @@ describe("DistrictLedger — the drawer", () => {
     expect(list.querySelector('[data-outcome="none"]')).toBeNull();
   });
 
-  it("renders an OUTCOME LIST for the Awards cell, and omits Rookie All Star for a veteran", async () => {
+  it("renders an OUTCOME LIST for the Awards cell, which lists Engineering Inspiration and omits Rookie All Star for a veteran", async () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("2026walive:award"));
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
-    // The fixture's teams are veterans, so Rookie All Star is not an outcome,
-    // and the implicit "No award" row is not listed (261007-3ik).
-    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "judged"]);
+    // The fixture's teams are veterans, so Rookie All Star is not an outcome
+    // and Engineering Inspiration owns the 8 (261014-i8i), and the implicit
+    // "No award" row is not listed (261007-3ik).
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "engineeringInspiration", "judged"]);
+    expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.engineeringInspiration);
+    expect(list.querySelector('[data-outcome="engineeringInspiration"] .district-ledger-verdict-outcomes__points')?.textContent).toBe("8 pts");
     expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.rookieAllStar);
     expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.none);
   });

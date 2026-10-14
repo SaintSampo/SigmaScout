@@ -501,6 +501,7 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS: Readonly<Record<DistrictPlay
 export const DISTRICT_LEDGER_AWARD_OUTCOME_LABELS = {
   impact: "Impact",
   rookieAllStar: "Rookie All Star",
+  engineeringInspiration: "Engineering Inspiration",
   judged: "One judged award",
   none: "No award",
 } as const;

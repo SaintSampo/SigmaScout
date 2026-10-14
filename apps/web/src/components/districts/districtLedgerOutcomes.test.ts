@@ -15,11 +15,13 @@ import {
   IMPACT_AWARD_POINTS,
   ROOKIE_ALL_STAR_AWARD_POINTS,
 } from "../../../../../packages/core/districts/awardOrderingTables.js";
+import { ENGINEERING_INSPIRATION_AWARD_POINTS } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { districtSelectionPoints } from "../../../../../packages/core/districts/selectionPoints.js";
 import type { DistrictSelectionRouteObservation } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
   districtAwardOutcomes,
+  districtCellPay,
   districtCellRendersOutcomeList,
   districtOutcomeUnaccountedMass,
   districtPlayoffBestGuess,
@@ -254,9 +256,20 @@ describe("districtAwardOutcomes", () => {
     expect(rows.map((row) => row.points)).toEqual([10, 8, 5, 0]);
   });
 
-  it("omits Rookie All Star for a veteran, which cannot win it at all", () => {
+  it("lists Engineering Inspiration in Rookie All Star's place for a veteran, which cannot win Rookie All Star at all (261014-i8i)", () => {
     const rows = districtAwardOutcomes(SEASON, TIER, awardDistribution(), false);
-    expect(rows.map((row) => row.id)).toEqual(["impact", "judged", "none"]);
+    expect(rows.map((row) => row.id)).toEqual(["impact", "engineeringInspiration", "judged", "none"]);
+    expect(rows.map((row) => row.points)).toEqual([10, 8, 5, 0]);
+    expect(ENGINEERING_INSPIRATION_AWARD_POINTS).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+  });
+
+  it("prices both 8 point rows at the dcmp weight, and never lists both (261014-i8i)", () => {
+    const veteran = districtAwardOutcomes(SEASON, "dcmp", awardDistribution(), false);
+    expect(veteran.map((row) => row.id)).toEqual(["impact", "engineeringInspiration", "judged", "none"]);
+    expect(veteran.map((row) => row.points)).toEqual([30, 24, 15, 0]);
+    const rookie = districtAwardOutcomes(SEASON, "dcmp", awardDistribution(), true);
+    expect(rookie.map((row) => row.id)).toEqual(["impact", "rookieAllStar", "judged", "none"]);
+    expect(rookie.map((row) => row.points)).toEqual([30, 24, 15, 0]);
   });
 
   it("takes each chance as the mass at that exact value", () => {
@@ -269,15 +282,22 @@ describe("districtAwardOutcomes", () => {
     expect(rows.reduce((sum, row) => sum + row.chance, 0)).toBeCloseTo(1, 12);
   });
 
-  it("accounts for EVERY unit of mass a FOLDED award distribution can carry", () => {
-    // Every support value the draw can land on after the fold, at one count each.
+  it("accounts for EVERY unit of mass a FOLDED award distribution can carry, for a rookie AND a veteran, at both tiers", () => {
+    // Every support value the draw can land on after the fold, at one count
+    // each, times the tier weight. A veteran's 8 is Engineering Inspiration and
+    // a rookie's is Rookie All Star, so each list covers the same folded set.
     const folded = [...new Set(AWARD_POINT_SUPPORT.map(foldStackedAwardPoints))];
-    const distribution = distributionOf(
-      folded.map((points) => [points, 1] as const),
-      AWARD_CEILING
-    );
-    const rows = districtAwardOutcomes(SEASON, TIER, distribution, true);
-    expect(districtOutcomeUnaccountedMass(distribution, rows)).toBeCloseTo(0, 12);
+    for (const tier of ["district", "dcmp"] as const) {
+      const weight = tier === "district" ? 1 : 3;
+      const distribution = distributionOf(
+        folded.map((points) => [points * weight, 1] as const),
+        maxEventPoints(SEASON, tier).award
+      );
+      for (const isRookie of [true, false]) {
+        const rows = districtAwardOutcomes(SEASON, tier, distribution, isRookie);
+        expect(districtOutcomeUnaccountedMass(distribution, rows), `${tier} rookie=${String(isRookie)}`).toBeCloseTo(0, 12);
+      }
+    }
   });
 
   it("would FLAG a stacked award that escaped the fold rather than dropping it silently", () => {
@@ -291,6 +311,18 @@ describe("districtAwardOutcomes", () => {
     );
     const rows = districtAwardOutcomes(SEASON, TIER, distribution, true);
     expect(districtOutcomeUnaccountedMass(distribution, rows)).toBeCloseTo(0.1, 12);
+  });
+
+  it("pays a veteran's Awards cell 5, 8 and 10 at a district event and 15, 24 and 30 at a DCMP (261014-i8i)", () => {
+    type OpenCell = Extract<DistrictLedgerCell, { kind: "open" }>;
+    for (const [tier, expected] of [
+      ["district", [5, 8, 10]],
+      ["dcmp", [15, 24, 30]],
+    ] as const) {
+      const ceiling = maxEventPoints(SEASON, tier).award;
+      const cell = openDistrictLedgerCell("2026walive:award", "award", distributionOf([[0, 50], [5, 50]], ceiling), ceiling) as OpenCell;
+      expect(districtCellPay(cell, { season: SEASON, tier, isRookie: false })).toEqual({ kind: "values", values: expected });
+    }
   });
 
   it("names no value above Impact, at either tier", () => {

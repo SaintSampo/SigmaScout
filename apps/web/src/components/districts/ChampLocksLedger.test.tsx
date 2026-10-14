@@ -888,7 +888,7 @@ describe("ChampLocksLedger — the drawer", () => {
     expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
   });
 
-  it("lists the award outcomes at the DCMP weight and omits a VETERAN's Rookie All Star row", async () => {
+  it("lists the award outcomes at the DCMP weight, names a VETERAN's Engineering Inspiration and omits its Rookie All Star row", async () => {
     renderUnderWay();
     await clickCell("dcmp-row:award");
     const list = within(screen.getByTestId("champ-ledger-drawer")).getByTestId("district-ledger-drawer-outcomes");
@@ -900,6 +900,9 @@ describe("ChampLocksLedger — the drawer", () => {
     // veteran cannot win Rookie All Star, so the row is omitted rather than
     // printed at zero.
     expect(within(list).queryByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.rookieAllStar)).toBeNull();
+    // A veteran's 8 point award is Engineering Inspiration, 24 at the 3x weight (261014-i8i).
+    expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.engineeringInspiration)).toBeDefined();
+    expect(list.querySelector('[data-outcome="engineeringInspiration"] .district-ledger-verdict-outcomes__points')?.textContent).toBe("24 pts");
     // 30 for Impact, the 3x weight.
     expect(list.textContent ?? "").toContain("30");
   });

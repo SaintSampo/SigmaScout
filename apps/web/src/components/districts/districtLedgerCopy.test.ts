@@ -438,6 +438,7 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
     expect(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS).toEqual({
       impact: "Impact",
       rookieAllStar: "Rookie All Star",
+      engineeringInspiration: "Engineering Inspiration",
       judged: "One judged award",
       none: "No award",
     });
@@ -496,6 +497,9 @@ describe("the open cell's pays line and chance (quick task 261008-3il)", () => {
     expect(districtLedgerPaysLine({ kind: "values", values: [30] })).toBe("pays 30");
     expect(districtLedgerPaysLine({ kind: "values", values: [20, 30] })).toBe("pays 20 or 30");
     expect(districtLedgerPaysLine({ kind: "values", values: [7, 13, 20, 30] })).toBe("pays 7 to 30");
+    // A veteran's Awards cell since 261014-i8i: Engineering Inspiration joins at 8 and 24.
+    expect(districtLedgerPaysLine({ kind: "values", values: [5, 8, 10] })).toBe("pays 5 to 10");
+    expect(districtLedgerPaysLine({ kind: "values", values: [15, 24, 30] })).toBe("pays 15 to 30");
   });
 
   it("prints a range with to, and a single number where its two ends meet", () => {

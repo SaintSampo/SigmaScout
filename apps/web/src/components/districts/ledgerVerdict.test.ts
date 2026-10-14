@@ -292,7 +292,8 @@ describe("buildVerdictModel on an outcome cell", () => {
     const award = buildVerdictModel(baseInput(openCell("award", counts, CEILINGS.award)));
     expect(award.headline).toBe("No award in 78 of 100 runs.");
     expect(award.tiles[1]!.value).toBe("22%");
-    expect(award.chart.kind === "outcomes" ? award.chart.rows.map((row) => row.key) : []).toEqual(["impact", "judged"]);
+    // A veteran lists Engineering Inspiration at 8 since 261014-i8i.
+    expect(award.chart.kind === "outcomes" ? award.chart.rows.map((row) => row.key) : []).toEqual(["impact", "engineeringInspiration", "judged"]);
 
     const elimCounts = sparse(CEILINGS.elim * 2, [
       [0, 50],

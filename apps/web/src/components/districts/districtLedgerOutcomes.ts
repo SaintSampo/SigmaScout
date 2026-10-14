@@ -5,7 +5,10 @@
  * WHY A LIST AND NOT A HISTOGRAM (Jacob, 2026-09-25: "outcome lists instead of
  * histograms for playoffs and awards"). Both categories are LUMPY: a district
  * playoff pays exactly one of 30, 20, 13, 7 or 0, and a district award exactly
- * one of 10, 8, 5 or 0. A histogram over a 0-to-30 axis draws four bars and
+ * one of 10, 8, 5 or 0, where the 8 is Rookie All Star for a rookie and
+ * Engineering Inspiration for a veteran (no rookie has won Engineering
+ * Inspiration at either tier in any corpus season 2016 to 2026, so one row
+ * always owns the mass at 8 and it is never counted twice). A histogram over a 0-to-30 axis draws four bars and
  * twenty-six gaps, and the reader has to map each bar back onto a placement
  * from its x position. The outcomes have NAMES, so naming them is strictly more
  * information in less space. Qualification, the event total and the grand total
@@ -21,7 +24,8 @@
  * EVERY POINT VALUE COMES FROM A MEASURED MODULE: the placements from
  * `playoffPoints` (10-01's own table, tier weight applied by the phase's single
  * weight source) and the award values from `IMPACT_AWARD_POINTS` /
- * `ROOKIE_ALL_STAR_AWARD_POINTS` / `AWARD_POINT_SUPPORT`. There is no numeric
+ * `ROOKIE_ALL_STAR_AWARD_POINTS` / `ENGINEERING_INSPIRATION_AWARD_POINTS` /
+ * `AWARD_POINT_SUPPORT`. There is no numeric
  * literal for a point value anywhere in this file.
  *
  * EVERY CHANCE IS THE MASS AT THAT EXACT POINT VALUE, divided by the
@@ -39,6 +43,7 @@ import {
   IMPACT_AWARD_POINTS,
   ROOKIE_ALL_STAR_AWARD_POINTS,
 } from "../../../../../packages/core/districts/awardOrderingTables.js";
+import { ENGINEERING_INSPIRATION_AWARD_POINTS } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { districtTierWeight } from "../../../../../packages/core/districts/qualPoints.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type {
@@ -50,7 +55,7 @@ import type {
 
 /** The outcome identifiers, so a caller names an outcome rather than matching its label. */
 export type DistrictPlayoffOutcomeId = "winner" | "finalist" | "third" | "fourth" | "none";
-export type DistrictAwardOutcomeId = "impact" | "rookieAllStar" | "judged" | "none";
+export type DistrictAwardOutcomeId = "impact" | "rookieAllStar" | "engineeringInspiration" | "judged" | "none";
 
 /** One rendered outcome row. `chance` is in `[0, 1]`; the list is ordered by `points` descending. */
 export interface DistrictOutcomeRow<Id extends string> {
@@ -121,12 +126,14 @@ const ONE_JUDGED_AWARD_POINTS = AWARD_POINT_SUPPORT[1]!;
 /**
  * The Awards cell's outcome rows.
  *
- * ROOKIE ALL STAR IS OMITTED FOR A VETERAN, which is the one structural
- * omission here: a veteran cannot win it, and `ledgerSimulation.ts` consumes no
- * randomness for it at all. `isRookie` is the artifact's own `awardProfile.rookie`
- * flag; where the artifact publishes no profile the caller passes `false`, and
- * the row is omitted — an outcome the tab cannot establish is not an outcome to
- * offer.
+ * THE 8 POINT ROW IS ROOKIE ALL STAR FOR A ROOKIE AND ENGINEERING INSPIRATION
+ * FOR A VETERAN, never both. A veteran cannot win Rookie All Star, and no rookie
+ * has won Engineering Inspiration at either tier in any corpus season 2016 to
+ * 2026 (`measure:dcmp-award-slate` prints that census), so exactly one row owns
+ * the mass at 8 and it is never counted twice. `isRookie` is the artifact's own
+ * `awardProfile.rookie` flag; where the artifact publishes no profile the caller
+ * passes `false`, and the row reads Engineering Inspiration, the award a team
+ * the tab cannot call a rookie can win at 8.
  *
  * NOTHING ABOVE IMPACT APPEARS, because nothing above Impact is a prediction any
  * more: quick task 260925-uf8 folds every stacked bin onto its highest single
@@ -142,11 +149,12 @@ export function districtAwardOutcomes(
   const rows: DistrictOutcomeRow<DistrictAwardOutcomeId>[] = [
     { id: "impact", points: IMPACT_AWARD_POINTS * weight, chance: 0 },
     { id: "rookieAllStar", points: ROOKIE_ALL_STAR_AWARD_POINTS * weight, chance: 0 },
+    { id: "engineeringInspiration", points: ENGINEERING_INSPIRATION_AWARD_POINTS * weight, chance: 0 },
     { id: "judged", points: ONE_JUDGED_AWARD_POINTS * weight, chance: 0 },
     { id: "none", points: 0, chance: 0 },
   ];
   return rows
-    .filter((row) => row.id !== "rookieAllStar" || isRookie)
+    .filter((row) => (row.id === "rookieAllStar" ? isRookie : row.id === "engineeringInspiration" ? !isRookie : true))
     .map((row) => ({ ...row, chance: chanceAt(distribution, row.points) }));
 }
 
@@ -457,7 +465,8 @@ function selectionPay(view: DistrictSelectionRouteView): DistrictCellPay | undef
  *
  * The Playoffs cell is priced by `districtPlayoffBestGuess` instead, and this
  * function returns `undefined` for it. The Awards cell returns every award
- * row's points (Rookie All Star only for a rookie). The Alliance selection cell
+ * row's points (Rookie All Star for a rookie, Engineering Inspiration for a
+ * veteran). The Alliance selection cell
  * returns its headline route's span from the route rows, which already carry
  * the points at this event's alliance count and tier, so it needs no pricing;
  * a baked event reports no routes and reads its own support. The median form
