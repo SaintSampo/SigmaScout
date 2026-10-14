@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-13T22:03:21.436Z"
-last_activity: 2026-10-13
+last_updated: "2026-10-14T05:08:37.971Z"
+last_activity: 2026-10-14
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -760,6 +760,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 324 | Every rival is counted once in the joint lock proof (an exact matching replaces the relaxed cover), so a team's own points never raise its own bound and no other team's posting does; a pick TBA has paid for its alliance's playoffs is on that alliance, so the tick the playoff points land takes no lock back. 814,080 seeded transitions and 2.7 million walked bounds read 0 rises; independent brute forces find no future above the bound; no sweep row moved, six walk locks gained | 2026-10-11 | d95bfc4d | [261010-l0s-a-team-s-own-points-never-raise-its-own-](./quick/261010-l0s-a-team-s-own-points-never-raise-its-own-/) |
 | 325 | A team still in a playoff bracket is credited the playoff points its wins have already secured: TBA's pay rule (by wins a robot was on the field for) fitted exactly to all 11,991 paid values of 2023 to 2026, the least a robot can still be paid as a proven floor (0 above in 222,863 positions), the larger of that and TBA's number once posted; the earned figure equals what the lock counts, an open Playoffs cell reads at least N, and a live re run takes no lock back. 2026 FNC Round 5 frc4561 now Locked; 466 Champ and 1,287 District lock stops gained, none lost | 2026-10-13 | b1fc2566 | [261012-mw2-a-team-in-the-bracket-is-credited-the-pl](./quick/261012-mw2-a-team-in-the-bracket-is-credited-the-pl/) |
 | 326 | The playoff point pool of the District Locks pooled test is the most TBA's pay rule can pay one event, proven: 216 (214 under the 2023 rule) for a roster of at most four robots, where it was a measured 213; reached and never exceeded by an exhaustive search of all 32,768 brackets; 66 of 38,771 rewound lock displays show later, none gained, none taken back; Worker bundle changes | 2026-10-13 | 0ce59192 | [261013-lve-the-playoff-point-pool-is-the-most-the-p](./quick/261013-lve-the-playoff-point-pool-is-the-most-the-p/) |
+| 327 | A prequalified team that wins a championship award or the event no longer uses up a district slot: one rule in locks.ts read by the published verdicts, the Champ Locks tab and the chance run; 19 districts back to 2016 moved, 32 teams gained a status, none lost one; cutoff tuning regenerated; merged after 261012-mw2 and 261013-lve | 2026-10-14 | 6eeaebfe | [261012-nff-a-prequalified-team-that-wins-a-champion](./quick/261012-nff-a-prequalified-team-that-wins-a-champion/) |
 
 ### Roadmap Evolution
 
