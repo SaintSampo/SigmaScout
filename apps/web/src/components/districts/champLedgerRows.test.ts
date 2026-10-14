@@ -1667,6 +1667,31 @@ describe("buildChampLedgerRows forwards the field's stage to both tier passes (q
     // With no field map the note follows the stage map, as before: selection is not final there.
     expect("notPicked" in cellOf(built().dcmpRow.cells, "elim")).toBe(false);
   });
+
+  it("the DCMP row's open Playoffs cell carries the championship pass's route view, and the District points row's cells carry none (261014-jfx)", () => {
+    const slot = { draws: 0, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 0, possibleMaxPoints: 48 };
+    const routes = { bySlot: [slot, slot, slot, slot], notSelectedDraws: 700 };
+    const distributions = new Map<string, DistrictEventDistributions>([
+      [
+        DCMP,
+        {
+          ...distributionsFor(DCMP, { frc1: { alliance: uniform(48, 1000), elim: uniform(90, 1000), award: uniform(45, 1000), eventTotal: uniform(249, 1000) } }),
+          selectionRoutesByTeam: new Map([["frc1", routes]]),
+          rankingFixed: false,
+        },
+      ],
+    ]);
+    // Selection is open on both maps, so the cell is not flagged not picked.
+    const team = buildChampLedgerRows({ artifact, distributions, stageByEvent: numberByEvent, atLivePosition: true, fieldStageByEvent: numberByEvent }).teams[0]!;
+    const elim = cellOf(team.dcmpRow.cells, "elim");
+    expect(elim.kind).toBe("open");
+    if (elim.kind !== "open") return;
+    expect("notPicked" in elim).toBe(false);
+    expect(elim.selection).toEqual({ routes, denominator: elim.distribution.denominator, rankingFixed: false });
+    expect(elim.selection!.routes.notSelectedDraws).toBe(700);
+    // The District points row is a sum over events: none of its cells carries a view.
+    for (const cell of team.districtRow.cells) if (cell.kind === "open") expect("selection" in cell, cell.id).toBe(false);
+  });
 });
 
 describe("buildChampLedgerRows: a team with no championship row reads out only once the field is proven (quick task 261010-66y, D1)", () => {

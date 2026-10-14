@@ -160,7 +160,7 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_LEGEND_OPEN).toBe("still open · click to see");
     expect(districtLedgerRookieBonusLine(10)).toBe("+10 rookie bonus");
     expect(districtLedgerRookieBonusLine(5)).toBe("+5 rookie bonus");
-    expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's predicted points · % = share of 1,000 runs");
+    expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's prediction · % = share of 1,000 runs");
   });
 
   it("pins the five status labels and the award variant", () => {

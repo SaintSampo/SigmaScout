@@ -127,11 +127,12 @@ export const DISTRICT_LEDGER_LEGEND_EARNED = "earned, final";
 export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click to see";
 
 /**
- * The likely, tilde and percent explainer (quick task 261008-3il): the tilde
- * marks this site's predicted POINTS, and a percentage, which never carries a
+ * The likely, tilde and percent explainer (quick task 261008-3il, reworded in
+ * 261014-jfx): the tilde marks this site's predictions, a predicted point figure
+ * and a Playoffs best guess finish alike, and a percentage, which never carries a
  * tilde, is a share of the 1,000 runs.
  */
-export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = this site's predicted points · % = share of 1,000 runs";
+export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = this site's prediction · % = share of 1,000 runs";
 
 // ---------------------------------------------------------------------------
 // The Locks milestone picker (sketch 024 variant Q)
@@ -757,7 +758,7 @@ export function districtLedgerSecuredLine(secured: number, rest?: string): strin
  * A GREY FINAL CELL'S FIGURE (quick task 261010-66y, CONTEXT D6): the rounded
  * integer, behind the words `up to` where the value is a settled Playoffs
  * value that is not TBA's own number yet (`DistrictLedgerCell.upTo`). Lower
- * case, no dash character and no tilde: the tilde is for predicted points,
+ * case, no dash character and no tilde: the tilde marks this site's predictions,
  * and this is the most a decided placement pays, not a prediction. The table
  * cell and the total's drawer chip both print through this one function.
  */
@@ -897,7 +898,8 @@ export const CHAMP_LEDGER_DISTRICT_ONLY_LINE = "district only";
  * Clamped by the SAME pair `districtLedgerChanceLine` uses, for the same two
  * reasons, so the two lines can never disagree about what a printable chance
  * is. No tilde: a percentage on either Locks tab never carries one, and the
- * tilde marks predicted points alone (quick task 261008-3il).
+ * tilde marks this site's predictions and never a percentage (quick task
+ * 261008-3il, reworded in 261014-jfx).
  */
 export function champLedgerFieldChanceLine(chance: number): string {
   if (chance * 100 < DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT) return `<${String(DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT)}% to be there`;

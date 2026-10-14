@@ -396,7 +396,7 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     expect(row?.[1]).not.toMatch(/\bthem\b/);
   });
 
-  it("describes the open cell grammar and the Playoffs cell's best guess finish and not picked case (261014-i1c)", () => {
+  it("describes the open cell grammar, the Playoffs best guess finish and the not picked case (261014-i1c, 261014-jfx)", () => {
     const paragraphs = paragraphsOf("how-open-categories-are-predicted");
     expect(paragraphs.find((text) => text.startsWith("An open cell shows"))).toBe(
       "An open cell shows either a median with a likely range, or a chance followed by the outcome it measures, with the points that outcome pays on the line beneath. The Playoffs cell names a finish instead, as the next paragraph describes. Likely means the 10th to the 90th percentile, and no chance is ever printed as 100 percent."
@@ -408,7 +408,15 @@ describe("districtLedgerContent: the rewound view and the championship field (26
       "The line beneath gives the share of runs that ended there and the points that finish pays. A finish the bracket has already ruled out is never the best guess. Where the cell adds up more than one event, as the Champ Locks District points row does, no one finish describes it, and the cell shows a median with a likely range instead."
     );
     expect(paragraphs.find((text) => text.startsWith("An alliance whose placement is already settled"))).toBe(
-      "An alliance whose placement is already settled shows the points that placement pays. A team on no alliance once alliance selection is over reads not picked, and only a backup call can still earn it playoff points."
+      "An alliance whose placement is already settled shows the points that placement pays. A team on no alliance once alliance selection is over reads not picked, and only a backup call can still earn it playoff points. Before then, a team left off every alliance in more than half of the runs reads not picked, with its chance of being on an alliance on the line beneath."
+    );
+    expect(paragraphs.find((text) => text.startsWith("Where the runs report"))).toBe(
+      "Where the runs report which teams were left off every alliance, fifth to eighth means picked but out of the top four. At an event that has not started, fifth to eighth also counts the runs that left the team off every alliance."
+    );
+    // The new paragraph sits directly after the alliance paragraph.
+    const settled = paragraphs.findIndex((text) => text.startsWith("An alliance whose placement is already settled"));
+    expect(paragraphs[settled + 1]).toBe(
+      "Where the runs report which teams were left off every alliance, fifth to eighth means picked but out of the top four. At an event that has not started, fifth to eighth also counts the runs that left the team off every alliance."
     );
     expect(paragraphs.find((text) => text.startsWith("An elimination match already played"))).toBe(
       "An elimination match already played is taken as played rather than priced again, so every run starts from the bracket as it stands. The best guess and its chance therefore move as the playoffs go on."
