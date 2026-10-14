@@ -653,7 +653,28 @@ export function boundaryTotalsByEvent(
   seasons: readonly number[],
   warmupFrom: number | undefined
 ): Map<string, Map<string, number>> {
-  const byEvent = new Map<string, Map<string, number>>();
+  return boundaryTotalsFromRatings(boundaryRatingsByEvent(db, seasons, warmupFrom));
+}
+
+/** One team's published SPR pair at the qualification/playoff boundary. `sigma` is `undefined` when the replay carried none. */
+export interface BoundaryRating {
+  readonly total: number;
+  readonly sigma: number | undefined;
+}
+
+/**
+ * Per event, each team's published `total` AND `sigma` at the QUALIFICATION/
+ * PLAYOFF BOUNDARY, from the SAME replay call and the SAME rule as
+ * `boundaryTotalsByEvent` (which is now a projection of this, so there is one
+ * rule): qualification rows only, `row.after`, kept only when `total` is
+ * finite, a later row overwriting an earlier one (quick task 261014-mji).
+ */
+export function boundaryRatingsByEvent(
+  db: Corpus,
+  seasons: readonly number[],
+  warmupFrom: number | undefined
+): Map<string, Map<string, BoundaryRating>> {
+  const byEvent = new Map<string, Map<string, BoundaryRating>>();
   replayPublishedSprSnapshots(db, { seasons, warmupFrom }, (row) => {
     if (row.match.compLevel !== "qm") return;
     let forEvent = byEvent.get(row.match.eventKey);
@@ -662,9 +683,24 @@ export function boundaryTotalsByEvent(
       byEvent.set(row.match.eventKey, forEvent);
     }
     for (const [teamKey, snapshot] of row.after) {
-      if (snapshot.total !== undefined && Number.isFinite(snapshot.total)) forEvent.set(teamKey, snapshot.total);
+      if (snapshot.total !== undefined && Number.isFinite(snapshot.total)) {
+        forEvent.set(teamKey, { total: snapshot.total, sigma: snapshot.sigma });
+      }
     }
   });
+  return byEvent;
+}
+
+/** The `total` projection of `boundaryRatingsByEvent`, the map `measurePickOrderHalf` reads. */
+export function boundaryTotalsFromRatings(
+  ratings: ReadonlyMap<string, ReadonlyMap<string, BoundaryRating>>
+): Map<string, Map<string, number>> {
+  const byEvent = new Map<string, Map<string, number>>();
+  for (const [eventKey, forEvent] of ratings) {
+    const totals = new Map<string, number>();
+    for (const [teamKey, rating] of forEvent) totals.set(teamKey, rating.total);
+    byEvent.set(eventKey, totals);
+  }
   return byEvent;
 }
 
@@ -673,14 +709,20 @@ export interface PickOrderHalfResult {
   readonly eventsScored: number;
 }
 
-/** The PICK-ORDER half. Needs the replay, so it runs over the narrower window. */
+/**
+ * The PICK-ORDER half. Needs the replay, so it runs over the narrower window.
+ * `precomputedBoundary` (quick task 261014-mji): an event to team to boundary
+ * `total` map the caller already built (`boundaryTotalsFromRatings`); when
+ * given, the replay is skipped. Absent, the replay runs as it always did.
+ */
 export function measurePickOrderHalf(
   db: Corpus,
   seasons: readonly number[],
   warmupFrom: number | undefined,
-  census: SelectionCensus
+  census: SelectionCensus,
+  precomputedBoundary?: ReadonlyMap<string, ReadonlyMap<string, number>>
 ): PickOrderHalfResult {
-  const boundary = boundaryTotalsByEvent(db, seasons, warmupFrom);
+  const boundary = precomputedBoundary ?? boundaryTotalsByEvent(db, seasons, warmupFrom);
   const turns: TurnResult[] = [];
   let eventsScored = 0;
 

@@ -73,6 +73,7 @@ import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinP
 import { eventAwardOutcomeOdds } from "./ledgerSimulation.js";
 import { DcmpAwardSlateOnDistrictTierError, MissingDcmpAwardSlateError } from "./ledgerSimulation.js";
 import type { DcmpAwardSlateInput } from "./dcmpAwardSlate.js";
+import { InvalidPickPositionPmfError, LEDGER_STREAM_SALT, PICK_STREAM_SALT, type PickPositionPmf } from "./ledgerSimulation.js";
 
 const SEASON = 2026;
 const TIER = "district" as const;
@@ -2494,5 +2495,206 @@ describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)
     const profiles = slateProfiles();
     profiles.delete(teamKey(9));
     expect(() => simulateDistrictEvent(dcmpInput({ awardProfiles: profiles }), 10, 1)).toThrow(MissingAwardProfileError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE CANDIDATE RANDOM PICK DRAFT (quick task 261014-mji): an optional input,
+// inert at default. Every existing test above runs unedited without it; that
+// is the inert proof. This block pins what the option does when present.
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — the candidate random pick draft (pickPositionPmf)", () => {
+  const DEGENERATE: PickPositionPmf = { firstPick: [1], secondPick: [1] };
+
+  /** Every observation, deeply copied, plus its pickDraws (undefined when the key is absent). */
+  function observeAll(
+    input: DistrictLedgerEventInput,
+    draws: number,
+    seed: number
+  ): {
+    result: ReturnType<typeof simulateDistrictEvent>;
+    snapshots: ReturnType<typeof snapshot>[];
+    pickDraws: (number | undefined)[];
+    hasKey: boolean[];
+  } {
+    const snapshots: ReturnType<typeof snapshot>[] = [];
+    const pickDraws: (number | undefined)[] = [];
+    const hasKey: boolean[] = [];
+    const result = simulateDistrictEvent(input, draws, seed, (observation) => {
+      snapshots.push(snapshot(observation));
+      pickDraws.push(observation.pickDraws);
+      hasKey.push("pickDraws" in observation);
+    });
+    return { result, snapshots, pickDraws, hasKey };
+  }
+
+  /** The pick order the module documents: descending published total, ties by ascending team key. */
+  function byTotal(input: DistrictLedgerEventInput): string[] {
+    return input.baselines
+      .map((baseline) => baseline.teamKey)
+      .sort((a, b) => {
+        const totalA = input.ratings.get(a)!.total!;
+        const totalB = input.ratings.get(b)!.total!;
+        if (totalA !== totalB) return totalB - totalA;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+  }
+
+  /**
+   * An independent walk of the draft at a FIXED ranking (zero remaining
+   * matches, baselines already in rank order): progressive captains, round one
+   * 1..k then round two k..1, each pick taking the position `choose` names in
+   * the still available list ordered by total.
+   */
+  function oracleDraft(input: DistrictLedgerEventInput, choose: (round: 1 | 2, available: number) => number): string[][] {
+    const rankOrder = input.baselines.map((baseline) => baseline.teamKey);
+    const pickOrder = byTotal(input);
+    const allied = new Set<string>();
+    const k = draftedAllianceCount(rankOrder.length, input.allianceCount);
+    const alliances: string[][] = [];
+    for (let n = 0; n < input.allianceCount; n++) alliances.push([]);
+    const pick = (round: 1 | 2): string => {
+      const available = pickOrder.filter((key) => !allied.has(key));
+      const position = choose(round, available.length);
+      const key = available[position - 1]!;
+      allied.add(key);
+      return key;
+    };
+    for (let a = 1; a <= k; a++) {
+      const captain = rankOrder.find((key) => !allied.has(key))!;
+      allied.add(captain);
+      alliances[a - 1]!.push(captain);
+      alliances[a - 1]!.push(pick(1));
+    }
+    for (let a = k; a >= 1; a--) alliances[a - 1]!.push(pick(2));
+    return alliances;
+  }
+
+  it("a pmf of [1] for both rounds deep equals the run without the option, histograms, routes and ledger counts included", () => {
+    for (const input of [inputFor(30), inputFor(24, { remainingMatches: [] })]) {
+      const absent = observeAll(input, 200, 17);
+      const degenerate = observeAll({ ...input, pickPositionPmf: DEGENERATE }, 200, 17);
+      expect(degenerate.result).toEqual(absent.result);
+      expect(degenerate.snapshots).toEqual(absent.snapshots);
+      expect(degenerate.snapshots.map((s) => s.ledgerDraws)).toEqual(absent.snapshots.map((s) => s.ledgerDraws));
+    }
+  });
+
+  it("leaves the rank stream untouched: qualification histograms are deep equal under a non degenerate pmf", () => {
+    const input = inputFor(30);
+    const absent = simulateDistrictEvent(input, 300, 23);
+    const random = simulateDistrictEvent(
+      { ...input, pickPositionPmf: { firstPick: [0.5, 0.3, 0.2], secondPick: [0.4, 0.4, 0.2] } },
+      300,
+      23
+    );
+    expect(random.qualPoints).toEqual(absent.qualPoints);
+    expect(random.rankingFixed).toBe(absent.rankingFixed);
+  });
+
+  it("[0, 1] takes the SECOND best available team on every pick, except the best when only one is left", () => {
+    const input = inputFor(24, { remainingMatches: [] });
+    const expected = oracleDraft(input, (_round, available) => (available >= 2 ? 2 : 1));
+    const { snapshots } = observeAll({ ...input, pickPositionPmf: { firstPick: [0, 1], secondPick: [0, 1] } }, 50, 5);
+    expect(snapshots).toHaveLength(50);
+    for (const s of snapshots) expect(s.alliances).toEqual(expected);
+    // A different draft from the greedy one, so the test is not vacuous.
+    expect(expected).not.toEqual(oracleDraft(input, () => 1));
+  });
+
+  it("draws positions at the pmf's frequency: [0.5, 0.5] puts the top available team on alliance 1 about half the time", () => {
+    const input = inputFor(24, { remainingMatches: [] });
+    const captain = input.baselines[0]!.teamKey;
+    const available = byTotal(input).filter((key) => key !== captain);
+    let top = 0;
+    let second = 0;
+    const draws = 4_000;
+    simulateDistrictEvent({ ...input, pickPositionPmf: { firstPick: [0.5, 0.5], secondPick: [1] } }, draws, 31, (observation) => {
+      const firstPick = observation.alliances[0]![1]!;
+      if (firstPick === available[0]) top++;
+      else if (firstPick === available[1]) second++;
+    });
+    expect(top + second).toBe(draws);
+    expect(Math.abs(top / draws - 0.5)).toBeLessThan(0.03);
+  });
+
+  it("truncates a pmf to the available list: [0, 0, 1] takes position 3 with three or more left and the best with one or two", () => {
+    const input = inputFor(24, { remainingMatches: [] });
+    const expected = oracleDraft(input, (round, available) => (round === 1 ? 1 : available >= 3 ? 3 : 1));
+    const { snapshots } = observeAll({ ...input, pickPositionPmf: { firstPick: [1], secondPick: [0, 0, 1] } }, 20, 9);
+    for (const s of snapshots) expect(s.alliances).toEqual(expected);
+  });
+
+  it("renormalises the mass inside the list: [0.25, 0.25, 0.5] with two left draws positions 1 and 2 about evenly", () => {
+    // With 24 teams, alliance 2's second pick is the turn with exactly two
+    // teams left: its own pick and alliance 1's second pick.
+    const input = inputFor(24, { remainingMatches: [] });
+    const positionByTotal = new Map(byTotal(input).map((key, index) => [key, index]));
+    const draws = 4_000;
+    let firstPosition = 0;
+    simulateDistrictEvent(
+      { ...input, pickPositionPmf: { firstPick: [1], secondPick: [0.25, 0.25, 0.5] } },
+      draws,
+      41,
+      (observation) => {
+        const alliance2 = observation.alliances[1]![2]!;
+        const alliance1 = observation.alliances[0]![2]!;
+        if (positionByTotal.get(alliance2)! < positionByTotal.get(alliance1)!) firstPosition++;
+      }
+    );
+    expect(Math.abs(firstPosition / draws - 0.5)).toBeLessThan(0.03);
+  });
+
+  it("refuses an invalid pmf before any draw and names every offender", () => {
+    let observed = 0;
+    const bad = inputFor(24, {
+      remainingMatches: [],
+      pickPositionPmf: { firstPick: [], secondPick: [0.5, -1, Number.NaN, Number.POSITIVE_INFINITY] },
+    });
+    let message = "";
+    try {
+      simulateDistrictEvent(bad, 10, 1, () => observed++);
+    } catch (error) {
+      expect(error).toBeInstanceOf(InvalidPickPositionPmfError);
+      message = (error as Error).message;
+    }
+    expect(observed).toBe(0);
+    expect(message).toContain("firstPick (empty)");
+    expect(message).toContain("secondPick position 2");
+    expect(message).toContain("secondPick position 3");
+    expect(message).toContain("secondPick position 4");
+
+    const zero = inputFor(24, { remainingMatches: [], pickPositionPmf: { firstPick: [0, 0], secondPick: [1] } });
+    expect(() => simulateDistrictEvent(zero, 10, 1, () => observed++)).toThrow(InvalidPickPositionPmfError);
+    expect(() => simulateDistrictEvent(zero, 10, 1)).toThrow(/firstPick \(no positive weight\)/);
+    expect(observed).toBe(0);
+  });
+
+  it("reads exactly one pick stream value per pick turn: pickDraws is 2 x draftedAllianceCount, and absent without the option", () => {
+    for (const teamCount of [24, 30, 20]) {
+      const input = inputFor(teamCount, { remainingMatches: [] });
+      const present = observeAll({ ...input, pickPositionPmf: { firstPick: [0.6, 0.4], secondPick: [0.2, 0.3, 0.5] } }, 25, 3);
+      const expected = 2 * draftedAllianceCount(teamCount, 8);
+      expect(present.pickDraws).toHaveLength(25);
+      expect(present.pickDraws.every((count) => count === expected)).toBe(true);
+      const absent = observeAll(input, 25, 3);
+      expect(absent.hasKey.every((has) => !has)).toBe(true);
+    }
+  });
+
+  it("changes nothing when alliances are supplied, and reads no pick stream value", () => {
+    const input = inputFor(30, { knownAlliances: suppliedAlliances() });
+    const absent = observeAll(input, 100, 13);
+    const present = observeAll({ ...input, pickPositionPmf: { firstPick: [0, 1], secondPick: [0, 0, 1] } }, 100, 13);
+    expect(present.result).toEqual(absent.result);
+    expect(present.snapshots).toEqual(absent.snapshots);
+    expect(present.pickDraws.every((count) => count === 0)).toBe(true);
+  });
+
+  it("PICK_STREAM_SALT is a nonzero 32 bit constant different from LEDGER_STREAM_SALT", () => {
+    expect(PICK_STREAM_SALT).not.toBe(0);
+    expect(PICK_STREAM_SALT).not.toBe(LEDGER_STREAM_SALT);
+    expect(PICK_STREAM_SALT >>> 0).toBe(PICK_STREAM_SALT);
   });
 });

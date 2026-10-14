@@ -87,6 +87,21 @@
  * A straight 1-through-N round two would run the gradient the other way.
  *
  * ---------------------------------------------------------------------------
+ * THE CANDIDATE RANDOM PICK DRAFT (quick task 261014-mji)
+ * ---------------------------------------------------------------------------
+ *
+ * The shipped draft picks greedily by published SPR mean and draws no
+ * randomness, so at a fixed ranking every pick chance is 0% or 100%. The
+ * OPTIONAL `pickPositionPmf` input is a MEASUREMENT CANDIDATE: at each pick
+ * turn it draws a POSITION in the list of still available teams ordered by
+ * published SPR mean, from one measured pmf for first picks and one for
+ * second picks, truncated to the list and renormalised. It reads its own
+ * stream (`PICK_STREAM_SALT`). It is INERT AT DEFAULT: absent, the draft is
+ * today's greedy draft byte for byte, and nothing in the web app, the Worker,
+ * the publisher or the bake passes it. Captains still follow the progressive
+ * rule, and declines stay unmodelled either way.
+ *
+ * ---------------------------------------------------------------------------
  * SHORT ROSTERS: WHOLE FILLER ALLIANCES, MEASURED
  * ---------------------------------------------------------------------------
  *
@@ -279,6 +294,22 @@ import { districtSelectionPoints } from "./selectionPoints.js";
  * changes every seeded output of this module.
  */
 export const LEDGER_STREAM_SALT = 0x5d15_7c17;
+
+/**
+ * XORed into the caller's seed to build the PICK stream, a THIRD independent
+ * `mulberry32` stream, constructed ONLY when `pickPositionPmf` is present
+ * (quick task 261014-mji). It reads exactly one value per pick turn.
+ *
+ * WHY A THIRD STREAM rather than drawing picks from the ledger stream:
+ *   1. An absent option constructs and consumes nothing, so every seeded output
+ *      and every pin of this module is unchanged.
+ *   2. `ledgerDraws` keeps meaning the bracket plus the awards, which is what
+ *      the stage-dependent pins count.
+ *   3. With the option present, the bracket and award draws read the SAME
+ *      ledger stream values the fixed draft sees, so a head to head comparison
+ *      of the two drafts shares random numbers wherever their alliances agree.
+ */
+export const PICK_STREAM_SALT = 0x2c6b_a9e3;
 
 // ---------------------------------------------------------------------------
 // Input and output shapes
@@ -718,6 +749,20 @@ export interface SuppliedAlliance {
   readonly picks: readonly string[];
 }
 
+/**
+ * The candidate random pick draft's two position pmfs (quick task 261014-mji).
+ * Index `i` is the weight for position `i + 1` in the list of still available
+ * roster teams ordered exactly as the greedy pick order is: descending
+ * published `total`, ties by ascending team key. Weights need not sum to 1;
+ * at each turn the pmf is truncated to the list's length and renormalised.
+ */
+export interface PickPositionPmf {
+  /** Round one (alliance 1 through k). */
+  readonly firstPick: readonly number[];
+  /** Round two (alliance k back down to 1). */
+  readonly secondPick: readonly number[];
+}
+
 /** The per-event input to one joint district ledger run. */
 export interface DistrictLedgerEventInput {
   readonly eventKey: string;
@@ -818,6 +863,16 @@ export interface DistrictLedgerEventInput {
    * where `knownAwardPoints` is supplied: a posted award needs no pricing.
    */
   readonly dcmpAwardSlate?: DcmpAwardSlateInput;
+  /**
+   * A MEASUREMENT CANDIDATE from quick task 261014-mji: the random pick draft.
+   * Nothing in the web app, the Worker, the publisher or the bake passes it.
+   * Absent means today's greedy draft, byte for byte. Present, each pick turn
+   * of a SIMULATED draft draws a position from this pmf on its own stream
+   * (`PICK_STREAM_SALT`). Ignored when `knownAlliances` is supplied, because
+   * the draft does not run. Plain arrays, so it stays structured cloneable.
+   * Validated before any draw (`InvalidPickPositionPmfError`).
+   */
+  readonly pickPositionPmf?: PickPositionPmf;
 }
 
 /**
@@ -889,7 +944,8 @@ export interface DistrictLedgerResult {
    * `selection[teamI]` got its value — and it was thrown away.
    *
    * CONSUMES NO RANDOMNESS AND CHANGES NO SEEDED OUTPUT. The draft is
-   * deterministic given the ranking and the ratings, so recording which slot a
+   * deterministic given the ranking and the ratings when `pickPositionPmf` is
+   * absent, and either way recording which slot a
    * team filled adds observation and nothing else;
    * `ledgerSimulation.test.ts` pins every marginal and every ledger-stream
    * count as unchanged.
@@ -903,7 +959,8 @@ export interface DistrictLedgerResult {
    * when the run was handed no remaining matches.
    *
    * Reported rather than left to be inferred, because it changes what an absent
-   * route MEANS. With a fixed ranking the draft is deterministic, so a route no
+   * route MEANS. With a fixed ranking the draft is deterministic when
+   * `pickPositionPmf` is absent, so a route no
    * run took is IMPOSSIBLE and the alliance number a route landed on is a fact;
    * with matches still to play the same absence is merely "none of these 1,000
    * runs", and the alliance number is a prediction. 10-07's drawer omits a
@@ -1015,6 +1072,13 @@ export interface DistrictDrawObservation {
   readonly bracketSetIds: readonly string[];
   /** How many values this draw consumed from the LEDGER stream. */
   readonly ledgerDraws: number;
+  /**
+   * How many values this draw read from the PICK stream (quick task
+   * 261014-mji). PRESENT ONLY when `pickPositionPmf` was supplied, so an
+   * observation without the option is unchanged. One per pick turn of a
+   * simulated draft, and 0 when `knownAlliances` was supplied.
+   */
+  readonly pickDraws?: number;
 }
 
 /** See `DistrictDrawObservation` — a test seam, never a Worker-crossing value. */
@@ -1165,6 +1229,42 @@ export class InvalidKnownPointsError extends Error {
     super(`simulateDistrictEvent: ${message}`);
     this.name = "InvalidKnownPointsError";
   }
+}
+
+/**
+ * Raised before any draw when a supplied `pickPositionPmf` cannot be drawn
+ * from: an empty array, an entry that is negative or not finite, or an array
+ * with no positive weight (quick task 261014-mji). Every offender is named, by
+ * round and position, not the first.
+ */
+export class InvalidPickPositionPmfError extends Error {
+  constructor(message: string) {
+    super(`simulateDistrictEvent: ${message}`);
+    this.name = "InvalidPickPositionPmfError";
+  }
+}
+
+/** Every problem with a supplied pick position pmf, named by round and position. An absent pmf has none. */
+function pickPositionPmfProblems(pmf: PickPositionPmf | undefined): string[] {
+  if (pmf === undefined) return [];
+  const problems: string[] = [];
+  for (const round of ["firstPick", "secondPick"] as const) {
+    const weights = pmf[round];
+    if (weights.length === 0) {
+      problems.push(`${round} (empty)`);
+      continue;
+    }
+    let positive = false;
+    weights.forEach((weight, index) => {
+      if (typeof weight !== "number" || !Number.isFinite(weight) || weight < 0) {
+        problems.push(`${round} position ${String(index + 1)}=${String(weight)}`);
+      } else if (weight > 0) {
+        positive = true;
+      }
+    });
+    if (!positive) problems.push(`${round} (no positive weight)`);
+  }
+  return problems;
 }
 
 /** Raised by the grand-total convolution for a non-integer addend, a non-positive denominator, or a combined shift below zero. */
@@ -1398,6 +1498,15 @@ export function simulateDistrictEvent(
   // A slate on a district tier event is refused before any draw, posted
   // awards or not (quick task 261014-i8i).
   assertSlateTier(eventKey, tier, input.dcmpAwardSlate);
+  // The candidate random pick draft's pmf, validated before any draw and only
+  // when present (quick task 261014-mji).
+  const pickPmf = input.pickPositionPmf;
+  const pickPmfProblems = pickPositionPmfProblems(pickPmf);
+  if (pickPmfProblems.length > 0) {
+    throw new InvalidPickPositionPmfError(
+      `event ${eventKey}: the pick position pmf cannot be drawn from: ${pickPmfProblems.join(", ")}`
+    );
+  }
 
   const unrated: string[] = [];
   const roster: AllianceMemberRating[] = [];
@@ -1605,10 +1714,12 @@ export function simulateDistrictEvent(
   const routeAlliance = new Int32Array(teamCount * MAX_PICK_SLOTS).fill(ROUTE_UNSET);
   const routeNotSelected = new Int32Array(teamCount);
 
-  // The greedy-by-SPR pick order, computed ONCE: the draft consumes no
-  // randomness and the ratings do not change between draws, so the order teams
-  // are picked in is fixed. Ties on `total` break by team key, for the same
-  // reproducibility reason `compareByAvgRpDesc` breaks its own.
+  // The greedy-by-SPR pick order, computed ONCE: the ratings do not change
+  // between draws, so the order teams are ranked for picking in is fixed (and
+  // with `pickPositionPmf` absent the draft consumes no randomness, so the
+  // order they are PICKED in is fixed too). Ties on `total` break by team key,
+  // for the same reproducibility reason `compareByAvgRpDesc` breaks its own.
+  // The candidate random pick draft draws its positions in this same list.
   //
   // GREEDY BY PUBLISHED SPR MEAN is the selection model CONTEXT settles on.
   // `total` is the published SPR mean, never a band or a spread. The model's
@@ -1698,6 +1809,60 @@ export function simulateDistrictEvent(
     return rawLedgerRng();
   };
 
+  // THE CANDIDATE RANDOM PICK DRAFT (quick task 261014-mji). The third stream
+  // is constructed ONLY when the option is present — see `PICK_STREAM_SALT` —
+  // so an absent option builds and reads nothing. `simulatedAllied` counts the
+  // roster teams a SIMULATED draft has claimed this draw (captains and picks),
+  // reset with `allied`, so a pick turn knows how many teams are still
+  // available without a per turn scan.
+  const pickRng = pickPmf === undefined ? undefined : mulberry32(seed ^ PICK_STREAM_SALT);
+  let pickDrawCount = 0;
+  let simulatedAllied = 0;
+  /**
+   * Claims one pick by POSITION in the still available list (ordered as
+   * `pickOrder` is). Reads exactly ONE value from the pick stream on every
+   * call, including when one team is left, so the stream's count per draw is
+   * exactly two per drafted alliance. The pmf is truncated to the list and
+   * renormalised; a pmf with no mass inside the list takes the best available
+   * team. No allocation per turn. Every `pickOrder` entry before `pickCursor`
+   * stays allied, the invariant `claimNextByTotal` relies on.
+   */
+  const claimByPosition = (weights: readonly number[]): number => {
+    const u = pickRng!();
+    pickDrawCount++;
+    const available = teamCount - simulatedAllied;
+    const limit = weights.length < available ? weights.length : available;
+    let mass = 0;
+    for (let k = 0; k < limit; k++) mass += weights[k]!;
+    let position = 0;
+    if (mass > 0) {
+      const target = u * mass;
+      let running = 0;
+      position = limit - 1;
+      for (let k = 0; k < limit; k++) {
+        running += weights[k]!;
+        if (running > target) {
+          position = k;
+          break;
+        }
+      }
+    }
+    while (allied[pickOrder[pickCursor]!] === 1) pickCursor++;
+    let at = pickCursor;
+    let skipped = 0;
+    for (;;) {
+      if (allied[pickOrder[at]!] === 0) {
+        if (skipped === position) break;
+        skipped++;
+      }
+      at++;
+    }
+    const teamI = pickOrder[at]!;
+    allied[teamI] = 1;
+    simulatedAllied++;
+    return teamI;
+  };
+
   /**
    * ONE award-field member's award points for one draw, at event scale: the
    * ONE copy of the three award paths, indexed over the AWARD FIELD (roster
@@ -1782,6 +1947,7 @@ export function simulateDistrictEvent(
     // stream: the draft (no randomness), then the bracket, then the awards.
     // Changing it silently changes every seeded output.
     const ledgerDrawsBefore = ledgerDrawCount;
+    const pickDrawsBefore = pickDrawCount;
     bracketSetIds.length = 0;
 
     // 1. The finishing order, read IN PLACE from `simulateRanks`'s own reused
@@ -1791,10 +1957,13 @@ export function simulateDistrictEvent(
       qual[order[rank]!] = qualPointsByRank[rank]!;
     }
 
-    // 2. The draft. DETERMINISTIC given the ranking and the ratings — it
-    //    consumes no randomness at all, because declines are not modelled.
-    //    A reader will look for a decline draw; there is none, and the
-    //    measured size of that omission is one captain slot in 3,880.
+    // 2. The draft. DETERMINISTIC given the ranking and the ratings when
+    //    `pickPositionPmf` is absent — it consumes no randomness at all,
+    //    because declines are not modelled. A reader will look for a decline
+    //    draw; there is none, and the measured size of that omission is one
+    //    captain slot in 3,880. With the option present each pick turn reads
+    //    one value from the separate pick stream (quick task 261014-mji); the
+    //    ledger stream is untouched either way.
     for (let n = 0; n < allianceCount; n++) {
       allianceMemberIndices[n]!.length = 0;
       allianceMemberSlots[n]!.length = 0;
@@ -1835,6 +2004,7 @@ export function simulateDistrictEvent(
       orderBuffer = order;
       captainCursor = 0;
       pickCursor = 0;
+      simulatedAllied = 0;
 
       // Both rounds run over the DRAFTED alliances only, 1 to k, where k is
       // every alliance at 24 teams or more. The seeds after k stay empty
@@ -1843,12 +2013,13 @@ export function simulateDistrictEvent(
       for (let allianceNumber = 1; allianceNumber <= draftedCount; allianceNumber++) {
         const n = allianceNumber - 1;
         const captain = claimNextByRank();
+        simulatedAllied++;
         allianceMemberIndices[n]!.push(captain);
         allianceMemberSlots[n]!.push(0);
         selection[captain] = selectionPointsBySlotAndAlliance[0]![allianceNumber]!;
         selectionSlot[captain] = 0;
         selectionAlliance[captain] = allianceNumber;
-        const firstPick = claimNextByTotal();
+        const firstPick = pickPmf === undefined ? claimNextByTotal() : claimByPosition(pickPmf.firstPick);
         allianceMemberIndices[n]!.push(firstPick);
         allianceMemberSlots[n]!.push(1);
         selection[firstPick] = selectionPointsBySlotAndAlliance[1]![allianceNumber]!;
@@ -1859,7 +2030,7 @@ export function simulateDistrictEvent(
       // file's header for the second-pick rank gradient that proves it.
       for (let allianceNumber = draftedCount; allianceNumber >= 1; allianceNumber--) {
         const n = allianceNumber - 1;
-        const secondPick = claimNextByTotal();
+        const secondPick = pickPmf === undefined ? claimNextByTotal() : claimByPosition(pickPmf.secondPick);
         allianceMemberIndices[n]!.push(secondPick);
         allianceMemberSlots[n]!.push(2);
         selection[secondPick] = selectionPointsBySlotAndAlliance[2]![allianceNumber]!;
@@ -2005,6 +2176,8 @@ export function simulateDistrictEvent(
         total,
         bracketSetIds,
         ledgerDraws: ledgerDrawCount - ledgerDrawsBefore,
+        // Present ONLY with the option, so the absent observation is unchanged.
+        ...(pickPmf === undefined ? {} : { pickDraws: pickDrawCount - pickDrawsBefore }),
       });
     }
     drawIndex++;
