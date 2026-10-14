@@ -345,13 +345,14 @@ export interface DistrictSelectionRouteView {
    */
   readonly denominator: number;
   /**
-   * Whether the qualification ranking was the same in every draw. It decides
-   * what an ABSENT route means: with a fixed ranking the draft is deterministic,
-   * so a route no run took is impossible and the drawer omits it; with matches
-   * still to play the same absence is only "none of these runs" and the row
-   * stays at zero.
+   * Whether every run drew the SAME DRAFT, which for the shipped weighted pick
+   * draft means the alliances were supplied (quick task 261014-ol6). It decides
+   * what an ABSENT route means: with the draft a fact a route no run took is
+   * impossible and the drawer omits it; otherwise, at Quals done as much as
+   * mid quals, the same absence is only "none of these runs" and the row stays
+   * at zero. A fixed ranking alone is NOT enough: the picks are drawn.
    */
-  readonly rankingFixed: boolean;
+  readonly draftFixed: boolean;
 }
 
 /**
@@ -368,8 +369,8 @@ export function selectionRouteViewFor(
   denominator: number
 ): DistrictSelectionRouteView | undefined {
   const routes = eventDistributions?.selectionRoutesByTeam?.get(teamKey);
-  if (routes === undefined || eventDistributions?.rankingFixed === undefined) return undefined;
-  return { routes, denominator, rankingFixed: eventDistributions.rankingFixed };
+  if (routes === undefined || eventDistributions?.draftFixed === undefined) return undefined;
+  return { routes, denominator, draftFixed: eventDistributions.draftFixed };
 }
 
 /**
@@ -1466,8 +1467,13 @@ export interface DistrictEventDistributions {
    * that event's Alliance selection cell keeps the shipped wording.
    */
   readonly selectionRoutesByTeam?: ReadonlyMap<string, DistrictSelectionRoutes>;
-  /** Whether the run's qualification ranking was the same in every draw. Absent for a baked event, which is priced before a match is played. */
-  readonly rankingFixed?: boolean;
+  /**
+   * Whether every draw drew the same draft (quick task 261014-ol6): the
+   * ranking was fixed AND the picks were not drawn, which for the shipped
+   * weighted pick draft means the alliances were supplied. Absent for a baked
+   * event, which is priced before a match is played.
+   */
+  readonly draftFixed?: boolean;
   /**
    * THE DCMP'S BRACKET FACTS for the Champ Locks joint lock proof (quick task
    * 261009-2tr): the published alliances and the played playoff rows at the
@@ -1736,7 +1742,10 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
     byTeam,
     playoffMilestoneByTeam: result.playoffMilestones,
     selectionRoutesByTeam: result.selectionRoutes,
-    rankingFixed: result.rankingFixed && result.randomDraft !== true,
+    // THE ONE PLACE THE WEB READS THE CORE'S RANKING FACT (quick task
+    // 261014-ol6): a fixed ranking is a fixed draft only when the picks were
+    // not drawn.
+    draftFixed: result.rankingFixed && result.randomDraft !== true,
     ...(result.awardOnlyTeams !== undefined && result.awardOnlyTeams.length > 0
       ? { awardOnlyTeams: new Set(result.awardOnlyTeams) }
       : {}),
@@ -1883,10 +1892,16 @@ export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): Sett
 
 /**
  * WHETHER A TEAM IS ON NO ALLIANCE at the position (quick task 261008-3il):
- * the run reported routes, the qualification ranking is fixed, alliance
- * selection is final at the position, and no pick slot (the backup slot
- * included) took the team in any draw. Every draw takes exactly one route, so
- * that is `notSelectedDraws` being every draw.
+ * the run reported routes, the DRAFT is a fact, alliance selection is final at
+ * the position, and no pick slot (the backup slot included) took the team in
+ * any draw. Every draw takes exactly one route, so that is `notSelectedDraws`
+ * being every draw.
+ *
+ * THE DRAFT, NOT MERELY THE RANKING (quick task 261014-ol6). The shipped draft
+ * draws its picks, so a fixed ranking alone leaves every pick a chance: a
+ * team left out of every drawn draft is still a chance, not a fact. The flag
+ * therefore needs `draftFixed`, which is true only where the alliances were
+ * supplied. Selection over on the field with no published list reads a chance.
  *
  * Read from the run's routes and from the FIELD's reading of selection, never
  * from the artifact's own alliance points. Whether TBA posts alliance points
@@ -1902,10 +1917,10 @@ export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): Sett
  */
 export function teamNotPickedAtPosition(
   routes: DistrictSelectionRoutes | undefined,
-  rankingFixed: boolean | undefined,
+  draftFixed: boolean | undefined,
   selectionFinal: boolean
 ): boolean {
-  if (!selectionFinal || rankingFixed !== true || routes === undefined) return false;
+  if (!selectionFinal || draftFixed !== true || routes === undefined) return false;
   if (routes.notSelectedDraws <= 0) return false;
   return routes.bySlot.every((observation) => observation.draws === 0);
 }
@@ -2185,7 +2200,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           stageByEvent?.get(entry.eventKey) ??
           deriveStageFromState(entry.state).final
         ).alliance;
-        if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, selectionOverOnTheField)) {
+        if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.draftFixed, selectionOverOnTheField)) {
           return { ...playoffCell, notPicked: true };
         }
         const milestone = playoffMilestoneFor(distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey));

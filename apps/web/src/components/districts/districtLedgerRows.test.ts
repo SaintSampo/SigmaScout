@@ -2026,7 +2026,7 @@ describe("the alliance selection cell's route view", () => {
 
   function builtWith(
     routes: DistrictSelectionRoutes | undefined,
-    rankingFixed: boolean | undefined,
+    draftFixed: boolean | undefined,
     distribution: DistrictPointDistribution = lumpy(300, 16),
     options: { readonly elim?: DistrictPointDistribution; readonly stage?: DistrictStageFinality; readonly fieldStage?: DistrictStageFinality } = {}
   ) {
@@ -2057,7 +2057,7 @@ describe("the alliance selection cell's route view", () => {
             ],
           ]),
           ...(routes === undefined ? {} : { selectionRoutesByTeam: new Map([["frc1", routes]]) }),
-          ...(rankingFixed === undefined ? {} : { rankingFixed }),
+          ...(draftFixed === undefined ? {} : { draftFixed }),
         },
       ],
     ]);
@@ -2078,16 +2078,16 @@ describe("the alliance selection cell's route view", () => {
     // The one agreement that matters: the route counts and the histogram are
     // shares of the SAME runs, so the list cannot disagree with the headline.
     expect(cell.selection!.denominator).toBe(cell.distribution.denominator);
-    expect(cell.selection!.rankingFixed).toBe(false);
+    expect(cell.selection!.draftFixed).toBe(false);
     expect(cell.selection!.routes.bySlot[0]!.draws).toBe(200);
     expect(built.gaps.eventsWithUnknownSelectionRoutes).toEqual([]);
   });
 
-  it("forwards a FIXED ranking as fixed", () => {
+  it("forwards a FIXED draft as fixed", () => {
     const built = builtWith(routesFor(1000, 0, 0), true);
     const cell = built.teams[0]!.rows[0]!.cells[1]!;
     if (cell.kind !== "open") throw new Error("unreachable");
-    expect(cell.selection!.rankingFixed).toBe(true);
+    expect(cell.selection!.draftFixed).toBe(true);
   });
 
   it("leaves the cell's routes ABSENT and names the event when the run reported none", () => {
@@ -2114,9 +2114,9 @@ describe("the alliance selection cell's route view", () => {
     const SELECTION_OPEN: DistrictStageFinality = { qual: true, alliance: false, elim: false, award: false };
     const ELIM = lumpy(970, 30);
 
-    it("holds only with selection final, a fixed ranking, reported routes and no draw in any slot", () => {
+    it("holds only with selection final, a fixed draft, reported routes and no draw in any slot", () => {
       expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), true, true)).toBe(true);
-      // Selection not final at the position, or the ranking not fixed.
+      // Selection not final at the position, or the draft not a fact.
       expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), true, false)).toBe(false);
       expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), false, true)).toBe(false);
       expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), undefined, true)).toBe(false);
@@ -2127,6 +2127,16 @@ describe("the alliance selection cell's route view", () => {
       expect(teamNotPickedAtPosition({ bySlot: [slot(), slot(), slot(), slot({ draws: 1 })], notSelectedDraws: 999 }, true, true)).toBe(false);
       // Any pick slot draw at all.
       expect(teamNotPickedAtPosition(routesFor(0, 1, 999), true, true)).toBe(false);
+    });
+
+    it("never holds while the draft is drawn, whatever the routes say (261014-ol6)", () => {
+      // A team left out of every one of 1,000 DRAWN drafts is still a chance:
+      // the flag needs the alliances supplied, not merely a fixed ranking.
+      expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), false, true)).toBe(false);
+      expect(teamNotPickedAtPosition({ bySlot: [slot(), slot(), slot(), slot()], notSelectedDraws: 1 }, false, true)).toBe(false);
+      const built = builtWith(NOBODY_TOOK_IT(), false, lumpy(1000, 16), { elim: ELIM, stage: SELECTION_FINAL });
+      const elim = built.teams[0]!.rows[0]!.cells[2]!;
+      expect("notPicked" in elim).toBe(false);
     });
 
     it("flags the open Playoffs cell of a team on no alliance once selection is final, and keeps it open", () => {
@@ -2190,7 +2200,7 @@ describe("the alliance selection cell's route view", () => {
       expect(cell.selection).toBeDefined();
       expect(cell.selection!.routes.notSelectedDraws).toBe(700);
       expect(cell.selection!.denominator).toBe(cell.distribution.denominator);
-      expect(cell.selection!.rankingFixed).toBe(false);
+      expect(cell.selection!.draftFixed).toBe(false);
     });
 
     it("leaves the Alliance selection cell as it was, and does not name the event in the gaps on the Playoffs cell's account", () => {
@@ -2369,7 +2379,7 @@ describe("distributionsFromResult and the routes", () => {
     };
   }
 
-  it("forwards the run's routes and its fixed-ranking flag unreshaped", () => {
+  it("forwards the run's routes unreshaped, and a fixed ranking with no drawn picks as a fixed draft", () => {
     const routes: DistrictSelectionRoutes = {
       bySlot: [
         { draws: 4, minPoints: 16, maxPoints: 16, allianceNumber: 1, possibleMinPoints: 9, possibleMaxPoints: 16 },
@@ -2382,7 +2392,7 @@ describe("distributionsFromResult and the routes", () => {
     const byTeam = new Map([["frc1", routes]]);
     const shaped = distributionsFromResult(resultWith(byTeam, true));
     expect(shaped.selectionRoutesByTeam).toBe(byTeam);
-    expect(shaped.rankingFixed).toBe(true);
+    expect(shaped.draftFixed).toBe(true);
   });
 
   it("gives a BAKED sidecar neither, because a sidecar carries pmfs and nothing else", () => {
@@ -2399,7 +2409,7 @@ describe("distributionsFromResult and the routes", () => {
     });
     const decoded = distributionsFromPreSim(sidecar);
     expect(decoded.selectionRoutesByTeam).toBeUndefined();
-    expect(decoded.rankingFixed).toBeUndefined();
+    expect(decoded.draftFixed).toBeUndefined();
   });
 });
 
@@ -2883,7 +2893,7 @@ describe("the live stage: a row's category is final only once its points are in 
           eventKey: EVENT,
           byTeam: new Map([["frc1", { qual: histogram(22), alliance: histogram(16), elim: histogram(30), award: undefined, eventTotal: undefined, grandTotal: undefined }]]),
           selectionRoutesByTeam: new Map([["frc1", nobodyTookIt]]),
-          rankingFixed: true,
+          draftFixed: true,
         },
       ],
     ]);
@@ -3296,7 +3306,7 @@ describe("the secured playoff minimum on the rows (quick task 261012-mw2)", () =
     it("a not picked cell never carries securedAtLeast", () => {
       const slot = (draws: number): DistrictSelectionRouteObservation => ({ draws, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 0, possibleMaxPoints: 16 });
       const nobodyTookIt: DistrictSelectionRoutes = { bySlot: [slot(0), slot(0), slot(0), slot(0)], notSelectedDraws: 1000 };
-      const notPicked = { selectionRoutesByTeam: new Map([["frc1", nobodyTookIt]]), rankingFixed: true };
+      const notPicked = { selectionRoutesByTeam: new Map([["frc1", nobodyTookIt]]), draftFixed: true };
       const supplied = built({ elim: 0, stage: OPEN_PLAYOFFS, secured: 13, extra: notPicked });
       expect(supplied.elimCell.kind).toBe("open");
       if (supplied.elimCell.kind !== "open") throw new Error("unreachable");
@@ -3537,6 +3547,26 @@ describe("the builder sets the season's weighted pick draft at every stage (quic
     });
     expect(input.tier).toBe("dcmp");
     expect(input.pickPositionPmf).toEqual(SHIPPED);
+  });
+
+  it("distributionsFromResult: the draft is FIXED for a run with announced alliances", () => {
+    const input = build({ stage: { qual: true, alliance: true, elim: false, award: false } });
+    expect(distributionsFromResult(simulateDistrictEvent(input, 200, 11)).draftFixed).toBe(true);
+  });
+
+  it("distributionsFromResult: the draft is NOT fixed for a Quals done run with the shipped pmf", () => {
+    const input = build({ stage: { qual: true, alliance: false, elim: false, award: false } });
+    const result = simulateDistrictEvent(input, 200, 11);
+    expect(result.rankingFixed).toBe(true);
+    expect(result.randomDraft).toBe(true);
+    expect(distributionsFromResult(result).draftFixed).toBe(false);
+  });
+
+  it("distributionsFromResult: the draft is NOT fixed while matches remain", () => {
+    const input = build({ startMatchKey: "2026wapick_qm3" });
+    const result = simulateDistrictEvent(input, 200, 11);
+    expect(result.rankingFixed).toBe(false);
+    expect(distributionsFromResult(result).draftFixed).toBe(false);
   });
 
   it("changes no output where the draft does not run: the announced alliance run equals the run without the pmf", () => {

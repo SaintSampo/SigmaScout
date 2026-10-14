@@ -561,7 +561,7 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  * is a proven least and not a prediction, and ONLY PRINT reads it: the cell,
  * its summary and its distribution are untouched. It is read in the median
  * form alone, and not on the Alliance selection settled route, whose figure
- * is a point mass the draft has already decided. The two tab components hand
+ * is a point mass the announced alliances have decided. The two tab components hand
  * it in for totals only; a category cell is handed none.
  */
 export function openCellLines(
@@ -603,9 +603,10 @@ export function openCellLines(
   if (cell.summary.form === "median") {
     const { p10, p50, p90 } = cell.summary.percentiles;
     const bold = `~${String(Math.max(0, Math.round(p50)))}`;
-    // ONCE THE RANKING IS FIXED the draft is determined, so a cell whose points
-    // are a point mass can say WHICH route earned them instead of printing a
-    // percentile range whose two ends are the same number.
+    // ONCE THE ALLIANCES ARE ANNOUNCED the draft is a fact (quick task
+    // 261014-ol6; a fixed ranking alone is not, because the picks are drawn),
+    // so a cell whose points are a point mass can say WHICH route earned them
+    // instead of printing a percentile range whose two ends are the same number.
     const settled = selection === undefined ? undefined : districtSelectionSettledRoute(selection);
     if (settled !== undefined) {
       return { bold, small: districtLedgerSelectionSettledLine(settled.id, settled.allianceNumber) };

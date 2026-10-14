@@ -1654,7 +1654,7 @@ describe("buildChampLedgerRows forwards the field's stage to both tier passes (q
         {
           ...distributionsFor(DCMP, { frc1: { alliance: uniform(48, 1000), elim: uniform(90, 1000), award: uniform(45, 1000), eventTotal: uniform(249, 1000) } }),
           selectionRoutesByTeam: new Map([["frc1", { bySlot: [slot, slot, slot, slot], notSelectedDraws: 1000 }]]),
-          rankingFixed: true,
+          draftFixed: true,
         },
       ],
     ]);
@@ -1680,7 +1680,7 @@ describe("buildChampLedgerRows forwards the field's stage to both tier passes (q
         {
           ...distributionsFor(DCMP, { frc1: { alliance: uniform(48, 1000), elim: uniform(90, 1000), award: uniform(45, 1000), eventTotal: uniform(249, 1000) } }),
           selectionRoutesByTeam: new Map([["frc1", routes]]),
-          rankingFixed: false,
+          draftFixed: false,
         },
       ],
     ]);
@@ -1690,7 +1690,7 @@ describe("buildChampLedgerRows forwards the field's stage to both tier passes (q
     expect(elim.kind).toBe("open");
     if (elim.kind !== "open") return;
     expect("notPicked" in elim).toBe(false);
-    expect(elim.selection).toEqual({ routes, denominator: elim.distribution.denominator, rankingFixed: false });
+    expect(elim.selection).toEqual({ routes, denominator: elim.distribution.denominator, draftFixed: false });
     expect(elim.selection!.routes.notSelectedDraws).toBe(700);
     // The District points row is a sum over events: none of its cells carries a view.
     for (const cell of team.districtRow.cells) if (cell.kind === "open") expect("selection" in cell, cell.id).toBe(false);

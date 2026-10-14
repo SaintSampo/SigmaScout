@@ -206,8 +206,8 @@ function slot(draws: number, observed?: readonly [number, number], possible: rea
 }
 
 /** An Alliance selection cell with routes, on a lumpy distribution whose any points chance is `1 - notSelected / 100`. */
-function allianceWith(bySlot: readonly DistrictSelectionRouteObservation[], notSelectedDraws: number, rankingFixed: boolean, mass: Readonly<Record<number, number>>): OpenCell {
-  return { ...openFrom("2026walive:alliance", "alliance", mass, 16), selection: { routes: { bySlot, notSelectedDraws }, denominator: 100, rankingFixed } };
+function allianceWith(bySlot: readonly DistrictSelectionRouteObservation[], notSelectedDraws: number, draftFixed: boolean, mass: Readonly<Record<number, number>>): OpenCell {
+  return { ...openFrom("2026walive:alliance", "alliance", mass, 16), selection: { routes: { bySlot, notSelectedDraws }, denominator: 100, draftFixed } };
 }
 
 const CAPTAIN_LIKELIER = allianceWith(
@@ -241,7 +241,7 @@ const DCMP_2026: DistrictCellPricing = { season: 2026, tier: "dcmp", isRookie: f
 function playoffWith(mass: Readonly<Record<number, number>>, notSelectedDraws: number, ceiling = 30): OpenCell {
   return {
     ...openFrom("2026walive:elim", "elim", mass, ceiling),
-    selection: { routes: { bySlot: [], notSelectedDraws }, denominator: 100, rankingFixed: false },
+    selection: { routes: { bySlot: [], notSelectedDraws }, denominator: 100, draftFixed: false },
   };
 }
 

@@ -49,6 +49,9 @@ const ALLIANCE_WIN_PROBABILITY_ENTRY_POINT = resolve(HERE, "..", "core", "algori
 // callers are a browser Web Worker (10-07) and the offline publisher (10-06),
 // so a Node built-in anywhere in its reachable graph would break the web build.
 const LEDGER_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "districts", "ledgerSimulation.ts");
+// `pickDraft.ts` (quick task 261014-ol6): the shipped weighted pick draft's pmf.
+// The web bundle and both Web Workers reach it through the two input builders.
+const PICK_DRAFT_ENTRY_POINT = resolve(HERE, "..", "core", "districts", "pickDraft.ts");
 // The as-of modules (quick task 261005-5g0): the rewound Locks views and the
 // Simulation tab rebuild and price from them in the browser's Web Workers.
 // `asOfPricing.ts` reaches `spr.ts` and the season rule modules on purpose, so
@@ -318,6 +321,17 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/districts/ledgerSimulation.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/districts/pickDraft.ts (the web bundle and both Web Workers reach it, quick task 261014-ol6)", () => {
+    const { nodeBuiltinViolations, visited } = scan([PICK_DRAFT_ENTRY_POINT]);
+    expect(visited.has(PICK_DRAFT_ENTRY_POINT)).toBe(true);
+    // Sanity check the scan is not vacuous: it must visit the generated tables it divides.
+    expect(visited.has(resolve(HERE, "..", "core", "districts", "pickPositionTables.ts"))).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/districts/pickDraft.ts: ${detail}`);
     }
   });
 

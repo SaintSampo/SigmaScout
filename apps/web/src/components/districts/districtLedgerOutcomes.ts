@@ -344,14 +344,20 @@ function printsAsZeroPercent(chance: number): boolean {
 
 /**
  * THE ONE ROUTE EVERY RUN AGREED ON, at one alliance number — and only where the
- * qualification RANKING IS FIXED.
+ * DRAFT IS A FACT, which means the alliances are announced (quick task
+ * 261014-ol6).
  *
- * `undefined` in every other case, which is the point of the restriction. With
- * matches still to play, "every one of these 1,000 runs made this team alliance
- * 5's captain" is a prediction the cell already prints as a chance; with the
- * ranking fixed the draft is deterministic, so the same agreement is a fact about
- * the draft this site's model produces from a settled ranking, and it can be
- * stated as a caption rather than a percentage.
+ * `undefined` in every other case, which is the point of the restriction.
+ * Without announced alliances, "every one of these 1,000 runs made this team
+ * alliance 5's captain" is a prediction the cell already prints as a chance:
+ * the shipped draft DRAWS its picks, so even at a fixed ranking an agreement
+ * is only "all of these runs". With the alliances announced the route is TBA's
+ * own, and it can be stated as a caption rather than a percentage.
+ *
+ * CAPTAINS ARE NOT SETTLED BY THE RANKING EITHER. Only alliance 1's captain is
+ * decided by the ranking alone: a drawn pick can take a top eight team and move
+ * every later captain down the list, so a captain route is a chance until the
+ * alliances are announced, like any other.
  *
  * Never `notSelected`: a team nobody took has no alliance number, and its cell
  * prints a zero chance rather than a settled route.
@@ -363,7 +369,7 @@ export interface DistrictSelectionSettledRoute {
 
 export function districtSelectionSettledRoute(view: DistrictSelectionRouteView): DistrictSelectionSettledRoute | undefined {
   assertRouteDenominator("districtSelectionSettledRoute", view);
-  if (!view.rankingFixed) return undefined;
+  if (!view.draftFixed) return undefined;
   for (const entry of SELECTION_ROUTE_SLOTS) {
     const observation = view.routes.bySlot[entry.slot];
     if (observation === undefined || observation.draws !== view.denominator) continue;
@@ -376,12 +382,14 @@ export function districtSelectionSettledRoute(view: DistrictSelectionRouteView):
 /**
  * The Alliance selection drawer's outcome rows, in points descending order.
  *
- * RULED OUT MEANS RULED OUT BY THE RANKING, on exactly the terms
- * `districtPlayoffOutcomes` means ruled out by the bracket: with the ranking
- * fixed the draft is deterministic, so a route no run took CANNOT happen and the
- * row is omitted — which is why a non-captain carries no captain row once quals
- * are done. With matches still to play the same zero is merely "none of these
- * runs", the row stays, and the list's length does not move with the draws.
+ * RULED OUT MEANS RULED OUT BY THE ANNOUNCED ALLIANCES, on exactly the terms
+ * `districtPlayoffOutcomes` means ruled out by the bracket: with the alliances
+ * announced the draft is a fact, so a route no run took CANNOT happen and the
+ * row is omitted — which is why a non-captain carries no captain row once the
+ * alliances are out. A fixed ranking does NOT rule a route out (quick task
+ * 261014-ol6): the shipped draft draws its picks, so at Quals done, as mid
+ * quals, a zero is merely "none of these runs", the row stays, Not selected
+ * is always listed, and the list's length does not move with the draws.
  *
  * A row's points are the range the runs produced, or the range the route can pay
  * where no run took it. Both are read off the joint draw's own observation.
@@ -399,7 +407,7 @@ export function districtSelectionOutcomes(view: DistrictSelectionRouteView): rea
     // backup reaches this list only from a supplied alliance set, which is a fact
     // rather than a prediction, and then the row IS listed.
     if (entry.id === "backup" && observation.draws === 0) continue;
-    if (view.rankingFixed && observation.draws === 0) continue;
+    if (view.draftFixed && observation.draws === 0) continue;
     rows.push({
       id: entry.id,
       chance: observation.draws / view.denominator,
@@ -407,7 +415,7 @@ export function districtSelectionOutcomes(view: DistrictSelectionRouteView): rea
       maxPoints: observation.maxPoints ?? observation.possibleMaxPoints,
     });
   }
-  if (!view.rankingFixed || view.routes.notSelectedDraws > 0) {
+  if (!view.draftFixed || view.routes.notSelectedDraws > 0) {
     rows.push({ id: "notSelected", chance: view.routes.notSelectedDraws / view.denominator, minPoints: 0, maxPoints: 0 });
   }
   return rows;

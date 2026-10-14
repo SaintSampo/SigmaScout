@@ -590,14 +590,16 @@ export const DISTRICT_LEDGER_SELECTION_ROUTE_NAMES = {
 } as const;
 
 /**
- * The small line an Alliance selection cell prints once the RANKING IS FIXED and
- * every run put the team on one alliance in one slot: the route, then the
- * alliance it is on.
+ * The small line an Alliance selection cell prints once the ALLIANCES ARE
+ * ANNOUNCED and every run put the team on one alliance in one slot: the route,
+ * then the alliance it is on.
  *
- * No tilde, on the same terms as the Playoffs cell's settled placement line: with
- * the ranking settled the draft this model produces from it is determined, so the
- * route is not a prediction. The bold line beside it still carries one, because
- * the POINTS are this site's reading until TBA posts them.
+ * No tilde, on the same terms as the Playoffs cell's settled placement line:
+ * with the alliances announced the route is TBA's own, not a prediction. A
+ * fixed ranking alone never prints it (quick task 261014-ol6): the picks are
+ * drawn, so at Quals done the route is a chance. The bold line beside it still
+ * carries a tilde, because the POINTS are this site's reading until TBA posts
+ * them.
  */
 export function districtLedgerSelectionSettledLine(
   route: keyof typeof DISTRICT_LEDGER_SELECTION_ROUTE_NAMES,

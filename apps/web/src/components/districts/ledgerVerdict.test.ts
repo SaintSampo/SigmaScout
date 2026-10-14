@@ -321,7 +321,7 @@ describe("buildVerdictModel on an outcome cell", () => {
     const selection: DistrictSelectionRouteView = {
       routes: { bySlot: [obs(0, 12, 9, 16), obs(1, 14, 11, 16), obs(2, 18, 2, 7), obs(3, 0)], notSelectedDraws: 56 },
       denominator: 100,
-      rankingFixed: false,
+      draftFixed: false,
     };
     const counts = sparse(CEILINGS.alliance, [
       [0, 56],
@@ -557,11 +557,11 @@ describe("the cell's pays line agrees with the drawer's outcome rows (261008-3il
     });
     const fixtures: readonly DistrictSelectionRouteView[] = [
       // Captain likelier.
-      { routes: { bySlot: [obs(60, 9, 16, [9, 16]), obs(10, 9, 14, [9, 16]), obs(25, 3, 8, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 5 }, denominator: 100, rankingFixed: false },
+      { routes: { bySlot: [obs(60, 9, 16, [9, 16]), obs(10, 9, 14, [9, 16]), obs(25, 3, 8, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 5 }, denominator: 100, draftFixed: false },
       // Only ever second picked, first pick untaken.
-      { routes: { bySlot: [obs(30, 9, 11, [9, 16]), obs(0, undefined, undefined, [9, 16]), obs(60, 1, 8, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 10 }, denominator: 100, rankingFixed: false },
+      { routes: { bySlot: [obs(30, 9, 11, [9, 16]), obs(0, undefined, undefined, [9, 16]), obs(60, 1, 8, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 10 }, denominator: 100, draftFixed: false },
       // Both pick routes taken.
-      { routes: { bySlot: [obs(12, 9, 16, [9, 16]), obs(14, 11, 16, [9, 16]), obs(18, 2, 7, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 56 }, denominator: 100, rankingFixed: false },
+      { routes: { bySlot: [obs(12, 9, 16, [9, 16]), obs(14, 11, 16, [9, 16]), obs(18, 2, 7, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 56 }, denominator: 100, draftFixed: false },
     ];
     const pricing: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
     for (const selection of fixtures) {
@@ -581,7 +581,7 @@ describe("buildVerdictModel on a Playoffs cell that carries the route view (2610
   function withView(pairs: ReadonlyArray<readonly [number, number]>, notSelected: number, extra: Partial<VerdictOpenCell> = {}): VerdictOpenCell {
     const counts = sparse(CEILINGS.elim, pairs);
     const denominator = counts.reduce((sum, value) => sum + value, 0);
-    const selection: DistrictSelectionRouteView = { routes: { bySlot: [], notSelectedDraws: notSelected }, denominator, rankingFixed: false };
+    const selection: DistrictSelectionRouteView = { routes: { bySlot: [], notSelectedDraws: notSelected }, denominator, draftFixed: false };
     return openCell("elim", counts, CEILINGS.elim, { selection, ...extra });
   }
 

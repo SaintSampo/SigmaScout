@@ -361,14 +361,14 @@ describe("the alliance selection route helpers", () => {
   /** A route view over `denominator` runs. `slots` gives the four pick slots' overrides. */
   function viewOf(
     denominator: number,
-    rankingFixed: boolean,
+    draftFixed: boolean,
     slots: readonly Partial<DistrictSelectionRouteObservation>[],
     notSelectedDraws: number
   ): DistrictSelectionRouteView {
     return {
       routes: { bySlot: slots.map((overrides, slot) => observation(slot, overrides)), notSelectedDraws },
       denominator,
-      rankingFixed,
+      draftFixed,
     };
   }
 
@@ -431,7 +431,7 @@ describe("the alliance selection route helpers", () => {
   });
 
   describe("districtSelectionSettledRoute", () => {
-    it("names the one route every run took, at its one alliance number, once the ranking is FIXED", () => {
+    it("names the one route every run took, at its one alliance number, once the DRAFT IS A FACT (the alliances are announced)", () => {
       const settled = districtSelectionSettledRoute(
         viewOf(1000, true, [{ draws: 1000, minPoints: 12, maxPoints: 12, allianceNumber: 5 }, {}, {}, {}], 0)
       );
@@ -447,7 +447,7 @@ describe("the alliance selection route helpers", () => {
       ).toEqual({ id: "secondPick", allianceNumber: 3 });
     });
 
-    it("names NOTHING while the ranking is still open, however unanimous the runs are", () => {
+    it("names NOTHING while the draft is not a fact, however unanimous the runs are", () => {
       // The agreement is a prediction there, and the cell already prints it as a
       // chance. Stating it as a caption would assert a draft that has not happened.
       expect(
@@ -455,6 +455,17 @@ describe("the alliance selection route helpers", () => {
           viewOf(1000, false, [{ draws: 1000, minPoints: 12, maxPoints: 12, allianceNumber: 5 }, {}, {}, {}], 0)
         )
       ).toBeUndefined();
+    });
+
+    it("names NOTHING at a fixed ranking whose picks were DRAWN, even when every run agreed on one route at one alliance (261014-ol6)", () => {
+      // Quals done with the weighted pick draft: the ranking is settled but the
+      // picks are drawn, so 1,000 agreeing runs are still only 1,000 runs.
+      for (const slot of [0, 1, 2]) {
+        const slots: Partial<DistrictSelectionRouteObservation>[] = [{}, {}, {}, {}];
+        slots[slot] = { draws: 1000, minPoints: 12, maxPoints: 12, allianceNumber: 4 };
+        expect(districtSelectionSettledRoute(viewOf(1000, false, slots, 0)), `slot ${String(slot)}`).toBeUndefined();
+        expect(districtSelectionSettledRoute(viewOf(1000, true, slots, 0)), `slot ${String(slot)}`).toBeDefined();
+      }
     });
 
     it("names nothing for a team no run selected, and nothing where the runs split", () => {
@@ -493,24 +504,39 @@ describe("the alliance selection route helpers", () => {
       expect([captain.minPoints, captain.maxPoints]).toEqual([possibleFor(0).low, possibleFor(0).high]);
     });
 
-    it("keeps a zero-chance row while the ranking is open, so the list's length does not move with the draws", () => {
+    it("keeps a zero-chance row while the draft is not a fact, so the list's length does not move with the draws", () => {
       const rows = districtSelectionOutcomes(viewOf(100, false, [{ draws: 100, minPoints: 16, maxPoints: 16, allianceNumber: 1 }, {}, {}, {}], 0));
       expect(rows.map((row) => row.id)).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
     });
 
-    it("omits the routes the RANKING has ruled out: a settled captain has exactly one row", () => {
+    it("keeps EVERY zero route and Not selected for a drawn draft at a fixed ranking, none omitted as impossible (261014-ol6)", () => {
+      // Every run made this team a second pick, but the picks were drawn, so a
+      // captain, a first pick and being left out are all still chances.
+      const rows = districtSelectionOutcomes(viewOf(100, false, [{}, {}, { draws: 100, minPoints: 6, maxPoints: 6, allianceNumber: 6 }, {}], 0));
+      expect(rows.map((row) => row.id)).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
+      expect(rows.find((row) => row.id === "notSelected")!.chance).toBe(0);
+    });
+
+    it("with the draft a fact, lists Not selected only where some run took it", () => {
+      const split = [{ draws: 60, minPoints: 12, maxPoints: 16 }, { draws: 40, minPoints: 13, maxPoints: 16 }, {}, {}];
+      expect(districtSelectionOutcomes(viewOf(100, true, split, 0)).map((row) => row.id)).toEqual(["captain", "firstPick"]);
+      const leftOut = [{ draws: 60, minPoints: 12, maxPoints: 16 }, { draws: 30, minPoints: 13, maxPoints: 16 }, {}, {}];
+      expect(districtSelectionOutcomes(viewOf(100, true, leftOut, 10)).map((row) => row.id)).toEqual(["captain", "firstPick", "notSelected"]);
+    });
+
+    it("omits the routes the ANNOUNCED ALLIANCES have ruled out: a settled captain has exactly one row", () => {
       const rows = districtSelectionOutcomes(viewOf(100, true, [{ draws: 100, minPoints: 16, maxPoints: 16, allianceNumber: 1 }, {}, {}, {}], 0));
       expect(rows.map((row) => row.id)).toEqual(["captain"]);
       expect(rows[0]!.chance).toBe(1);
       expect([rows[0]!.minPoints, rows[0]!.maxPoints]).toEqual([16, 16]);
     });
 
-    it("leaves a non-captain with NO captain row once quals are done, which is the case Jacob named", () => {
+    it("leaves a non-captain with NO captain row once the alliances are announced, which is the case Jacob named", () => {
       const rows = districtSelectionOutcomes(viewOf(100, true, [{}, {}, { draws: 100, minPoints: 6, maxPoints: 6, allianceNumber: 6 }, {}], 0));
       expect(rows.map((row) => row.id)).toEqual(["secondPick"]);
     });
 
-    it("leaves an unselected team with only its own row once quals are done", () => {
+    it("leaves an unselected team with only its own row once the alliances are announced", () => {
       const rows = districtSelectionOutcomes(viewOf(100, true, [{}, {}, {}, {}], 100));
       expect(rows.map((row) => row.id)).toEqual(["notSelected"]);
       expect(rows[0]!.chance).toBe(1);
@@ -559,7 +585,7 @@ describe("the alliance selection route helpers", () => {
 
 /** A route view that carries only what the Playoffs cell reads: the not selected draws and the denominator. */
 function playoffViewOf(denominator: number, notSelectedDraws: number): DistrictSelectionRouteView {
-  return { routes: { bySlot: [], notSelectedDraws }, denominator, rankingFixed: false };
+  return { routes: { bySlot: [], notSelectedDraws }, denominator, draftFixed: false };
 }
 
 describe("districtPlayoffOutcomes splits the zero point mass with a route view (261014-jfx)", () => {
