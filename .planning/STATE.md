@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-14T21:01:17.062Z"
+last_updated: "2026-10-14T23:05:33.597Z"
 last_activity: 2026-10-14
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -768,6 +768,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 332 | Locks Playoffs box reads ~not picked over N% on an alliance when a team misses every alliance in more than half the runs; legend tilde now means this site's prediction | 2026-10-14 | 33e1c478 | [261014-jfx-locks-playoffs-box-predicts-not-picked](./quick/261014-jfx-locks-playoffs-box-predicts-not-picked/) |
 | 333 | DCMP award pricing: eligibility for Impact, EI and Rookie All Star, DCMP rates measured from real DCMPs, and an Engineering Inspiration row | 2026-10-14 | 3481c064 | [261014-i8i-dcmp-award-pricing-eligibility-dcmp-rate](./quick/261014-i8i-dcmp-award-pricing-eligibility-dcmp-rate/) |
 | 334 | Measured a random pick draft (walk forward pick position tables) against the fixed SPR draft at Quals done, 2023 to 2026: WIN on Brier 0.0917 vs 0.1327, log loss and accuracy; pick by rank loses; inert option, nothing shipped | 2026-10-14 | 57fac333 | [261014-mji-measure-a-random-pick-draft-against-the-](./quick/261014-mji-measure-a-random-pick-draft-against-the-/) |
+| 335 | District award odds: four candidates scored against a pre-registered bar, all failed, nothing shipped; one award model for both tiers is next | 2026-10-14 | 39664d5a | [261014-mii-district-award-odds-decoration-drift-sta](./quick/261014-mii-district-award-odds-decoration-drift-sta/) |
 
 ### Roadmap Evolution
 
