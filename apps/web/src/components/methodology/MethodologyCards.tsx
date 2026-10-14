@@ -14,7 +14,7 @@ function preserveSearch(prev: Record<string, unknown>): never {
 }
 
 /**
- * The `/methodology` hub's card grid, SIX cards.
+ * The `/methodology` hub's card grid, SEVEN cards.
  *
  * Explicit `<Link>` elements — one per card — rather than a `.map()` over
  * `METHODOLOGY_CARDS` — same reasoning `Ribbon.tsx`'s `NavLinks` already
@@ -42,15 +42,19 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * The header said SIX cards while the destructure took five, from the quick
  * task that removed the Sigma card. Phase 10 plan 08 added the district points
  * card, so the count below is six again and the sentence above is true again.
+ * Quick task 261014-ol7 added the alliance picks card after it: seven, so the
+ * third row of the three column ladder holds one card.
  */
 export function MethodologyCards() {
-  const [sprCard, epaVsStatboticsCard, compareCard, awardsCard, districtPointsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  const [sprCard, epaVsStatboticsCard, compareCard, awardsCard, districtPointsCard, alliancePicksCard, acknowledgmentsCard] =
+    METHODOLOGY_CARDS;
   if (
     sprCard === undefined ||
     epaVsStatboticsCard === undefined ||
     compareCard === undefined ||
     awardsCard === undefined ||
     districtPointsCard === undefined ||
+    alliancePicksCard === undefined ||
     acknowledgmentsCard === undefined
   ) {
     return null;
@@ -102,6 +106,15 @@ export function MethodologyCards() {
       >
         <span className="text-role-heading text-[var(--color-text-primary)]">{districtPointsCard.title}</span>
         <span className="text-role-body text-[var(--color-text-muted)]">{districtPointsCard.blurb}</span>
+      </Link>
+      <Link
+        to={alliancePicksCard.to}
+        search={preserveSearch}
+        data-testid={alliancePicksCard.testId}
+        className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
+      >
+        <span className="text-role-heading text-[var(--color-text-primary)]">{alliancePicksCard.title}</span>
+        <span className="text-role-body text-[var(--color-text-muted)]">{alliancePicksCard.blurb}</span>
       </Link>
       <Link
         to={acknowledgmentsCard.to}

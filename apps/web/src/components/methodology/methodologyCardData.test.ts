@@ -28,18 +28,20 @@ const EXPECTED_CARD_ORDER = [
   "/methodology/compare",
   "/methodology/awards",
   "/methodology/district-points",
+  "/methodology/alliance-picks",
   "/methodology/acknowledgments",
 ];
 
 describe("METHODOLOGY_CARDS", () => {
-  it("lists the six hub cards in their exact display order, by equality", () => {
+  it("lists the seven hub cards in their exact display order, by equality", () => {
     expect(METHODOLOGY_CARDS.map((card) => card.to)).toEqual(EXPECTED_CARD_ORDER);
   });
 
-  it("keeps the SPR card first, the awards card fourth, district points fifth, and Acknowledgments last; the Sigma card is gone", () => {
+  it("keeps the SPR card first, the awards card fourth, district points fifth, alliance picks sixth, and Acknowledgments last; the Sigma card is gone", () => {
     expect(METHODOLOGY_CARDS[0]?.to).toBe("/methodology/spr");
     expect(METHODOLOGY_CARDS[3]?.to).toBe("/methodology/awards");
     expect(METHODOLOGY_CARDS[4]?.to).toBe("/methodology/district-points");
+    expect(METHODOLOGY_CARDS[5]?.to).toBe("/methodology/alliance-picks");
     expect(METHODOLOGY_CARDS.some((card) => (card.to as string) === "/methodology/sigma")).toBe(false);
     expect(METHODOLOGY_CARDS.at(-1)?.to).toBe("/methodology/acknowledgments");
   });
@@ -82,6 +84,17 @@ describe("METHODOLOGY_CARDS", () => {
     const districtPointsCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/district-points");
     expect(districtPointsCard, "the district points card is gone from the hub").toBeDefined();
     for (const text of [districtPointsCard?.title ?? "", districtPointsCard?.blurb ?? ""]) {
+      expect(text).not.toContain(HYPHEN_MINUS);
+      expect(text).not.toContain(EN_DASH);
+      expect(text).not.toContain(EM_DASH);
+    }
+  });
+
+  it("keeps the alliance picks card's own copy free of all three dash characters, under the page's own title (quick task 261014-ol7)", () => {
+    const alliancePicksCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/alliance-picks");
+    expect(alliancePicksCard, "the alliance picks card is gone from the hub").toBeDefined();
+    expect(alliancePicksCard?.title).toBe("Predicting alliance picks");
+    for (const text of [alliancePicksCard?.title ?? "", alliancePicksCard?.blurb ?? ""]) {
       expect(text).not.toContain(HYPHEN_MINUS);
       expect(text).not.toContain(EN_DASH);
       expect(text).not.toContain(EM_DASH);

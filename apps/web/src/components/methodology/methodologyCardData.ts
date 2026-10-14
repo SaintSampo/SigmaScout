@@ -21,6 +21,7 @@ export interface MethodologyCardDescriptor {
     | "/methodology/compare"
     | "/methodology/awards"
     | "/methodology/district-points"
+    | "/methodology/alliance-picks"
     | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
@@ -29,9 +30,11 @@ export interface MethodologyCardDescriptor {
 
 /**
  * The SPR explainer, the site's premier rating and the most fundamental of
- * the six, reads first; Acknowledgments stays last. The district points card
+ * the seven, reads first; Acknowledgments stays last. The district points card
  * sits directly after the awards card so the two prediction methodology pages
- * read together (phase 10 plan 08).
+ * read together (phase 10 plan 08), and the alliance picks card follows it,
+ * since that page explains one part of the district points model (quick task
+ * 261014-ol7).
  *
  * ORDER IS LOAD BEARING. `MethodologyCards.tsx` destructures this array
  * POSITIONALLY (it cannot `.map()` over it — see that file's own doc comment
@@ -73,6 +76,12 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     title: "Predicting district points",
     blurb: "How the District Locks ledger scores each category, and how closely it matches the real draft.",
     testId: "methodology-card-district-points",
+  },
+  {
+    to: "/methodology/alliance-picks",
+    title: "Predicting alliance picks",
+    blurb: "How the Locks simulation makes each alliance pick, and how that scores against real drafts.",
+    testId: "methodology-card-alliance-picks",
   },
   {
     to: "/methodology/acknowledgments",
