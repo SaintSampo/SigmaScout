@@ -46,6 +46,13 @@
  * REFERENCE ONLY line (17.99%, 136 of 756); that figure is deliberately NOT
  * stated on this page, because the site no longer uses it.
  *
+ * The District Championship paragraphs (quick task 261014-i8i) describe the
+ * DCMP award slate, `packages/core/districts/dcmpAwardSlate.ts`. Their one
+ * number, 12 judged awards per division or single championship in 2026, is
+ * the 2026 judged anchor that `pnpm measure:dcmp-award-slate`
+ * (`npx tsx scripts/measureDcmpAwardSlate.ts`, run 2026-10-14) printed and the
+ * committed `DCMP_AWARD_SLATE_TABLES` literal carries.
+ *
  * RETIRED BY PHASE 10, DO NOT RESTORE. `AWARDS_LEAD`'s second sentence used to
  * tell a reader that the site showed no award prediction anywhere yet. The
  * District Locks ledger prints a chance of award points and a typical
@@ -59,7 +66,7 @@
 export const AWARDS_PAGE_TITLE = "Predicting awards";
 
 export const AWARDS_LEAD =
-  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the tables at the foot of this page, the Champ Locks tab draws the District Championship's Impact, Engineering Inspiration and Rookie All Star winners when it sets its predicted cutoff, and no other page on the site shows an award prediction.";
+  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the tables at the foot of this page, the Champ Locks tab draws the District Championship's Impact, Engineering Inspiration and Rookie All Star winners when it sets its predicted cutoff, and no other page on the site shows an award prediction. The Champ Locks tab prices a team's award points at a District Championship from earlier championships.";
 
 export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"] as const;
 export type AwardsSectionId = (typeof AWARDS_SECTION_IDS)[number];
@@ -196,6 +203,8 @@ export const AWARDS_SECTIONS: readonly AwardsSection[] = [
       "Rookie status splits the table only where a team has never won a judged award. A rookie has no earlier season, so the two decorated buckets have no rookie cell to measure, and TBA reports a rookie year for every team here, so the three unknown rows are empty as well.",
       "Impact and Rookie All Star are priced by a team's place in its event's field instead of by its bucket average. For Impact the field is ordered by earlier Impact wins, then by earlier judged awards. The team at the top of that order wins Impact 26.1% of the time, the second 14.4%, and everything from eleventh place down 0.4%. The lowest numbered rookie in the field wins Rookie All Star 38.1% of the time and the second lowest 28.6%.",
       "Those two chances are layered on a table of the remaining judged awards, measured with the Impact and Rookie All Star points taken out, so neither award is counted twice. The 2026 ordering rests on 756 district events from the seasons before it. A team whose award record the site does not carry is priced from the base rates alone.",
+      "A District Championship is priced from earlier championships, not from these tables. Impact, Engineering Inspiration and Rookie All Star go only to teams that won the same award at a district event that season. A team that cannot win one of them reads 0% for it.",
+      "A championship played in divisions gives those three awards at its finals and its judged awards in each division. A championship played as one event gives both. How many of each comes from the district's own count the season before. In 2026 each division and each single championship was expected to give 12 judged awards. The teams most likely to get them are set by their earlier award record, measured from earlier seasons only.",
       "No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.",
     ],
     table: {

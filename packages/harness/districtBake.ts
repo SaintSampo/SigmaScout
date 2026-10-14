@@ -47,6 +47,7 @@ import {
 } from "../core/districts/ledgerSimulation.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import type { AwardBaseRateSource } from "../core/districts/awardBaseRates.js";
+import type { DcmpAwardSlateInput } from "../core/districts/dcmpAwardSlate.js";
 import type { AllianceMemberRating } from "../core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../core/algorithms/simulation/rankSimulation.js";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
@@ -173,6 +174,14 @@ export interface DistrictBakeParams {
   readonly drawsPerSchedule?: number;
   /** Already bound to the right walk-forward state by the caller; pure, so calling it is side-effect-free. */
   readonly predict: (match: UpcomingMatch) => Prediction;
+  /**
+   * A DCMP tier event's award slate (quick task 261014-i8i), handed to every
+   * schedule's simulation input unchanged. Required at the dcmp tier: without
+   * one the simulation throws `MissingDcmpAwardSlateError`, which propagates
+   * like any other simulation refusal. Refused at the district tier
+   * (`DcmpAwardSlateOnDistrictTierError`).
+   */
+  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
 }
 
 /**
@@ -377,6 +386,7 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       baselines,
       ratings: params.ratings,
       awardProfiles,
+      ...(params.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: params.dcmpAwardSlate }),
     };
     // This schedule's own published seed XORed with the district salt: the
     // district draw stream can never alias the shuffle stream or the presim

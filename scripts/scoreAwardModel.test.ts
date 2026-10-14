@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { AwardOutcomeOdds } from "../packages/core/districts/ledgerSimulation.js";
 import {
+  acceptanceGates,
   addBinary,
   anyAwardChance,
   brierOf,
@@ -14,6 +15,7 @@ import {
   emptyBinary,
   expectedAwardPoints,
   flatBrierOf,
+  gateLines,
   SCORED_SEASONS,
   scoreTeamEvents,
   tierReportLines,
@@ -182,5 +184,58 @@ describe("dcmpRolesByEventType", () => {
       ["2024micmp2", "division"],
       ["2024pncmp", "single"],
     ]);
+  });
+});
+
+describe("the three acceptance gates (quick task 261014-i8i)", () => {
+  const DIGEST = "a".repeat(64);
+  const eligibleAll = { impact: true, engineeringInspiration: true, rookieAllStar: true };
+  const eligibleNone = { impact: false, engineeringInspiration: false, rookieAllStar: false };
+  /** Four DCMP team events: two winners priced high, two non winners priced low, so the Brier beats the flat guess. */
+  function sharpRows(ineligibleOdds = odds(0, 0, 0.1)): ScoredTeamEvent[] {
+    return [
+      row({ teamKey: "frc1", tier: "dcmp", role: "single", weight: 3, odds: odds(0.6, 0.2, 0.1), awardPoints: 30, wonImpact: true, eligible: eligibleAll }),
+      row({ teamKey: "frc2", tier: "dcmp", role: "single", weight: 3, odds: odds(0.1, 0.1, 0.6), awardPoints: 15, eligible: eligibleAll }),
+      row({ teamKey: "frc3", tier: "dcmp", role: "single", weight: 3, odds: ineligibleOdds, awardPoints: 0, eligible: eligibleNone }),
+      row({ teamKey: "frc4", tier: "dcmp", role: "single", weight: 3, odds: odds(0, 0, 0.1), awardPoints: 0, eligible: eligibleNone }),
+    ];
+  }
+
+  it("passes all three when the DCMP beats its flat guess, no ineligible team carries mass and the digest matches", () => {
+    const gates = acceptanceGates(scoreTeamEvents(sharpRows()).get("dcmp")!, DIGEST, DIGEST);
+    expect(gates.map((gate) => gate.pass)).toEqual([true, true, true]);
+    const lines = gateLines(gates);
+    expect(lines).toHaveLength(3);
+    expect(lines.every((line) => line.startsWith("GATE PASS: "))).toBe(true);
+  });
+
+  it("fails the Brier gate when the any award chance is worse than the flat guess", () => {
+    const blunt = sharpRows().map((entry) => ({ ...entry, odds: entry.awardPoints > 0 ? odds(0, 0, 0.05) : odds(0, 0, 0.95) }));
+    const gates = acceptanceGates(scoreTeamEvents(blunt).get("dcmp")!, DIGEST, DIGEST);
+    expect(gates[0]!.pass).toBe(false);
+    expect(gateLines(gates)[0]).toMatch(/^GATE FAIL: DCMP any award Brier/);
+  });
+
+  it("fails the zero mass gate on ANY Impact or 8 point mass on an ineligible team event, however small", () => {
+    const impactLeak = acceptanceGates(scoreTeamEvents(sharpRows(odds(1e-12, 0, 0.1))).get("dcmp")!, DIGEST, DIGEST);
+    expect(impactLeak[1]!.pass).toBe(false);
+    const eightLeak = acceptanceGates(scoreTeamEvents(sharpRows(odds(0, 1e-12, 0.1))).get("dcmp")!, DIGEST, DIGEST);
+    expect(eightLeak[1]!.pass).toBe(false);
+    // Judged mass on an ineligible team is allowed: only the three consuming awards are gated.
+    expect(acceptanceGates(scoreTeamEvents(sharpRows(odds(0, 0, 0.5))).get("dcmp")!, DIGEST, DIGEST)[1]!.pass).toBe(true);
+  });
+
+  it("fails the digest gate on a different digest and on a missing one", () => {
+    const report = scoreTeamEvents(sharpRows()).get("dcmp")!;
+    expect(acceptanceGates(report, DIGEST, "b".repeat(64))[2]!.pass).toBe(false);
+    const missing = acceptanceGates(report, DIGEST, undefined);
+    expect(missing[2]!.pass).toBe(false);
+    expect(missing[2]!.detail).toContain("no --expect-district-digest given");
+  });
+
+  it("fails every scored gate over an empty DCMP block rather than passing vacuously", () => {
+    const gates = acceptanceGates(scoreTeamEvents([]).get("dcmp")!, DIGEST, DIGEST);
+    expect(gates[0]!.pass).toBe(false);
+    expect(gates[1]!.pass).toBe(false);
   });
 });

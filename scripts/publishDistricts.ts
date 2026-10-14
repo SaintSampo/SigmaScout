@@ -214,7 +214,11 @@ import {
   impactOrderingProbability,
   rookieAllStarOrderingProbability,
 } from "../packages/core/districts/awardOrderingTables.js";
-import type { DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
+import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
+import { buildDcmpAwardSlate, UnknownDcmpAwardSlateSeasonError, type DcmpAwardSlateInput } from "../packages/core/districts/dcmpAwardSlate.js";
+import { dcmpAwardEligibility, dcmpEntrantWeight } from "../packages/core/districts/dcmpAwardEligibility.js";
+import { champCutoffTuning } from "../packages/core/districts/hypotheticalDcmp.js";
+import { dcmpEligibilityTeamsFromArtifact } from "../packages/harness/districtDcmpAwardInputs.js";
 import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND, priorImpactWinCount } from "./measureAwardOrderingTables.js";
 import { loadAwardInstances, loadRookieYears, MEASURED_COMMAND, priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
 import { selectCorpusSeasons } from "../packages/corpus/db.js";
@@ -1578,6 +1582,32 @@ function bakeSeason(
       continue;
     }
 
+    // A DCMP tier candidate prices its awards from its DCMP award slate
+    // (quick task 261014-i8i), never from the district tier tables at 3x.
+    let dcmpAwardSlate: DcmpAwardSlateInput | undefined;
+    if (candidate.tier === "dcmp") {
+      const composed = year.detailArtifacts.find((entry) => entry.district.districtKey === candidate.districtKey)!;
+      const districtTeamKeys = composed.artifact.teams.map((team) => team.teamKey);
+      const districtProfiles = (options.awardProfilesFor?.(season, districtTeamKeys) ?? year.awardContext.profilesFor(districtTeamKeys)).profiles;
+      try {
+        dcmpAwardSlate = dcmpBakeAwardSlate({
+          artifact: composed.artifact,
+          events: composed.events,
+          cmpSlots: composed.district.cmpSlots,
+          eventKey: candidate.eventKey,
+          profileOf: (teamKey) => districtProfiles.get(teamKey) ?? profilesByTeam.get(teamKey) ?? ZERO_AWARD_PROFILE,
+        });
+      } catch (error) {
+        // A season the slate is not measured for is a NAMED skip, never a
+        // DCMP priced from the district tier tables: re measure first
+        // (`pnpm measure:dcmp-award-slate`).
+        if (!(error instanceof UnknownDcmpAwardSlateSeasonError)) throw error;
+        console.log(`${label}: ${error.message}`);
+        bump(census.skipped, "no-dcmp-award-slate");
+        continue;
+      }
+    }
+
     const outcome = bakeDistrictEvent({
       districtKey: candidate.districtKey,
       eventKey: candidate.eventKey,
@@ -1607,6 +1637,7 @@ function bakeSeason(
       algorithmVersion: pricing.algorithmVersion,
       matchesPerTeam: candidate.matchesPerTeam,
       predict,
+      ...(dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate }),
     });
 
     if (outcome.status === "skipped") {
@@ -1642,6 +1673,62 @@ function bakeSeason(
   const bakeMs = performance.now() - bakeStart;
 
   return { sidecars, bakedEventsByDistrict, census, replayMs, bakeMs, matchesReplayed: pricing.matchesReplayed };
+}
+
+/**
+ * Each event's AWARDS POSTED fact at the run's instant, read from the composed
+ * artifact's own state blocks: the fact `deriveDistrictEventState` already
+ * derives through `awardsPostedRule` and `applyDistrictEventState` writes onto
+ * every row. Not re derived here. An event with no state block reads false.
+ */
+export function awardsPostedByEvent(artifact: DistrictArtifact): (eventKey: string) => boolean {
+  const posted = new Map<string, boolean>();
+  for (const team of artifact.teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (row.state !== undefined && !posted.has(row.eventKey)) posted.set(row.eventKey, row.state.awardsPosted);
+    }
+  }
+  return (eventKey: string): boolean => posted.get(eventKey) ?? false;
+}
+
+/**
+ * THE DCMP AWARD SLATE a publisher bake of one DCMP tier event carries (quick
+ * task 261014-i8i). Eligibility through the ONE core rule
+ * (`dcmpAwardEligibility`) over the composed artifact's teams, awards final
+ * where they are posted at the run's instant, entrants weighted by
+ * `dcmpEntrantWeight` under the season's own champ cutoff setting: the same
+ * reading the web's per event run and champ draws take. `profileOf` covers
+ * every district team, so a non roster entrant at an open district event
+ * weighs by its own profile, not the zero one.
+ */
+export function dcmpBakeAwardSlate(args: {
+  readonly artifact: DistrictArtifact;
+  readonly events: ReadonlyArray<{ readonly eventKey: string; readonly eventType: number }>;
+  readonly cmpSlots: number | null;
+  readonly eventKey: string;
+  readonly profileOf: (teamKey: string) => DistrictAwardProfile;
+}): DcmpAwardSlateInput {
+  const { artifact } = args;
+  const season = artifact.year;
+  const setting = champCutoffTuning(season).setting;
+  const eligibility = dcmpAwardEligibility({
+    teams: dcmpEligibilityTeamsFromArtifact(artifact, (team) => args.profileOf(team.teamKey)),
+    awardFinal: awardsPostedByEvent(artifact),
+    weight: (team, awardType) => dcmpEntrantWeight(args.profileOf(team.teamKey), awardType, season, setting.weighting),
+  });
+  const dcmpEventKeys = args.events
+    .filter((event) => districtTierForEventType(event.eventType) === "dcmp")
+    .map((event) => event.eventKey)
+    .sort();
+  return buildDcmpAwardSlate({
+    season,
+    districtKey: artifact.districtKey,
+    cmpSlots: args.cmpSlots ?? 0,
+    dcmpEventKeys,
+    target: { eventKey: args.eventKey },
+    eligibility,
+    setting,
+  });
 }
 
 function pushBakedEvent(into: Map<string, string[]>, districtKey: string, eventKey: string): void {

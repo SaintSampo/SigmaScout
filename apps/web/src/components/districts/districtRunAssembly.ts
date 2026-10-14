@@ -13,6 +13,12 @@
  * roster landed and re-run every district event, and would make the district
  * run's own pending state wait on its downstream. The main run keeps skipping
  * the unstarted championship; only a roster or stop change re-bakes.
+ *
+ * EVERY DCMP TIER REQUEST CARRIES A DCMP AWARD SLATE (quick task 261014-i8i):
+ * Live, a rewound stop's real and generated championships, and the simulated
+ * DCMP bake. Each is built by `dcmpAwardSlateAt` from the same eligibility the
+ * champ draws read, at the same position. A district tier request never
+ * carries one and is byte for byte what it was.
  */
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import {
@@ -31,6 +37,12 @@ import {
 } from "../../workers/districtSimulationProtocol.js";
 import type { AsOfBakeParams, AsOfRewindResult } from "./asOfRewind.js";
 import type { SimulatedDcmpBake } from "./champLedgerRows.js";
+import { dcmpAwardSlateAt } from "./dcmpAwardInputs.js";
+import {
+  UnknownDcmpAwardSlateSeasonError,
+  UnknownDcmpSlateTargetError,
+  type DcmpAwardSlateInput,
+} from "../../../../../packages/core/districts/dcmpAwardSlate.js";
 import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -54,6 +66,43 @@ function foldKnownPoints(known: ReadonlyMap<string, number> | undefined): string
     .map(([teamKey, value]) => `${teamKey}=${String(value)}`)
     .sort()
     .join(",");
+}
+
+/**
+ * A DCMP award slate folded to every value the award draw reads: the role, the
+ * four expected counts and the eligibility entries, sorted by team key (quick
+ * task 261014-i8i). A stage change that moves a team's eligibility moves this
+ * segment, so the event re-runs.
+ */
+function foldDcmpSlate(slate: DcmpAwardSlateInput): string {
+  const { expected } = slate;
+  const eligibility = [...slate.eligibility]
+    .map((entry) => `${entry.teamKey}=${String(entry.impact)}/${String(entry.engineeringInspiration)}/${String(entry.rookieAllStar)}`)
+    .sort()
+    .join(",");
+  return `dcmpSlate=${slate.role}:${String(expected.impact)}/${String(expected.engineeringInspiration)}/${String(expected.rookieAllStar)}/${String(expected.judged)}:${eligibility}`;
+}
+
+/**
+ * The slate member one DCMP tier request carries, or nothing for a district
+ * tier one. A season the slate is not registered for, or a key the artifact
+ * does not list among its DCMP tier keys, carries none: the run then refuses
+ * the event with `MissingDcmpAwardSlateError` and its cells read unavailable,
+ * never priced from the district tier tables.
+ */
+function dcmpSlateMember(
+  artifact: DistrictArtifact,
+  stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined,
+  tier: DistrictTier,
+  target: { readonly eventKey: string } | "wholeChampionship"
+): { dcmpAwardSlate?: DcmpAwardSlateInput } {
+  if (tier !== "dcmp") return {};
+  try {
+    return { dcmpAwardSlate: dcmpAwardSlateAt(artifact, stageByEvent, target) };
+  } catch (error) {
+    if (error instanceof UnknownDcmpAwardSlateSeasonError || error instanceof UnknownDcmpSlateTargetError) return {};
+    throw error;
+  }
 }
 
 /** One supplied alliance set folded to its rosters, sorted by alliance number. */
@@ -132,6 +181,9 @@ export function districtRunSignature(events: readonly DistrictSimulationEventReq
         foldKnownPoints(input.knownAwardPoints),
         foldPlayedElims(input.playedElimMatches),
         ...(input.awardOnlyTeams === undefined ? [] : [`awardOnly=${input.awardOnlyTeams.join(",")}`]),
+        // THE DCMP AWARD SLATE (quick task 261014-i8i), only where a request
+        // carries one, so every district tier signature is unchanged.
+        ...(input.dcmpAwardSlate === undefined ? [] : [foldDcmpSlate(input.dcmpAwardSlate)]),
         // A REWOUND STOP (quick task 261005-5g0): the cut, the mode and what
         // the Worker prices or bakes, so a stop change always re-runs. Only an
         // as-of request carries it, so every Live signature is unchanged.
@@ -223,6 +275,7 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
     const startMatchKey = startMatchKeyByEvent?.has(eventKey)
       ? (startMatchKeyByEvent.get(eventKey) ?? null)
       : defaultStartKey(eventArtifact);
+    const tier = tierByEvent?.get(eventKey) ?? "district";
     const built = buildDistrictEventSimulationInput({
       eventKey,
       season: artifact.year,
@@ -237,10 +290,13 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
       // passes it (the frozen-copy parity tests) asks for the retired stored
       // odds rewind, whose playoff step is all-or-nothing by construction.
       conditionOnPlayedElims: startMatchKeyByEvent === undefined,
-      tier: tierByEvent?.get(eventKey) ?? "district",
+      tier,
       // The number reading, beside the field's `stage` (quick task
       // 261009-vp9). Absent keeps this the frozen copy's own call.
       ...pointsFinalFor(pointsFinalByEvent, eventKey),
+      // A DCMP tier event's award slate at this position (quick task
+      // 261014-i8i). Nothing for a district tier event.
+      ...dcmpSlateMember(artifact, stageByEvent, tier, { eventKey }),
     });
     if (!built.ok) continue;
     if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
@@ -291,6 +347,8 @@ function generatedRequest(params: {
   readonly common: AsOfCommon;
   readonly bake: AsOfBakeParams;
   readonly algorithmVersion: string;
+  /** A DCMP tier event's award slate (quick task 261014-i8i), placed on the input only at the dcmp tier. */
+  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
 }): DistrictSimulationEventRequest | undefined {
   const { artifact, districtTeamByKey, eventKey, tier, roster } = params;
   if (roster.length === 0 || roster.length > MAX_DISTRICT_SIMULATION_ROSTER) return undefined;
@@ -306,6 +364,7 @@ function generatedRequest(params: {
     baselines: roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
     ratings: new Map(),
     awardProfiles,
+    ...(tier === "dcmp" && params.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: params.dcmpAwardSlate } : {}),
   };
   return {
     eventKey,
@@ -391,6 +450,8 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
           tier,
           asOfBaselines: plan.baselines,
           ...pointsFinalFor(params.pointsFinalByEvent, eventKey),
+          // The stop's own DCMP award slate (quick task 261014-i8i).
+          ...dcmpSlateMember(artifact, stageByEvent, tier, { eventKey }),
         });
         if (!built.ok) {
           asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
@@ -412,6 +473,8 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
         common,
         bake: plan.bake,
         algorithmVersion: params.algorithmVersion,
+        // A generated championship prices its awards from the stop's slate too (quick task 261014-i8i).
+        ...dcmpSlateMember(artifact, stageByEvent, tier, { eventKey }),
       });
       if (built === undefined) {
         asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
@@ -442,6 +505,13 @@ export interface AssembleSimulatedDcmpBakeParams {
   readonly eventKey: string;
   /** The simulated field: the Locked, Prequalified and In range teams at the stop, sorted. */
   readonly roster: readonly string[];
+  /**
+   * What has happened on the field at the stop, per event: the position the
+   * bake's DCMP award slate reads eligibility at (quick task 261014-i8i), the
+   * same map the champ draws read. Absent reads each event's own `state`,
+   * which is Now.
+   */
+  readonly stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
 }
 
 export type AssembledSimulatedDcmpBake =
@@ -486,6 +556,10 @@ export function assembleSimulatedDcmpBake(params: AssembleSimulatedDcmpBakeParam
     },
     bake: plan.bake,
     algorithmVersion: params.algorithmVersion,
+    // The bake stands for a WHOLE championship: every consuming award at the
+    // district's full share, plus each single or division key's judged anchor
+    // (quick task 261014-i8i).
+    ...dcmpSlateMember(artifact, params.stageByEvent, plan.tier, "wholeChampionship"),
   });
   if (request === undefined) return { status: "unavailable", reason: "the simulated field cannot be baked" };
   return { status: "ready", request, signature: districtRunSignature([request]) };

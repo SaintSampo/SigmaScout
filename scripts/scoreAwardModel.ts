@@ -2,7 +2,8 @@
  * THE AWARD MODEL SCORER (quick task 261014-i8i): the SHIPPED award cell,
  * scored walk forward against what happened, per tier, 2023 to 2026.
  *
- *     npx tsx scripts/scoreAwardModel.ts        (or pnpm score:award-model)
+ *     npx tsx scripts/scoreAwardModel.ts --expect-district-digest <hex>
+ *     pnpm score:award-model -- --expect-district-digest <hex>
  *
  * WHAT IT SCORES. Every team event is priced by `eventAwardOutcomeOdds`, the
  * exact odds twin of `simulateDistrictEvent`'s award draw, read from the SAME
@@ -35,10 +36,23 @@
  * THE DISTRICT DIGEST is a sha256 over every district tier team event's odds,
  * rounded to 12 decimals, in key order. A DCMP change must leave it equal.
  *
+ * THE DCMP SLATE. Each DCMP tier event is priced from the slate the shipped
+ * callers build (`buildDcmpAwardSlate`): the district's corpus DCMP tier keys,
+ * the district's `cmpSlots` from `selectDistrictsForYear`, the eligibility
+ * above (every award final), the event as the target. So the DCMP block scores
+ * the shipped slate.
+ *
+ * THREE HARD GATES, each printed PASS or FAIL (quick task 261014-i8i): the
+ * DCMP any award Brier is below its flat guess; the Impact, Engineering
+ * Inspiration and Rookie All Star mass on ineligible DCMP team events is
+ * exactly 0; the district tier digest equals `--expect-district-digest`. Any
+ * FAIL, or a missing digest, exits 1.
+ *
  * Read only corpus, no network request, no environment variable.
  */
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
 import {
   openCorpusReadOnly,
   selectDistrictRankings,
@@ -47,6 +61,7 @@ import {
 } from "../packages/corpus/db.js";
 import { decorationBucket, rookieStateFor, type DecorationBucket, type RookieState } from "../packages/core/districts/awardBaseRates.js";
 import { dcmpAwardEligibility, dcmpEligibilityChance, type DcmpEligibilityTeam } from "../packages/core/districts/dcmpAwardEligibility.js";
+import { buildDcmpAwardSlate, type DcmpAwardSlateInput } from "../packages/core/districts/dcmpAwardSlate.js";
 import {
   eventAwardOutcomeOdds,
   type AwardOutcomeOdds,
@@ -426,6 +441,17 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
     const dcmpKeys = new Set(rankingRows.filter((row) => row.tier === "dcmp").map((row) => row.eventKey));
     const roles = dcmpRolesByEventType(loadEventTypes(db, season), dcmpKeys);
 
+    // THE SLATE INPUTS the shipped callers read: each district's corpus DCMP
+    // tier keys and its published cmpSlots (the champ draws' fallback is 0).
+    const dcmpKeysByDistrict = new Map<string, Set<string>>();
+    for (const row of rankingRows) {
+      if (row.tier !== "dcmp") continue;
+      const set = dcmpKeysByDistrict.get(row.districtKey);
+      if (set === undefined) dcmpKeysByDistrict.set(row.districtKey, new Set([row.eventKey]));
+      else set.add(row.eventKey);
+    }
+    const cmpSlotsByDistrict = new Map(selectDistrictsForYear(db, season).map((district) => [district.districtKey, district.cmpSlots] as const));
+
     const byEvent = new Map<string, RankingRow[]>();
     for (const row of rankingRows) {
       const list = byEvent.get(row.eventKey);
@@ -446,14 +472,27 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
         const rookieState = rookieStateFor(rookieYears.get(row.teamKey) ?? null, season);
         awardProfiles.set(row.teamKey, { bucket: decorationBucket(priorJudgedAwards), rookieState, priorJudgedAwards, priorImpactWins });
       }
+      const eligibility = tier === "dcmp" ? eligibilityByDistrict.get(field[0]!.districtKey) : undefined;
+      let dcmpAwardSlate: DcmpAwardSlateInput | undefined;
+      if (tier === "dcmp") {
+        const districtKey = field[0]!.districtKey;
+        dcmpAwardSlate = buildDcmpAwardSlate({
+          season,
+          districtKey,
+          cmpSlots: cmpSlotsByDistrict.get(districtKey) ?? 0,
+          dcmpEventKeys: [...(dcmpKeysByDistrict.get(districtKey) ?? [])].sort(),
+          target: { eventKey },
+          eligibility: eligibility!,
+        });
+      }
       const odds = eventAwardOutcomeOdds({
         eventKey,
         season,
         tier,
         awardField: field.map((row) => ({ teamKey: row.teamKey })),
         awardProfiles,
+        ...(dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate }),
       });
-      const eligibility = tier === "dcmp" ? eligibilityByDistrict.get(field[0]!.districtKey) : undefined;
       for (const row of field) {
         const profile = awardProfiles.get(row.teamKey)!;
         if (profile.rookieState === "unknown") unknownRookieStateTeamEvents++;
@@ -550,7 +589,59 @@ export function tierReportLines(report: TierReport): string[] {
   return lines;
 }
 
+/** One hard gate's verdict. */
+export interface AcceptanceGate {
+  readonly name: string;
+  readonly pass: boolean;
+  readonly detail: string;
+}
+
+/**
+ * THE THREE HARD GATES (quick task 261014-i8i): the DCMP any award Brier is
+ * below its flat guess at the observed rate; the Impact, Engineering
+ * Inspiration and Rookie All Star mass on ineligible DCMP team events is
+ * exactly 0 (both the award's own mass and its cell's); the district tier
+ * digest equals the expected one. A missing expected digest FAILS.
+ */
+export function acceptanceGates(dcmp: TierReport, districtDigest: string, expectedDistrictDigest: string | undefined): AcceptanceGate[] {
+  const brier = brierOf(dcmp.anyAward);
+  const flat = flatBrierOf(dcmp.anyAward);
+  const audits = [
+    ["Impact", dcmp.impact],
+    ["Engineering Inspiration", dcmp.engineeringInspiration],
+    ["Rookie All Star", dcmp.rookieAllStar],
+  ] as const;
+  const zeroMass = dcmp.anyAward.n > 0 && audits.every(([, audit]) => audit.onIneligible === 0 && audit.cellMassOnIneligible === 0);
+  return [
+    {
+      name: "DCMP any award Brier below the flat guess at the observed rate",
+      pass: dcmp.anyAward.n > 0 && brier < flat,
+      detail: `Brier ${brier.toFixed(4)} vs flat ${flat.toFixed(4)} (n=${String(dcmp.anyAward.n)})`,
+    },
+    {
+      name: "Impact, Engineering Inspiration and Rookie All Star mass on ineligible DCMP team events is exactly 0",
+      pass: zeroMass,
+      detail: audits.map(([label, audit]) => `${label} ${String(audit.onIneligible)} award / ${String(audit.cellMassOnIneligible)} cell`).join("; "),
+    },
+    {
+      name: "district tier digest equals the expected digest",
+      pass: expectedDistrictDigest !== undefined && expectedDistrictDigest === districtDigest,
+      detail:
+        expectedDistrictDigest === undefined
+          ? `no --expect-district-digest given; this run's digest is ${districtDigest}`
+          : `expected ${expectedDistrictDigest}, got ${districtDigest}`,
+    },
+  ];
+}
+
+/** The printed gate lines: one `GATE PASS:` or `GATE FAIL:` line per gate. */
+export function gateLines(gates: readonly AcceptanceGate[]): string[] {
+  return gates.map((gate) => `GATE ${gate.pass ? "PASS" : "FAIL"}: ${gate.name} (${gate.detail})`);
+}
+
 async function main(): Promise<void> {
+  const { values } = parseArgs({ options: { "expect-district-digest": { type: "string" } }, strict: true });
+  const expectedDigest = values["expect-district-digest"];
   console.log(`AWARD MODEL SCORE: the shipped award cell, walk forward, per tier.`);
   console.log(`seasons:    ${SCORED_SEASONS.join(", ")}`);
   console.log(`population: district_rankings entries (own district_cmp decides the tier), events with any award row, fields of at least ${String(MIN_SCORED_FIELD_SIZE)}`);
@@ -568,6 +659,10 @@ async function main(): Promise<void> {
     console.log(`team events with an unknown rookie state (priced as their own class): ${String(load.unknownRookieStateTeamEvents)}`);
     const digest = districtOddsDigest(load.rows);
     console.log(`DISTRICT TIER DIGEST: ${digest.digest} (${String(digest.lines)} team events)`);
+    console.log(``);
+    const gates = acceptanceGates(reports.get("dcmp")!, digest.digest, expectedDigest);
+    for (const line of gateLines(gates)) console.log(line);
+    if (gates.some((gate) => !gate.pass)) process.exitCode = 1;
   } finally {
     db.close();
   }

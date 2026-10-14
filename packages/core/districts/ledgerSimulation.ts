@@ -529,6 +529,20 @@ function assertSlateTier(eventKey: string, tier: DistrictTier, slate: DcmpAwardS
 }
 
 /**
+ * Thrown when a DCMP tier event's awards must be priced and no DCMP award
+ * slate was supplied (quick task 261014-i8i). A DCMP is never priced from the
+ * district tier tables at 3x: the 2026-10-14 review measured that worse than a
+ * flat guess. Posted awards (`knownAwardPoints`) need no slate. The Web Worker
+ * protocol turns this throw into a per event unavailable entry.
+ */
+export class MissingDcmpAwardSlateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingDcmpAwardSlateError";
+  }
+}
+
+/**
  * THE ONE PER EVENT AWARD PRICING RESOLUTION (quick task 261014-i8i), shared by
  * `simulateDistrictEvent` and `eventAwardOutcomeOdds` so the draw and the exact
  * odds the scorer reads are one model. Consumes no randomness. Resolved once
@@ -538,6 +552,11 @@ function assertSlateTier(eventKey: string, tier: DistrictTier, slate: DcmpAwardS
 export function resolveEventAwardPricing(input: EventAwardPricingInput): EventAwardPricing {
   const { eventKey, season, awardField, awardProfiles } = input;
   assertSlateTier(eventKey, input.tier, input.dcmpAwardSlate);
+  if (input.tier === "dcmp" && input.dcmpAwardSlate === undefined) {
+    throw new MissingDcmpAwardSlateError(
+      `event ${eventKey}: a DCMP tier event's awards are not posted and no DCMP award slate was supplied; the district tier tables never price a DCMP`
+    );
+  }
   if (input.dcmpAwardSlate !== undefined) {
     // THE DCMP SLATE PATH: no district tier table is read. Every field member
     // still needs a profile, refused exactly as the other paths refuse.
@@ -792,10 +811,11 @@ export interface DistrictLedgerEventInput {
   /**
    * THE DCMP AWARD SLATE (quick task 261014-i8i): how a DCMP tier event
    * prices its awards, built by `buildDcmpAwardSlate` from the same
-   * eligibility the champ draws read. Required at the dcmp tier once every
-   * caller carries one (261014-i8i Task 3); REFUSED at the district tier with
-   * `DcmpAwardSlateOnDistrictTierError`, before any draw. Ignored where
-   * `knownAwardPoints` is supplied: a posted award needs no pricing.
+   * eligibility the champ draws read. REQUIRED at the dcmp tier unless
+   * `knownAwardPoints` is supplied: absent, the run throws
+   * `MissingDcmpAwardSlateError` before any draw. REFUSED at the district
+   * tier with `DcmpAwardSlateOnDistrictTierError`, before any draw. Ignored
+   * where `knownAwardPoints` is supplied: a posted award needs no pricing.
    */
   readonly dcmpAwardSlate?: DcmpAwardSlateInput;
 }

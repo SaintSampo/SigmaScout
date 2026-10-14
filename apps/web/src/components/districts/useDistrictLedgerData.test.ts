@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { attachRequestFacts, champLiveFetchKeys, districtRunSignature, divisionedDcmpBracketFacts, securedElimForRequest } from "./useDistrictLedgerData.js";
-import { assembleAsOfDistrictEvents, assembleLiveDistrictEvents } from "./districtRunAssembly.js";
+import { assembleAsOfDistrictEvents, assembleLiveDistrictEvents, assembleSimulatedDcmpBake } from "./districtRunAssembly.js";
 import type { AsOfRewindResult } from "./asOfRewind.js";
 import type { BracketSourceEvent, DistrictEventDistributions, DistrictStageFinality } from "./districtLedgerRows.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -23,7 +23,7 @@ import { buildDistrictEventSimulationInput, buildDistrictLedgerRows, dcmpBracket
 import { buildChampLedgerRows } from "./champLedgerRows.js";
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import type { PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
-import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
+import { isDistrictSimulationRequest, type DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
 import type { AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type {
   DistrictAwardProfile,
@@ -1092,5 +1092,195 @@ describe("what the lock math reads of an event is laid on per run request, run l
       attachRequestFacts(kept, { ...base });
       expect(kept.get(UNNAMED)).toBe(landed);
     });
+  });
+});
+
+describe("every DCMP tier request carries a DCMP award slate (quick task 261014-i8i)", () => {
+  const DIST = "2026wadist";
+  const DCMP = "2026pncmp";
+  const roster = Array.from({ length: 24 }, (_unused, i) => `frc${String(500 + i)}`);
+  /** frc500 won Impact and frc501 Engineering Inspiration at the district event; frc510 won nothing anywhere. */
+  const IMPACT_WINNER = "frc500";
+  const EI_WINNER = "frc501";
+  const INELIGIBLE = "frc510";
+  const pmf = [0.25, 0.25, 0.25, 0.25];
+
+  const eventArtifact: EventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: DCMP,
+    season: 2026,
+    matches: Array.from({ length: 4 }, (_unused, i) => ({
+      matchKey: `${DCMP}_qm${String(i + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: i + 1,
+      sortTime: 1_760_000_000 + i * 600,
+      redTeams: roster.slice(i * 6, i * 6 + 3),
+      blueTeams: roster.slice(i * 6 + 3, i * 6 + 6),
+      predictedWinner: "red",
+      pRedWin: 0.5,
+      predictedRedScore: 50,
+      predictedBlueScore: 50,
+      actualWinner: "red",
+      actualRedScore: 60,
+      actualBlueScore: 50,
+      actualRedRp: 3,
+      actualBlueRp: 1,
+      redRpPmf: pmf,
+      blueRpPmf: pmf,
+    })),
+    upcoming: [],
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 500 + i,
+      rank: i + 1,
+      record: { wins: 2, losses: 2, ties: 0 },
+      rp: 2,
+      metrics: { total: { value: 90 - i }, sigma: { value: 8 } },
+    })),
+  });
+
+  const POSTED = { qualMatchesPlayed: 40, qualMatchesTotal: 40, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+  const districtArtifact: DistrictArtifact = DistrictArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    districtKey: "2026pnw",
+    year: 2026,
+    abbreviation: "pnw",
+    displayName: "Pacific Northwest",
+    dcmpSlots: 24,
+    cmpSlots: 4,
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 500 + i,
+      nickname: `Nickname ${teamKey}`,
+      rank: i + 1,
+      pointTotal: 40,
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [{ eventKey: DIST, eventName: "District Event", week: 2, tier: "district", qual: 20, alliance: 10, elim: 10, award: 0, total: 40, state: POSTED }],
+      remainingEvents: [{ eventKey: DCMP, eventName: "Championship", week: 5, tier: "dcmp", maxPoints: 249 }],
+      maxRemainingDistrict: 0,
+      maxRemainingChamp: 249,
+      qualifyingAwards:
+        teamKey === IMPACT_WINNER
+          ? [{ eventKey: DIST, awardType: 0, label: "Impact", awardOnly: false }]
+          : teamKey === EI_WINNER
+            ? [{ eventKey: DIST, awardType: 9, label: "Engineering Inspiration", awardOnly: false }]
+            : [],
+      districtLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 20, allocationNote: null },
+      champLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 40, allocationNote: null },
+      awardProfile: { bucket: "none", rookie: false },
+    })),
+    insights: { teamCount: roster.length, eventCount: 2, dcmpCutLinePoints: 40, cmpCutLinePoints: 80, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+  });
+
+  const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+  const QUAL_DONE: DistrictStageFinality = { qual: true, alliance: false, elim: false, award: false };
+  const stageByEvent = new Map<string, DistrictStageFinality>([
+    [DIST, ALL_FINAL],
+    [DCMP, QUAL_DONE],
+  ]);
+  const tierByEvent = new Map<string, "district" | "dcmp">([
+    [DIST, "district"],
+    [DCMP, "dcmp"],
+  ]);
+  const eventArtifacts = new Map<string, EventArtifact>([[DCMP, eventArtifact]]);
+
+  /** Holds the slate to the fixture's facts: the two winners in, the ineligible team out. */
+  function expectFixtureSlate(input: DistrictLedgerEventInput, role: string): void {
+    const slate = input.dcmpAwardSlate;
+    expect(slate).toBeDefined();
+    expect(slate!.role).toBe(role);
+    const byTeam = new Map(slate!.eligibility.map((entry) => [entry.teamKey, entry] as const));
+    expect(byTeam.get(IMPACT_WINNER)).toEqual({ teamKey: IMPACT_WINNER, impact: 1, engineeringInspiration: 0, rookieAllStar: 0 });
+    expect(byTeam.get(EI_WINNER)).toEqual({ teamKey: EI_WINNER, impact: 0, engineeringInspiration: 1, rookieAllStar: 0 });
+    expect(byTeam.has(INELIGIBLE)).toBe(false);
+    expect(slate!.eligibility).toHaveLength(2);
+  }
+
+  it("the Live assembly's DCMP request carries one, and its signature folds it", () => {
+    const assembled = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [DCMP], eventArtifacts, stageByEvent, tierByEvent });
+    expect(assembled.events).toHaveLength(1);
+    expectFixtureSlate(assembled.events[0]!.input, "single");
+    expect(assembled.signature).toContain("|dcmpSlate=single:");
+  });
+
+  it("a district tier request from the same assembly carries none", () => {
+    const assembled = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [DCMP], eventArtifacts, stageByEvent });
+    expect(assembled.events).toHaveLength(1);
+    expect("dcmpAwardSlate" in assembled.events[0]!.input).toBe(false);
+    expect(assembled.signature).not.toContain("dcmpSlate=");
+  });
+
+  const planned = (plan: Record<string, unknown>): AsOfRewindResult =>
+    ({
+      status: "ready",
+      cutId: "cut-1",
+      events: new Map([[DCMP, { status: "ready", state: { plan, season: 2026, vars: [], league: [], teams: roster.map((teamKey) => [teamKey, []]) } }]]),
+    }) as unknown as AsOfRewindResult;
+  const realPlan = planned({
+    mode: "real",
+    eventKey: DCMP,
+    tier: "dcmp",
+    roster,
+    rows: [],
+    baselines: roster.map((teamKey) => ({ teamKey, earnedRpSum: 8, matchesPlayed: 4 })),
+    playedPlayoffMatchKeys: [],
+  });
+  const generatedPlan = planned({
+    mode: "generated",
+    eventKey: DCMP,
+    tier: "dcmp",
+    roster,
+    bake: { districtKey: "2026pnw", eventType: 2, week: 5, matchesPerTeam: 12 },
+  });
+
+  it("a rewound stop's REAL and GENERATED DCMP requests each carry one, read at the stop's own stage", () => {
+    for (const result of [realPlan, generatedPlan]) {
+      const assembled = assembleAsOfDistrictEvents({ artifact: districtArtifact, result, algorithmVersion: "7.0.0+rolling", eventArtifacts, stageByEvent, tierByEvent, candidateKeys: [DCMP] });
+      expect(assembled.asOfUnavailable).toEqual([]);
+      expect(assembled.events).toHaveLength(1);
+      expectFixtureSlate(assembled.events[0]!.input, "single");
+    }
+    // At a stop where the district event's awards are still open, nobody HOLDS an award: every team that entered there carries a pending chance.
+    const open = new Map<string, DistrictStageFinality>([
+      [DIST, QUAL_DONE],
+      [DCMP, QUAL_DONE],
+    ]);
+    const rewound = assembleAsOfDistrictEvents({ artifact: districtArtifact, result: realPlan, algorithmVersion: "7.0.0+rolling", eventArtifacts, stageByEvent: open, tierByEvent, candidateKeys: [DCMP] });
+    const slate = rewound.events[0]!.input.dcmpAwardSlate!;
+    expect(slate.eligibility).toHaveLength(roster.length);
+    for (const entry of slate.eligibility) expect(entry.impact, entry.teamKey).toBeCloseTo(1 / roster.length, 12);
+    // ... and the stage change moves the signature, so the event re-runs.
+    const atFinal = assembleAsOfDistrictEvents({ artifact: districtArtifact, result: realPlan, algorithmVersion: "7.0.0+rolling", eventArtifacts, stageByEvent, tierByEvent, candidateKeys: [DCMP] });
+    expect(rewound.signature).not.toBe(atFinal.signature);
+  });
+
+  it("the simulated DCMP bake carries a whole championship slate read at the stop", () => {
+    const assembled = assembleSimulatedDcmpBake({ artifact: districtArtifact, result: generatedPlan, algorithmVersion: "7.0.0+rolling", eventKey: DCMP, roster, stageByEvent });
+    if (assembled.status !== "ready") throw new Error(`expected a ready bake, got ${assembled.status}`);
+    expectFixtureSlate(assembled.request.input, "wholeChampionship");
+    expect(assembled.signature).toContain("|dcmpSlate=wholeChampionship:");
+  });
+
+  it("the Worker protocol accepts a slate as plain data and refuses a malformed one", () => {
+    const assembled = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [DCMP], eventArtifacts, stageByEvent, tierByEvent });
+    const message = (events: readonly DistrictSimulationEventRequest[]) => ({ type: "run", events, draws: 10, seed: 1 });
+    expect(isDistrictSimulationRequest(structuredClone(message(assembled.events)))).toBe(true);
+    const event = assembled.events[0]!;
+    const slate = event.input.dcmpAwardSlate!;
+    const broken = [
+      { ...slate, role: "district" },
+      { ...slate, expected: { ...slate.expected, judged: -1 } },
+      { ...slate, eligibility: [{ teamKey: "", impact: 1, engineeringInspiration: 0, rookieAllStar: 0 }] },
+      { ...slate, eligibility: "everyone" },
+    ];
+    for (const bad of broken) expect(isDistrictSimulationRequest(message([{ ...event, input: { ...event.input, dcmpAwardSlate: bad as never } }]))).toBe(false);
   });
 });

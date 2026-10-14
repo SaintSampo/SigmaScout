@@ -164,6 +164,7 @@ import {
   type PlayedBracketMatch,
 } from "../../../../../packages/core/districts/bracket.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
+import type { DcmpAwardSlateInput } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
 import { securedPlayoffPoints, type PlayoffWinRow } from "../../../../../packages/core/districts/securedPlayoffPoints.js";
 import { allianceRatingsFromMetrics, type AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
@@ -1244,6 +1245,13 @@ export interface BuildDistrictEventInputOptions {
    * per row prediction or `teams[].metrics`. Absent is the shipped path.
    */
   readonly asOfBaselines?: readonly SimTeamBaseline[];
+  /**
+   * THE DCMP AWARD SLATE (quick task 261014-i8i), built by the caller with
+   * `dcmpAwardSlateAt` at the same position. Placed on the input ONLY when
+   * `tier` is `"dcmp"`: a district tier input never carries one, so every
+   * district tier input is byte for byte what it was.
+   */
+  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
 }
 
 /**
@@ -1381,6 +1389,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(knownAwardPoints !== undefined ? { knownAwardPoints } : {}),
     ...(playedElims.matches.length > 0 ? { playedElimMatches: playedElims.matches } : {}),
     ...(awardOnlyTeams.length > 0 ? { awardOnlyTeams } : {}),
+    ...(tier === "dcmp" && options.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: options.dcmpAwardSlate } : {}),
   };
 
   return {

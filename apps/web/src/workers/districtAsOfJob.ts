@@ -95,6 +95,8 @@ export const runAsOfEvent: DistrictAsOfRunner = (event, draws, seed) => {
     algorithmVersion: bake.algorithmVersion,
     matchesPerTeam: bake.matchesPerTeam,
     predict,
+    // A generated DCMP prices its awards from the request's slate (quick task 261014-i8i).
+    ...(event.input.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: event.input.dcmpAwardSlate }),
   });
   if (outcome.status === "skipped") throw new AsOfBakeSkippedError(event.eventKey, outcome.reason, outcome.detail);
   return { status: "baked", eventKey: event.eventKey, roster: outcome.roster, rows: outcome.rows, draws: outcome.draws };

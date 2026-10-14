@@ -749,6 +749,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     artifact,
     eventKey: dcmpEventKeys[0],
     field: simulatedField,
+    // The stop's own field stage: the bake's DCMP award slate reads eligibility there (quick task 261014-i8i).
+    stageByEvent,
   });
   const simulatedDcmp = useMemo(
     (): SimulatedDcmpPricing | undefined => (simulatedField === undefined ? undefined : { field: simulatedField, bake: simulatedBake.bake }),

@@ -346,8 +346,43 @@ function isEventRequest(value: unknown): boolean {
     if (!Array.isArray(eventInput.awardOnlyTeams)) return false;
     if (eventInput.baselines.length + eventInput.awardOnlyTeams.length > MAX_DISTRICT_SIMULATION_ROSTER) return false;
   }
+  // THE DCMP AWARD SLATE (quick task 261014-i8i): plain data, shape and cost
+  // only. A slate on a district tier input, or a missing one at the dcmp tier,
+  // is `simulateDistrictEvent`'s own typed refusal, a per event unavailable
+  // entry through the existing catch.
+  if (eventInput.dcmpAwardSlate !== undefined && !isDcmpAwardSlate(eventInput.dcmpAwardSlate)) return false;
   if (candidate.asOf !== undefined && !isAsOfBlock(candidate.asOf)) return false;
   return true;
+}
+
+/** Upper bound on a DCMP award slate's eligibility entries: a whole district's teams, with room to spare. */
+export const MAX_DCMP_SLATE_ELIGIBILITY = 2048;
+
+function isFiniteChance(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/** A DCMP award slate's shape: a role, four finite non negative expected counts, and a bounded list of per team chances. */
+function isDcmpAwardSlate(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const slate = value as Record<string, unknown>;
+  if (slate.role !== "single" && slate.role !== "division" && slate.role !== "finals" && slate.role !== "wholeChampionship") return false;
+  const expected = slate.expected;
+  if (typeof expected !== "object" || expected === null) return false;
+  const counts = expected as Record<string, unknown>;
+  if (!["impact", "engineeringInspiration", "rookieAllStar", "judged"].every((key) => isFiniteChance(counts[key]))) return false;
+  if (!Array.isArray(slate.eligibility) || slate.eligibility.length > MAX_DCMP_SLATE_ELIGIBILITY) return false;
+  return slate.eligibility.every((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const team = entry as Record<string, unknown>;
+    return (
+      typeof team.teamKey === "string" &&
+      team.teamKey.length > 0 &&
+      isFiniteChance(team.impact) &&
+      isFiniteChance(team.engineeringInspiration) &&
+      isFiniteChance(team.rookieAllStar)
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------

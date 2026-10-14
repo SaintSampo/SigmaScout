@@ -30,15 +30,18 @@ import {
 } from "../packages/core/districts/awardOrderingTables.js";
 import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND } from "./measureAwardOrderingTables.js";
 import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
+import { eventAwardOutcomeOdds, type DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
 import { DISTRICT_AWARD_BUCKETS, DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
 import { DistrictBudgetExceededError, DISTRICTS_INDEX_MAX_BYTES } from "../packages/harness/publishBudget.js";
 import {
+  awardsPostedByEvent,
   buildDistrictArtifact,
   buildDistrictsIndexArtifact,
   buildSeasonAwardContext,
   COMMITTED_DISTRICT_CEILINGS,
   classifyBakeCandidate,
   composeYear,
+  dcmpBakeAwardSlate,
   dcmpFieldPendingAsOf,
   deriveDistrictEventState,
   dividedDcmpParentKeys,
@@ -3222,5 +3225,83 @@ describe("parseOptions — --allow-live (261010-jyn)", () => {
     for (const argv of [["--years", "2026"], ["--years", "2026", "--allow-live"], ["--years", "2026", "--as-of", "2026-04-04", "--dry-run"]]) {
       expect("now" in parseOptions(argv)).toBe(false);
     }
+  });
+});
+
+describe("dcmpBakeAwardSlate — a DCMP tier bake candidate's award slate (quick task 261014-i8i)", () => {
+  // frc1 won Impact and frc2 Engineering Inspiration at 2026e1, whose awards
+  // are posted at the run's instant. frc3 is registered at 2026e2, whose
+  // awards are still open. frc4 played 2026e1 and won nothing there.
+  const rankings = [
+    ranking({ teamKey: "frc1", pointTotal: 60, rank: 1, eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 20, alliance_points: 14, elim_points: 16, award_points: 10, total: 60 }]) }),
+    ranking({ teamKey: "frc2", pointTotal: 50, rank: 2, eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 20, alliance_points: 12, elim_points: 10, award_points: 8, total: 50 }]) }),
+    ranking({ teamKey: "frc3", pointTotal: 0, rank: 3, eventPointsRaw: "[]" }),
+    ranking({ teamKey: "frc4", pointTotal: 40, rank: 4, eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 20, alliance_points: 10, elim_points: 10, award_points: 0, total: 40 }]) }),
+  ];
+  const events = [
+    districtEvent({ eventKey: "2026e1", eventType: 1 }),
+    districtEvent({ eventKey: "2026e2", eventType: 1, week: 2 }),
+    districtEvent({ eventKey: "2026dcmp", eventType: 2, week: 5 }),
+  ];
+  const composed = buildDistrictArtifact({
+    season: 2026,
+    generation: GENERATION,
+    computedAt: COMPUTED_AT,
+    district: district({ dcmpSlots: 3, cmpSlots: 2 }),
+    rankings,
+    events,
+    registrations: new Map([["2026e2", ["frc3"]]]),
+    awards: new Map([
+      [
+        "2026e1",
+        [eventAward({ eventKey: "2026e1", awardType: 0, teamKey: "frc1" }), eventAward({ eventKey: "2026e1", awardType: 9, teamKey: "frc2" })],
+      ],
+    ]),
+    teamMeta: new Map(),
+  });
+  const artifact = applyDistrictEventState({
+    artifact: composed,
+    eventState: new Map([
+      ["2026e1", { qualMatchesPlayed: 40, qualMatchesTotal: 40, alliancesPicked: true, playoffsDone: true, awardsPosted: true }],
+      ["2026e2", { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: false }],
+    ]),
+    generation: GENERATION,
+    computedAt: COMPUTED_AT,
+    tierByEvent: new Map<string, "district" | "dcmp">([
+      ["2026e1", "district"],
+      ["2026e2", "district"],
+      ["2026dcmp", "dcmp"],
+    ]),
+  });
+  const veteran: DistrictAwardProfile = { bucket: "none", rookieState: "veteran", priorJudgedAwards: 0, priorImpactWins: 0 };
+
+  it("reads each event's awards posted fact off the composed artifact's own state blocks", () => {
+    const posted = awardsPostedByEvent(artifact);
+    expect(posted("2026e1")).toBe(true);
+    expect(posted("2026e2")).toBe(false);
+    expect(posted("2026dcmp")).toBe(false);
+  });
+
+  it("holds the posted winners at chance 1, an open event's only entrant at chance 1, and leaves a team that can win none out", () => {
+    const slate = dcmpBakeAwardSlate({ artifact, events, cmpSlots: 2, eventKey: "2026dcmp", profileOf: () => veteran });
+    expect(slate.role).toBe("single");
+    expect(slate.expected.impact).toBeGreaterThan(0);
+    expect(slate.eligibility).toEqual([
+      { teamKey: "frc1", impact: 1, engineeringInspiration: 0, rookieAllStar: 0 },
+      { teamKey: "frc2", impact: 0, engineeringInspiration: 1, rookieAllStar: 0 },
+      { teamKey: "frc3", impact: 1, engineeringInspiration: 1, rookieAllStar: 0 },
+    ]);
+    // frc4 is ineligible at the instant: the bake prices it at exactly 0 for all three.
+    const odds = eventAwardOutcomeOdds({
+      eventKey: "2026dcmp",
+      season: 2026,
+      tier: "dcmp",
+      awardField: ["frc1", "frc2", "frc3", "frc4"].map((teamKey) => ({ teamKey })),
+      awardProfiles: new Map(["frc1", "frc2", "frc3", "frc4"].map((teamKey) => [teamKey, veteran] as const)),
+      dcmpAwardSlate: slate,
+    });
+    expect(odds.get("frc4")!.p10).toBe(0);
+    expect(odds.get("frc4")!.p8).toBe(0);
+    expect(odds.get("frc1")!.p10).toBeGreaterThan(0);
   });
 });

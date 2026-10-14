@@ -22,6 +22,7 @@
  */
 import { useMemo } from "react";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { DistrictStageFinality } from "./districtLedgerRows.js";
 import type { SimulatedDcmpBake, SimulatedDcmpField } from "./champLedgerRows.js";
 import { assembleSimulatedDcmpBake, simulatedDcmpBakeView, type AssembledSimulatedDcmpBake } from "./districtRunAssembly.js";
 import type { AsOfRewindView } from "./useAsOfRewind.js";
@@ -36,6 +37,8 @@ export interface UseSimulatedDcmpBakeOptions {
   readonly eventKey: string | undefined;
   /** `undefined` while inactive. */
   readonly field: SimulatedDcmpField | undefined;
+  /** What has happened on the field at the stop, per event: where the bake's DCMP award slate reads eligibility (quick task 261014-i8i). */
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
 }
 
 export interface SimulatedDcmpBakeResult {
@@ -49,7 +52,7 @@ export interface SimulatedDcmpBakeResult {
 const EMPTY_REQUEST: DistrictSimulationRunRequest = { events: [], signature: "" };
 
 export function useSimulatedDcmpBake(options: UseSimulatedDcmpBakeOptions): SimulatedDcmpBakeResult {
-  const { active, asOf, artifact, eventKey, field } = options;
+  const { active, asOf, artifact, eventKey, field, stageByEvent } = options;
 
   const assembled = useMemo((): AssembledSimulatedDcmpBake | undefined => {
     if (!active || field?.status !== "ready" || asOf?.status !== "ready" || eventKey === undefined) return undefined;
@@ -59,8 +62,9 @@ export function useSimulatedDcmpBake(options: UseSimulatedDcmpBakeOptions): Simu
       algorithmVersion: asOf.algorithmVersion,
       eventKey,
       roster: field.roster,
+      stageByEvent,
     });
-  }, [active, field, asOf, eventKey, artifact]);
+  }, [active, field, asOf, eventKey, artifact, stageByEvent]);
 
   const request = useMemo(
     (): DistrictSimulationRunRequest =>

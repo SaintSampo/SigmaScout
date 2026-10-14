@@ -56,6 +56,7 @@ import {
   type ChampLedgerTeam,
 } from "./champLedgerRows.js";
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
+import { dcmpAwardSlateAt } from "./dcmpAwardInputs.js";
 
 /**
  * A PASS THROUGH SPY on the one function `buildChampLedgerRows` calls once per
@@ -1078,6 +1079,8 @@ describe("buildChampLedgerRows — a registered DCMP no show is priced from awar
     stage: ALL_OPEN,
     startMatchKey: `${DCMP}_qm7`,
     tier: "dcmp",
+    // A dcmp tier run needs its DCMP award slate since quick task 261014-i8i, built as the Live assembly builds it.
+    dcmpAwardSlate: dcmpAwardSlateAt(artifact, undefined, { eventKey: DCMP }),
   });
   if (!built.ok) throw new Error("fixture: the DCMP input did not build");
   const draws = 400;

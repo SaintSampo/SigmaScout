@@ -109,6 +109,12 @@ const REQUIRED_FIGURES = [
   "38.1%", // Rookie All Star, rookie position 1
   "28.6%", // Rookie All Star, rookie position 2
   "756 district events", // the 2026 table's own event count
+
+  // --- The District Championship slate (quick task 261014-i8i) -------------
+  // `pnpm measure:dcmp-award-slate` (`npx tsx scripts/measureDcmpAwardSlate.ts`,
+  // run 2026-10-14), cross checked against the committed 2026 judged anchors
+  // in `packages/core/districts/dcmpAwardSlate.ts` (single 12, division 12).
+  "expected to give 12 judged awards",
 ];
 
 function tableStrings(where: string, table: AwardsTable | undefined): { where: string; text: string }[] {
@@ -233,5 +239,19 @@ describe("awardsContent figures", () => {
     expect(AWARDS_LEAD).toContain("the Champ Locks tab draws the District Championship's Impact");
     expect(AWARDS_LEAD).toContain("no other page on the site shows an award prediction");
     expect(AWARDS_LEAD).not.toMatch(/anywhere yet/);
+    expect(AWARDS_LEAD).toContain("The Champ Locks tab prices a team's award points at a District Championship from earlier championships.");
+  });
+
+  it("says how a District Championship award is priced: eligibility first, divisions and finals, and 0% for a team that cannot win (quick task 261014-i8i)", () => {
+    const section = AWARDS_SECTIONS.find((entry) => entry.id === "district-award-base-rates")!;
+    const text = section.paragraphs.join("\n");
+    expect(text).toContain("Impact, Engineering Inspiration and Rookie All Star go only to teams that won the same award at a district event that season.");
+    expect(text).toContain("A team that cannot win one of them reads 0% for it.");
+    expect(text).toContain("A championship played in divisions gives those three awards at its finals and its judged awards in each division.");
+    expect(text).toContain("measured from earlier seasons only");
+    // The paragraphs sit after the ordering paragraphs and before the closing guarantee.
+    const dcmpAt = section.paragraphs.findIndex((paragraph) => paragraph.startsWith("A District Championship is priced"));
+    expect(dcmpAt).toBeGreaterThan(section.paragraphs.findIndex((paragraph) => paragraph.startsWith("Those two chances")));
+    expect(section.paragraphs[section.paragraphs.length - 1]).toBe("No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.");
   });
 });

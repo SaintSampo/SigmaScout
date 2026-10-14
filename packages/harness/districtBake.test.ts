@@ -21,11 +21,14 @@ import { buildPricedSyntheticSchedules } from "./preSchedule.js";
 import { DistrictPointPmfSchema, type DistrictPointPmf } from "./pageArtifacts.js";
 import { maxEventPoints } from "../core/districts/pointModel.js";
 import {
+  DcmpAwardSlateOnDistrictTierError,
   draftedAllianceCount,
   insufficientRosterReason,
+  MissingDcmpAwardSlateError,
   ZERO_AWARD_PROFILE,
   type DistrictAwardProfile,
 } from "../core/districts/ledgerSimulation.js";
+import type { DcmpAwardSlateInput } from "../core/districts/dcmpAwardSlate.js";
 import { PLAYOFF_PLACEMENT_POINTS } from "../core/districts/bracket.js";
 import { districtTierWeight } from "../core/districts/qualPoints.js";
 import { districtSelectionPoints } from "../core/districts/selectionPoints.js";
@@ -418,5 +421,51 @@ describe("districtBake.ts's published constants", () => {
     expect(DISTRICT_BAKE_SCHEDULE_COUNT).toBe(40);
     expect(DISTRICT_BAKE_DRAWS_PER_SCHEDULE).toBe(100);
     expect(DISTRICT_BAKE_SCHEDULE_COUNT * DISTRICT_BAKE_DRAWS_PER_SCHEDULE).toBe(4000);
+  });
+});
+
+describe("bakeDistrictEvent — a DCMP tier bake prices its awards from its slate (quick task 261014-i8i)", () => {
+  /** frc101 alone may win Impact, frc102 alone Engineering Inspiration, frc105 (a rookie) alone Rookie All Star. */
+  const SLATE: DcmpAwardSlateInput = {
+    role: "single",
+    expected: { impact: 1.5, engineeringInspiration: 1.5, rookieAllStar: 1, judged: 12 },
+    sources: { counts: "previousSeason", judged: "role" },
+    eligibility: [
+      { teamKey: "frc101", impact: 1, engineeringInspiration: 0, rookieAllStar: 0 },
+      { teamKey: "frc102", impact: 0, engineeringInspiration: 1, rookieAllStar: 0 },
+      { teamKey: "frc105", impact: 0, engineeringInspiration: 0, rookieAllStar: 1 },
+    ],
+  };
+  const ELIGIBLE = new Set(SLATE.eligibility.map((entry) => entry.teamKey));
+  const dcmp = (overrides: Partial<DistrictBakeParams> = {}): DistrictBakeParams =>
+    params({ eventKey: "2026fnccmp", tier: "dcmp", eventType: 2, week: 5, dcmpAwardSlate: SLATE, ...overrides });
+
+  function massAt(pmf: DistrictPointPmf, points: number): number {
+    const index = points - pmf.o;
+    return index >= 0 && index < pmf.p.length ? pmf.p[index]! : 0;
+  }
+
+  it("puts no baked award mass at 30 or 24 on a team ineligible at the run's instant", () => {
+    const outcome = bakeDistrictEvent(dcmp());
+    if (outcome.status !== "baked") throw new Error(`expected a bake, got ${outcome.status}`);
+    let checked = 0;
+    for (const row of outcome.rows) {
+      if (ELIGIBLE.has(row.teamKey)) continue;
+      expect(massAt(row.award, 30), row.teamKey).toBe(0);
+      expect(massAt(row.award, 24), row.teamKey).toBe(0);
+      checked++;
+    }
+    expect(checked).toBe(ROSTER.length - ELIGIBLE.size);
+    // The one eligible team for each award does carry it.
+    const byTeam = new Map(outcome.rows.map((row) => [row.teamKey, row] as const));
+    expect(massAt(byTeam.get("frc101")!.award, 30)).toBeGreaterThan(0);
+    expect(massAt(byTeam.get("frc102")!.award, 24)).toBeGreaterThan(0);
+    expect(massAt(byTeam.get("frc105")!.award, 24)).toBeGreaterThan(0);
+  });
+
+  it("refuses a DCMP tier bake with no slate, and a district tier bake with one, by propagating the simulation's typed error", () => {
+    const { dcmpAwardSlate: _unused, ...withoutSlate } = dcmp();
+    expect(() => bakeDistrictEvent(withoutSlate)).toThrow(MissingDcmpAwardSlateError);
+    expect(() => bakeDistrictEvent(params({ dcmpAwardSlate: SLATE }))).toThrow(DcmpAwardSlateOnDistrictTierError);
   });
 });

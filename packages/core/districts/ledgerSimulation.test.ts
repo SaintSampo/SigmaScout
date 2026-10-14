@@ -71,7 +71,7 @@ import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
 import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinProbability.js";
 import { eventAwardOutcomeOdds } from "./ledgerSimulation.js";
-import { DcmpAwardSlateOnDistrictTierError } from "./ledgerSimulation.js";
+import { DcmpAwardSlateOnDistrictTierError, MissingDcmpAwardSlateError } from "./ledgerSimulation.js";
 import type { DcmpAwardSlateInput } from "./dcmpAwardSlate.js";
 
 const SEASON = 2026;
@@ -153,6 +153,19 @@ function inputFor(
     ...overrides,
   };
 }
+
+/**
+ * A DCMP award slate with no eligible team and the 2026 single judged anchor,
+ * for the dcmp tier tests that are about the bracket, the draft or the
+ * ceilings rather than awards: a dcmp tier run with open awards refuses to
+ * run without a slate since quick task 261014-i8i (`MissingDcmpAwardSlateError`).
+ */
+const NO_ELIGIBLE_DCMP_SLATE: DcmpAwardSlateInput = {
+  role: "single",
+  expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+  sources: { counts: "previousSeason", judged: "role" },
+  eligibility: [],
+};
 
 /** Copies one observation deeply, since every array on it is a reused internal buffer. */
 function snapshot(observation: DistrictDrawObservation): {
@@ -363,7 +376,8 @@ describe("simulateDistrictEvent — every histogram is a marginal of the same ru
 describe("simulateDistrictEvent — every histogram length traces to maxEventPoints", () => {
   it.each(["district", "dcmp"] as const)("%s tier: every length is that component's ceiling plus one", (tier) => {
     const teamCount = 24;
-    const input = inputFor(teamCount, { tier });
+    // A dcmp tier run needs a DCMP award slate since 261014-i8i; the district run is unchanged.
+    const input = inputFor(teamCount, { tier, ...(tier === "dcmp" ? { dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE } : {}) });
     const result = simulateDistrictEvent(input, 50, 5);
     const ceilings = maxEventPoints(SEASON, tier);
     const key = teamKey(1);
@@ -970,7 +984,8 @@ describe("simulateDistrictEvent — the non-eight-alliance fallback never routes
   it.each([2, 4])(
     "an alliance count of %i draws every allianced team's elim points from the measured divisioned-dcmp table and calls routeBracket exactly zero times",
     (allianceCount) => {
-      const input = inputFor(24, { allianceCount, tier: "dcmp", remainingMatches: [] });
+      // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about the bracket.
+      const input = inputFor(24, { allianceCount, tier: "dcmp", remainingMatches: [], dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE });
       const draws = 4_000;
       let deciderCalls = 0;
       const captainOf: string[] = [];
@@ -1005,7 +1020,8 @@ describe("simulateDistrictEvent — the non-eight-alliance fallback never routes
   );
 
   it("an alliance count of 4 still runs the draft: four three-team alliances, round one 1 through 4 and round two 4 down to 1", () => {
-    const input = inputFor(24, { allianceCount: 4, tier: "dcmp", remainingMatches: [] });
+    // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about the draft.
+    const input = inputFor(24, { allianceCount: 4, tier: "dcmp", remainingMatches: [], dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE });
     let seen: string[][] | undefined;
     simulateDistrictEvent(input, 1, 5, (observation) => {
       seen = snapshot(observation).alliances;
@@ -1768,6 +1784,8 @@ describe("simulateDistrictEvent — the playoffs already under way", () => {
       tier: "dcmp",
       remainingMatches: [],
       playedElimMatches: throughUpperRoundTwo,
+      // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about the bracket.
+      dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE,
     });
     const result = simulateDistrictEvent(input, 10, 1);
     expect(result.playoffMilestones.size).toBe(0);
@@ -1873,7 +1891,8 @@ describe("simulateDistrictEvent — which route each team took", () => {
   });
 
   it("carries the district championship weight into the possible range, from the single weight source", () => {
-    const routes = simulateDistrictEvent(inputFor(30, { tier: "dcmp" }), 20, 5).selectionRoutes.get(teamKey(1))!;
+    // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about selection points.
+    const routes = simulateDistrictEvent(inputFor(30, { tier: "dcmp", dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE }), 20, 5).selectionRoutes.get(teamKey(1))!;
     expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(districtSelectionPoints(SEASON, "dcmp", 0, 1));
     expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(16 * 3);
   });
@@ -2456,6 +2475,19 @@ describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)
     expect(() =>
       eventAwardOutcomeOdds({ eventKey: district.eventKey, season: SEASON, tier: "district", awardField: district.baselines, awardProfiles: district.awardProfiles, dcmpAwardSlate: SLATE })
     ).toThrow(DcmpAwardSlateOnDistrictTierError);
+  });
+
+  it("refuses a dcmp tier run with open awards and no slate before any draw, in the draw and in the odds", () => {
+    const missing = inputFor(30, { tier: "dcmp", awardProfiles: slateProfiles() });
+    let observed = 0;
+    expect(() => simulateDistrictEvent(missing, 10, 1, () => observed++)).toThrow(MissingDcmpAwardSlateError);
+    expect(observed).toBe(0);
+    expect(() =>
+      eventAwardOutcomeOdds({ eventKey: missing.eventKey, season: SEASON, tier: "dcmp", awardField: missing.baselines, awardProfiles: missing.awardProfiles })
+    ).toThrow(MissingDcmpAwardSlateError);
+    // Posted awards need no slate.
+    const posted = simulateDistrictEvent({ ...missing, knownAwardPoints: new Map([[teamKey(1), 15]]) }, 10, 1);
+    expect(posted.awardOrdering).toBe("posted");
   });
 
   it("refuses a field member with no profile on the slate path", () => {

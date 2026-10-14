@@ -11,9 +11,11 @@ import {
   dcmpEntrantWeight,
   type DcmpAwardEligibility,
 } from "../../../../../packages/core/districts/dcmpAwardEligibility.js";
-import type { ChampCutoffSetting } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
+import { buildDcmpAwardSlate, type DcmpAwardSlateInput } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
+import { champCutoffTuning, type ChampCutoffSetting } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { dcmpEligibilityTeamsFromArtifact } from "../../../../../packages/harness/districtDcmpAwardInputs.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { dcmpEventKeysFor } from "./champLedgerRows.js";
 import { awardProfileOrZero, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 
 /**
@@ -52,5 +54,32 @@ export function dcmpEligibilityAt(
     teams: dcmpEligibilityTeamsFromArtifact(artifact, awardProfileOrZero),
     awardFinal: dcmpAwardFinalAt(artifact, stageByEvent),
     weight: (team, awardType) => dcmpEntrantWeight(awardProfileOrZero(byKey.get(team.teamKey)), awardType, artifact.year, setting.weighting),
+  });
+}
+
+/**
+ * THE DCMP AWARD SLATE one DCMP tier request carries at one position (quick
+ * task 261014-i8i). Built by `buildDcmpAwardSlate` from the SAME eligibility
+ * the champ draws read (`dcmpEligibilityAt` under the season's own
+ * `champCutoffTuning` setting), so the per event run and the champ draws read
+ * one eligibility at one position. `cmpSlots` absent reads 0, the champ
+ * draws' own fallback. `target` is a real DCMP tier key, or
+ * `"wholeChampionship"` for the simulated DCMP bake that stands for a whole
+ * championship.
+ */
+export function dcmpAwardSlateAt(
+  artifact: DistrictArtifact,
+  stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined,
+  target: { readonly eventKey: string } | "wholeChampionship"
+): DcmpAwardSlateInput {
+  const setting = champCutoffTuning(artifact.year).setting;
+  return buildDcmpAwardSlate({
+    season: artifact.year,
+    districtKey: artifact.districtKey,
+    cmpSlots: artifact.cmpSlots ?? 0,
+    dcmpEventKeys: dcmpEventKeysFor(artifact),
+    target,
+    eligibility: dcmpEligibilityAt(artifact, stageByEvent, setting),
+    setting,
   });
 }
