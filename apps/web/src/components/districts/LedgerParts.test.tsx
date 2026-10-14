@@ -28,6 +28,7 @@ import {
   CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
   DISTRICT_LEDGER_PENDING_CELL,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  districtLedgerCellLikelyText,
 } from "./districtLedgerCopy.js";
 import {
   buildDistrictEventSimulationInput,
@@ -46,6 +47,7 @@ import { buildChampLedgerRows, dcmpEventKeysFor, type ChampLedgerCell } from "./
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
 import type { DistrictCellPricing } from "./districtLedgerOutcomes.js";
+import { pointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
 import { simulateDistrictEvent, type DistrictSelectionRouteObservation } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { DistrictArtifactSchema, EventArtifactSchema } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -159,11 +161,34 @@ function openFrom(id: string, cell: DistrictCellKind, mass: Readonly<Record<numb
   return openDistrictLedgerCell(id, cell, { counts, denominator: 100 }, ceiling) as OpenCell;
 }
 
-/** 66 of 100 runs reach the top four, spread over the four placements' 2026 district values. */
+/** Third (20) and fourth (16) each lose to none (34), but grouped they make 36: the best guess is 3rd or 4th. 2026 district values. */
 const TOP_FOUR = openFrom("2026walive:elim", "elim", { 0: 34, 7: 16, 13: 20, 20: 15, 30: 15 }, 30);
-const FINALIST = { ...TOP_FOUR, playoffMilestone: { kind: "finalist", chance: 0.85, conditionalMedian: 30 } } as const satisfies OpenCell;
-const WINNER = { ...TOP_FOUR, playoffMilestone: { kind: "winner", chance: 0.59, conditionalMedian: 30 } } as const satisfies OpenCell;
-const WINNER_SURE = { ...TOP_FOUR, playoffMilestone: { kind: "winner", chance: 0.999, conditionalMedian: 30 } } as const satisfies OpenCell;
+/** A top four finish is secured: no mass at the ruled out value 0. */
+const FINALIST = {
+  ...openFrom("2026walive:elim", "elim", { 7: 10, 13: 15, 20: 45, 30: 30 }, 30),
+  playoffMilestone: { kind: "finalist", chance: 0.85, conditionalMedian: 30 },
+} as const satisfies OpenCell;
+/** In the final: 2nd or 1st only. */
+const WINNER = { ...openFrom("2026walive:elim", "elim", { 20: 41, 30: 59 }, 30), playoffMilestone: { kind: "winner", chance: 0.59, conditionalMedian: 30 } } as const satisfies OpenCell;
+/** Every run wins: the chance reads 99%, never 100%. */
+const WINNER_SURE = { ...openFrom("2026walive:elim", "elim", { 30: 100 }, 30), playoffMilestone: { kind: "winner", chance: 0.999, conditionalMedian: 30 } } as const satisfies OpenCell;
+/** The same three shapes on the District Championship's 3x placement values. */
+const TOP_FOUR_DCMP = openFrom("2026walive:elim", "elim", { 0: 34, 21: 16, 39: 20, 60: 15, 90: 15 }, 90);
+const FINALIST_DCMP = {
+  ...openFrom("2026walive:elim", "elim", { 21: 10, 39: 15, 60: 45, 90: 30 }, 90),
+  playoffMilestone: { kind: "finalist", chance: 0.85, conditionalMedian: 90 },
+} as const satisfies OpenCell;
+const WINNER_DCMP = { ...openFrom("2026walive:elim", "elim", { 60: 41, 90: 59 }, 90), playoffMilestone: { kind: "winner", chance: 0.59, conditionalMedian: 90 } } as const satisfies OpenCell;
+/** Nothing in the top four is likelier than missing it, even grouped. */
+const FIFTH_TO_EIGHTH = openFrom("2026walive:elim", "elim", { 0: 60, 7: 10, 13: 10, 20: 10, 30: 10 }, 30);
+/** 2nd and 5th to 8th each took 30 runs, 1st 20 and 3rd or 4th 20: the better finish of the tie is named. */
+const TIE_SECOND = openFrom("2026walive:elim", "elim", { 0: 30, 7: 10, 13: 10, 20: 30, 30: 20 }, 30);
+/** 1st and 2nd each took 40 runs. */
+const TIE_FIRST = openFrom("2026walive:elim", "elim", { 0: 20, 20: 40, 30: 40 }, 30);
+/** Mass at 25, a value no placement pays: no named finish describes it. */
+const UNNAMED_MASS = openFrom("2026walive:elim", "elim", { 0: 50, 25: 50 }, 30);
+/** A DCMP division cell moved up by finals points: 21 plus a finals 39 is 60, a named value by accident. */
+const SHIFTED = { ...openFrom("2026walive:elim", "elim", { 21: 50, 60: 50 }, 90), shiftedByFinals: true } as const satisfies OpenCell;
 
 /** 56 of 100 runs win an award: 46 a judged award, 10 Impact. */
 const AWARD = openFrom("2026walive:award", "award", { 0: 44, 5: 46, 10: 10 }, 10);
@@ -221,30 +246,54 @@ function lines(cell: OpenCell, pricing?: DistrictCellPricing): { bold: string; s
 }
 
 describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
-  it("prints the top four form as the chance, the outcome, then what the top four pays", () => {
-    expect(lines(TOP_FOUR, DISTRICT_2026)).toEqual({ bold: "66% top 4", small: "pays 7 to 30" });
+  it("names the finish with the most runs, third and fourth grouped, over its chance and what it pays", () => {
+    // Third (20) and fourth (16) each lose to none (34); grouped they make 36.
+    expect(lines(TOP_FOUR, DISTRICT_2026)).toEqual({ bold: "best guess 3rd or 4th", small: "36% · pays 7 or 13" });
+    expect(lines(FIFTH_TO_EIGHTH, DISTRICT_2026)).toEqual({ bold: "best guess 5th to 8th", small: "60% · pays 0" });
   });
 
-  it("prints the final once top four is secured, and the win once in the final", () => {
-    expect(lines(FINALIST, DISTRICT_2026)).toEqual({ bold: "85% final", small: "pays 20 or 30" });
-    expect(lines(WINNER, DISTRICT_2026)).toEqual({ bold: "59% win", small: "pays 30" });
+  it("names 2nd and 1st once the bracket has ruled the lower finishes out", () => {
+    expect(lines(FINALIST, DISTRICT_2026)).toEqual({ bold: "best guess 2nd", small: "45% · pays 20" });
+    expect(lines(WINNER, DISTRICT_2026)).toEqual({ bold: "best guess 1st", small: "59% · pays 30" });
+  });
+
+  it("never names a finish the milestone rules out, even where its mass is the largest", () => {
+    const missHeavy = { ...openFrom("2026walive:elim", "elim", { 0: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 20 } } as const satisfies OpenCell;
+    expect(lines(missHeavy, DISTRICT_2026).bold).toBe("best guess 2nd");
+    const thirdHeavy = { ...openFrom("2026walive:elim", "elim", { 13: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "winner", chance: 0.3, conditionalMedian: 20 } } as const satisfies OpenCell;
+    expect(lines(thirdHeavy, DISTRICT_2026).bold).toBe("best guess 2nd");
+  });
+
+  it("goes to the better finish on a tie", () => {
+    expect(lines(TIE_SECOND, DISTRICT_2026)).toEqual({ bold: "best guess 2nd", small: "30% · pays 20" });
+    expect(lines(TIE_FIRST, DISTRICT_2026)).toEqual({ bold: "best guess 1st", small: "40% · pays 30" });
   });
 
   it("never prints 100 percent: a near certain win reads 99%", () => {
-    expect(lines(WINNER_SURE, DISTRICT_2026)).toEqual({ bold: "99% win", small: "pays 30" });
+    expect(lines(WINNER_SURE, DISTRICT_2026)).toEqual({ bold: "best guess 1st", small: "99% · pays 30" });
   });
 
   it("prices the DCMP row at its own tier", () => {
-    expect(lines(TOP_FOUR, DCMP_2026)).toEqual({ bold: "66% top 4", small: "pays 21 to 90" });
-    expect(lines(FINALIST, DCMP_2026)).toEqual({ bold: "85% final", small: "pays 60 or 90" });
+    expect(lines(TOP_FOUR_DCMP, DCMP_2026)).toEqual({ bold: "best guess 3rd or 4th", small: "36% · pays 21 or 39" });
+    expect(lines(FINALIST_DCMP, DCMP_2026)).toEqual({ bold: "best guess 2nd", small: "45% · pays 60" });
+    expect(lines(WINNER_DCMP, DCMP_2026)).toEqual({ bold: "best guess 1st", small: "59% · pays 90" });
   });
 
-  it("falls back to the cell's own nonzero support with no pricing (the Champ District points row)", () => {
-    expect(lines(TOP_FOUR)).toEqual({ bold: "66% top 4", small: "pays 7 to 30" });
-  });
-
-  it("falls back to the support for a season with no bracket, and never throws", () => {
-    expect(lines(TOP_FOUR, { season: 2019, tier: "district", isRookie: false })).toEqual({ bold: "66% top 4", small: "pays 7 to 30" });
+  it("prints the median form with a likely range where no single finish describes the cell, with the distribution's own percentiles", () => {
+    const fallbacks: readonly (readonly [string, OpenCell, DistrictCellPricing | undefined])[] = [
+      ["no pricing (the Champ District points row)", TOP_FOUR, undefined],
+      ["a season with no bracket", TOP_FOUR, { season: 2019, tier: "district", isRookie: false }],
+      ["a cell shifted by finals", SHIFTED, DCMP_2026],
+      ["mass at an unnamed value", UNNAMED_MASS, DISTRICT_2026],
+      // Wrong tier: DCMP values priced at a district event leave mass no placement covers.
+      ["mass no placement of the priced tier covers", TOP_FOUR_DCMP, DISTRICT_2026],
+    ];
+    for (const [label, cell, pricing] of fallbacks) {
+      const { p10, p50, p90 } = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+      expect(lines(cell, pricing), label).toEqual({ bold: `~${String(Math.round(p50))}`, small: districtLedgerCellLikelyText(p10, p90) });
+    }
+    // A literal pin of one, so the helper above is not the only witness.
+    expect(lines(TOP_FOUR)).toEqual({ bold: "~8", small: "likely 0 to 30" });
   });
 
   it("prints not picked over backup call only for a team on no alliance, before any other branch", () => {
@@ -289,43 +338,35 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   // so every line they print is under it too.
   // -------------------------------------------------------------------------
 
-  /** A median form Playoffs cell carrying the given percentiles. */
-  function medianElim(p10: number, p50: number, p90: number): OpenCell {
-    return { ...TOP_FOUR, summary: { form: "median", percentiles: { p10, p50, p90 } } } as OpenCell;
-  }
-  /** A Playoffs cell whose every draw pays nothing: with no pricing it has no small line of its own. */
+  /** A Playoffs cell whose every draw pays nothing: with no pricing it has the one point mass at 0 for its median. */
   const NOTHING_TO_PAY = openFrom("2026walive:elim", "elim", { 0: 100 }, 30);
 
-  it("prints at least N before the pays line of a credited cell in the milestone form, bold line unchanged", () => {
-    expect(lines({ ...FINALIST, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "85% final", small: "at least 20 · pays 20 or 30" });
-    expect(lines({ ...WINNER, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "59% win", small: "at least 20 · pays 30" });
+  it("prints at least N before the small line of a credited cell, bold line unchanged", () => {
+    expect(lines({ ...FINALIST, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "best guess 2nd", small: "at least 20 · 45% · pays 20" });
+    expect(lines({ ...WINNER, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "best guess 1st", small: "at least 20 · 59% · pays 30" });
     // The District Championship row, at its own tier: a finalist that has been on the field for every win.
-    expect(lines({ ...FINALIST, securedAtLeast: 60 }, DCMP_2026)).toEqual({ bold: "85% final", small: "at least 60 · pays 60 or 90" });
+    expect(lines({ ...FINALIST_DCMP, securedAtLeast: 60 }, DCMP_2026)).toEqual({ bold: "best guess 2nd", small: "at least 60 · 45% · pays 60" });
+    expect(lines({ ...TOP_FOUR, securedAtLeast: 13 }, DISTRICT_2026)).toEqual({ bold: "best guess 3rd or 4th", small: "at least 13 · 36% · pays 7 or 13" });
   });
 
-  it("prints it in the chance form", () => {
-    expect(lines({ ...TOP_FOUR, securedAtLeast: 13 }, DISTRICT_2026)).toEqual({ bold: "66% top 4", small: "at least 13 · pays 7 to 30" });
-    expect(lines({ ...TOP_FOUR, securedAtLeast: 13 })).toEqual({ bold: "66% top 4", small: "at least 13 · pays 7 to 30" });
+  it("prints it before the likely line of the median fallback", () => {
+    expect(lines(TOP_FOUR)).toEqual({ bold: "~8", small: "likely 0 to 30" });
+    expect(lines({ ...TOP_FOUR, securedAtLeast: 13 })).toEqual({ bold: "~8", small: "at least 13 · likely 0 to 30" });
   });
 
-  it("prints it in the median form, before the likely range", () => {
-    expect(lines(medianElim(13.2, 20.4, 29.6))).toEqual({ bold: "~20", small: "likely 13 to 30" });
-    expect(lines({ ...medianElim(13.2, 20.4, 29.6), securedAtLeast: 13 })).toEqual({ bold: "~20", small: "at least 13 · likely 13 to 30" });
-  });
-
-  it("prints at least N alone where the form has no small line", () => {
-    expect(lines(NOTHING_TO_PAY)).toEqual({ bold: "0% top 4", small: undefined });
-    expect(lines({ ...NOTHING_TO_PAY, securedAtLeast: 13 })).toEqual({ bold: "0% top 4", small: "at least 13" });
+  it("prints it before the likely line of a point mass fallback", () => {
+    expect(lines(NOTHING_TO_PAY)).toEqual({ bold: "~0", small: "likely 0" });
+    expect(lines({ ...NOTHING_TO_PAY, securedAtLeast: 13 })).toEqual({ bold: "~0", small: "at least 13 · likely 0" });
   });
 
   it("changes nothing but the small line: every form's bold line is the uncredited cell's, and the rest of the small line is too", () => {
     const forms: readonly (readonly [OpenCell, DistrictCellPricing | undefined])[] = [
       [TOP_FOUR, DISTRICT_2026],
-      [TOP_FOUR, DCMP_2026],
-      [TOP_FOUR, undefined],
+      [TOP_FOUR_DCMP, DCMP_2026],
       [FINALIST, DISTRICT_2026],
-      [WINNER, DCMP_2026],
-      [medianElim(13.2, 20.4, 29.6), undefined],
+      [WINNER_DCMP, DCMP_2026],
+      [TOP_FOUR, undefined],
+      [SHIFTED, DCMP_2026],
     ];
     for (const [cell, pricing] of forms) {
       const plain = openCellLines(cell, pricing);
@@ -352,35 +393,38 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
 
   it("prints nothing for a value of zero, below zero, or one that rounds to zero: at least N only where N is above zero", () => {
     for (const secured of [0, -5, 0.4, Number.NaN]) {
-      expect(lines({ ...FINALIST, securedAtLeast: secured }, DISTRICT_2026)).toEqual({ bold: "85% final", small: "pays 20 or 30" });
-      expect(lines({ ...NOTHING_TO_PAY, securedAtLeast: secured })).toEqual({ bold: "0% top 4", small: undefined });
+      expect(lines({ ...FINALIST, securedAtLeast: secured }, DISTRICT_2026)).toEqual({ bold: "best guess 2nd", small: "45% · pays 20" });
+      expect(lines({ ...NOTHING_TO_PAY, securedAtLeast: secured })).toEqual({ bold: "~0", small: "likely 0" });
     }
   });
 
-  it("still never reads 100% on a credited cell's bold line, and the secured line carries no tilde and no dash", () => {
+  it("still never reads 100% on a credited cell's chance, and the secured line carries no tilde and no dash", () => {
     const credited = lines({ ...WINNER_SURE, securedAtLeast: 20 }, DISTRICT_2026);
-    expect(credited).toEqual({ bold: "99% win", small: "at least 20 · pays 30" });
+    expect(credited).toEqual({ bold: "best guess 1st", small: "at least 20 · 99% · pays 30" });
     const smalls = [
       credited.small,
-      lines({ ...FINALIST, securedAtLeast: 60 }, DCMP_2026).small,
+      lines({ ...FINALIST_DCMP, securedAtLeast: 60 }, DCMP_2026).small,
       lines({ ...TOP_FOUR, securedAtLeast: 13 }, DISTRICT_2026).small,
-      lines({ ...medianElim(13.2, 20.4, 29.6), securedAtLeast: 13 }).small,
+      lines({ ...TOP_FOUR, securedAtLeast: 13 }).small,
       lines({ ...NOTHING_TO_PAY, securedAtLeast: 13 }).small,
     ];
     for (const small of smalls) {
       expect(small).toBeDefined();
-      expect(small).not.toMatch(/[-‐-―−~%]/);
+      // A best guess small line legitimately carries a percent after its first middle dot; a tilde and a dash are never printed.
+      expect(small).not.toMatch(/[-‐-―−~]/);
+      expect(small!.split(" · ")[0]).not.toMatch(/[%~]/);
       expect(small).toBe(small!.toLowerCase());
+      expect(small).not.toContain("100%");
     }
   });
 
   it("renders the credited cell's two lines in the table cell, in the two spans and classes every open cell has", () => {
     const { container } = inRow(<LedgerCell cell={{ ...FINALIST, securedAtLeast: 20 }} interaction={INTERACTION} pricing={DISTRICT_2026} />);
     const button = container.querySelector("button")!;
-    expect(button.textContent).toBe("85% finalat least 20 · pays 20 or 30");
+    expect(button.textContent).toBe("best guess 2ndat least 20 · 45% · pays 20");
     const spans = [...button.querySelectorAll("span")];
     expect(spans.map((span) => span.className)).toEqual([OPEN_CELL_BOLD_CLASS, OPEN_CELL_SMALL_CLASS]);
-    expect(spans.map((span) => span.textContent)).toEqual(["85% final", "at least 20 · pays 20 or 30"]);
+    expect(spans.map((span) => span.textContent)).toEqual(["best guess 2nd", "at least 20 · 45% · pays 20"]);
     // The same element, class for class, as the uncredited cell: this line adds words and nothing else.
     const plain = inRow(<LedgerCell cell={FINALIST} interaction={INTERACTION} pricing={DISTRICT_2026} />).container.querySelector("button")!;
     expect(button.className).toBe(plain.className);
@@ -400,7 +444,8 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   it("renders the same two lines in the table cell", () => {
     const { container } = inRow(<LedgerCell cell={FINALIST} interaction={INTERACTION} pricing={DISTRICT_2026} />);
     const button = container.querySelector("button")!;
-    expect(button.textContent).toBe("85% finalpays 20 or 30");
+    expect(button.textContent).toBe("best guess 2nd45% · pays 20");
+    expect([...button.querySelectorAll("span")].map((span) => span.textContent)).toEqual(["best guess 2nd", "45% · pays 20"]);
   });
 });
 
@@ -453,9 +498,10 @@ describe("openCellLines: the least a total may print (quick task 261012-mw2)", (
     }
   });
 
-  it("is not read by the chance forms, the milestone form, a not picked cell or the Alliance selection settled route", () => {
+  it("is not read by the chance forms, the Playoffs best guess or its median fallback, a not picked cell or the Alliance selection settled route", () => {
     const untouched: readonly (readonly [OpenCell, DistrictCellPricing | undefined])[] = [
       [TOP_FOUR, DISTRICT_2026],
+      [TOP_FOUR, undefined],
       [FINALIST, DISTRICT_2026],
       [{ ...FINALIST, securedAtLeast: 20 }, DISTRICT_2026],
       [{ ...TOP_FOUR, notPicked: true }, DISTRICT_2026],

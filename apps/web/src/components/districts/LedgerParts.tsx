@@ -97,7 +97,6 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_NOT_PICKED_WORDS,
-  DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_PENDING_CELL,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
@@ -112,13 +111,16 @@ import {
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerPaysLine,
+  districtLedgerPlayoffBestGuessLines,
   districtLedgerRunProgressText,
   districtLedgerSecuredLine,
   districtLedgerSelectionSettledLine,
 } from "./districtLedgerCopy.js";
+import { pointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
 import type { LedgerRunProgress } from "./ledgerRunProgress.js";
 import {
   districtCellPay,
+  districtPlayoffBestGuess,
   districtSelectionHeadline,
   districtSelectionSettledRoute,
   type DistrictCellPricing,
@@ -504,10 +506,13 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
   };
 }
 
-/** The outcome word a chance form cell prints after its chance. */
+/**
+ * The outcome word a chance form cell prints after its chance. The Playoffs
+ * cell never reaches the chance form: it names a best guess finish or prints the
+ * median form (see `openCellLines`).
+ */
 export function chanceWordsFor(cell: DistrictCellKind): string {
   if (cell === "alliance") return DISTRICT_LEDGER_CHANCE_WORDS.alliance.bold;
-  if (cell === "elim") return DISTRICT_LEDGER_CHANCE_WORDS.elim.bold;
   return DISTRICT_LEDGER_CHANCE_WORDS.award.bold;
 }
 
@@ -522,10 +527,10 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  * own support.
  *
  * THE ORDER: a team on no alliance once selection is final reads not picked;
- * then the Playoffs milestone, where the bracket has already moved past the
- * top four (see `DistrictPlayoffMilestone`); then the median form; then the
- * Alliance selection route, where the run reported routes; then the chance
- * form every other open cell prints.
+ * then the Playoffs best guess finish (`districtPlayoffBestGuess`), or, where
+ * no single finish describes the cell, its median form; then the median form
+ * of every other cell; then the Alliance selection route, where the run
+ * reported routes; then the chance form every other open cell prints.
  *
  * THE SECURED LINE (quick task 261012-mw2, D4). A Playoffs cell of a team
  * whose alliance is still in the bracket carries `securedAtLeast`, the playoff
@@ -534,8 +539,8 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  * form prints anyway, unchanged (`districtLedgerSecuredLine`); where the form
  * has no small line it reads `at least N` alone. It is a proven least and not
  * a prediction, so it has no tilde. The bold line is never touched.
- *   WHERE IT PRINTS: the milestone form, the chance form and the median form
- *   of a Playoffs cell, on a District Locks event row and on the Champ Locks
+ *   WHERE IT PRINTS: the best guess form and the median fallback of a
+ *   Playoffs cell, on a District Locks event row and on the Champ Locks
  *   District Championship row, whose cells are the championship pass's own.
  *   The verdict drawer's chips print through this function, so they read the
  *   same line.
@@ -574,10 +579,19 @@ export function openCellLines(
   if (cell.cell === "elim" && cell.notPicked === true) {
     return { bold: DISTRICT_LEDGER_NOT_PICKED_WORDS.bold, small: DISTRICT_LEDGER_NOT_PICKED_WORDS.small };
   }
-  const milestone = cell.playoffMilestone;
-  if (milestone !== undefined) {
-    const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
-    return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: withSecured(paysLine()) };
+  // THE PLAYOFFS CELL never falls through to the median, selection or chance
+  // branches below, and it ignores `least`. It names a best guess finish, or
+  // where no single finish describes it (a sum of events, a finals shift, no
+  // bracket for the season) it prints the median form. The percentiles come from
+  // the distribution, never from `cell.summary`, which is the chance form here.
+  if (cell.cell === "elim") {
+    const guess = districtPlayoffBestGuess(cell, pricing);
+    if (guess !== undefined) {
+      const lines = districtLedgerPlayoffBestGuessLines(guess);
+      return { bold: lines.bold, small: withSecured(lines.small) };
+    }
+    const { p10, p50, p90 } = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+    return { bold: `~${String(Math.max(0, Math.round(p50)))}`, small: withSecured(districtLedgerCellLikelyText(p10, p90)) };
   }
   // THE ALLIANCE SELECTION CELL'S ROUTES, where the run reported them. A baked
   // event reports none and falls through to the shipped chance form below.

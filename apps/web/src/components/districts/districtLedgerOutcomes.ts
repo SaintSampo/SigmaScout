@@ -384,7 +384,9 @@ export function districtSelectionUnaccountedMass(view: DistrictSelectionRouteVie
  * built from, so the cell's pays line and the drawer's rows read one table.
  *
  * Absent on the Champ tab's District points row, a sum over several events
- * that no named outcome covers: that row's pays line is its own support.
+ * that no named outcome covers: that row's Playoffs cell prints the median
+ * form instead of a best guess, and its Awards and Alliance selection lines
+ * still read their own support.
  */
 export interface DistrictCellPricing {
   readonly season: number;
@@ -402,13 +404,6 @@ export type DistrictCellPay =
 
 type OpenLedgerCell = Extract<DistrictLedgerCell, { kind: "open" }>;
 
-/** The playoff outcome rows each headline covers: the top four with no milestone, the final once top four is secured, the win once in the final. */
-const PLAYOFF_HEADLINE_OUTCOMES: Readonly<Record<"topFour" | "finalist" | "winner", ReadonlySet<DistrictPlayoffOutcomeId>>> = {
-  topFour: new Set<DistrictPlayoffOutcomeId>(["winner", "finalist", "third", "fourth"]),
-  finalist: new Set<DistrictPlayoffOutcomeId>(["winner", "finalist"]),
-  winner: new Set<DistrictPlayoffOutcomeId>(["winner"]),
-};
-
 /** The distinct nonzero point values among some outcome rows, ascending, or `undefined` where there are none. */
 function distinctNonzeroValues(points: readonly number[]): DistrictCellPay | undefined {
   const values = [...new Set(points.filter((value) => value > 0))].sort((a, b) => a - b);
@@ -417,8 +412,8 @@ function distinctNonzeroValues(points: readonly number[]): DistrictCellPay | und
 
 /**
  * THE SUPPORT FALLBACK: the point values the cell's own distribution puts any
- * mass on, from one up. Used where no named outcome prices the cell (the Champ
- * tab's District points row) and where the season has no bracket.
+ * mass on, from one up. Used where no pricing is supplied for an Awards or
+ * Alliance selection cell.
  */
 function supportPay(distribution: DistrictPointDistribution): DistrictCellPay | undefined {
   const points: number[] = [];
@@ -460,24 +455,15 @@ function selectionPay(view: DistrictSelectionRouteView): DistrictCellPay | undef
  * WHAT AN OPEN CELL'S HEADLINE OUTCOME PAYS, read from the drawer's own
  * outcome rows, so the cell and the drawer cannot disagree.
  *
- * The Playoffs cell keeps the rows its headline covers and returns their
- * nonzero points. The season guard exists because `playoffPoints` throws
- * outside the registered bracket seasons, and a throw here would blank the
- * whole table rather than one line. The Awards cell returns every award row's
- * points (Rookie All Star only for a rookie). The Alliance selection cell
+ * The Playoffs cell is priced by `districtPlayoffBestGuess` instead, and this
+ * function returns `undefined` for it. The Awards cell returns every award
+ * row's points (Rookie All Star only for a rookie). The Alliance selection cell
  * returns its headline route's span from the route rows, which already carry
  * the points at this event's alliance count and tier, so it needs no pricing;
  * a baked event reports no routes and reads its own support. The median form
  * categories pay no named outcome. No point value is a literal here.
  */
 export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPricing | undefined): DistrictCellPay | undefined {
-  if (cell.cell === "elim") {
-    if (pricing === undefined || !BRACKET_REGISTERED_SEASONS.includes(pricing.season)) return supportPay(cell.distribution);
-    const milestone = cell.playoffMilestone;
-    const rows = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, milestone);
-    const covered = PLAYOFF_HEADLINE_OUTCOMES[milestone === undefined ? "topFour" : milestone.kind];
-    return distinctNonzeroValues(rows.filter((row) => covered.has(row.id)).map((row) => row.points));
-  }
   if (cell.cell === "award") {
     if (pricing === undefined) return supportPay(cell.distribution);
     const rows = districtAwardOutcomes(pricing.season, pricing.tier, cell.distribution, pricing.isRookie);
@@ -487,4 +473,77 @@ export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPrici
     return cell.selection === undefined ? supportPay(cell.distribution) : selectionPay(cell.selection);
   }
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// THE PLAYOFFS BEST GUESS FINISH (quick task 261014-i1c)
+// ---------------------------------------------------------------------------
+
+/** The four finishes a Playoffs cell can name, better finish first in `PLAYOFF_BEST_GUESS_FINISHES`. */
+export type DistrictPlayoffFinishId = "first" | "second" | "thirdOrFourth" | "fifthToEighth";
+
+/** The finish a Playoffs cell names, its share of the runs (in 0 to 1) and the points that finish pays. */
+export interface DistrictPlayoffBestGuess {
+  readonly id: DistrictPlayoffFinishId;
+  readonly chance: number;
+  readonly pay: Extract<DistrictCellPay, { kind: "values" }>;
+}
+
+/**
+ * The four finishes, BETTER FIRST, each with the outcome rows it groups. Third
+ * and fourth are one finish; fifth through eighth are one finish, which is the
+ * drawer's single `none` row.
+ */
+const PLAYOFF_BEST_GUESS_FINISHES: readonly { readonly id: DistrictPlayoffFinishId; readonly rows: ReadonlySet<DistrictPlayoffOutcomeId> }[] = [
+  { id: "first", rows: new Set<DistrictPlayoffOutcomeId>(["winner"]) },
+  { id: "second", rows: new Set<DistrictPlayoffOutcomeId>(["finalist"]) },
+  { id: "thirdOrFourth", rows: new Set<DistrictPlayoffOutcomeId>(["third", "fourth"]) },
+  { id: "fifthToEighth", rows: new Set<DistrictPlayoffOutcomeId>(["none"]) },
+];
+
+/** The most mass no named placement may cover before the cell stops describing one event's finish. Float noise only. */
+const BEST_GUESS_UNACCOUNTED_MASS_TOLERANCE = 1e-9;
+
+/**
+ * THE PLAYOFFS CELL'S BEST GUESS FINISH, the one question every Playoffs cell in
+ * a column answers, so readers can compare teams down it.
+ *
+ * THE GROUPING: first, second, third or fourth grouped, fifth to eighth grouped.
+ * The best guess is the finish with the most runs, and a TIE GOES TO THE BETTER
+ * FINISH (the walk below is better first and only a strictly greater sum
+ * replaces the leader).
+ *
+ * IT READS THE DRAWER'S OWN ROWS, `districtPlayoffOutcomes` with the cell's own
+ * milestone, so the cell and the drawer read one array and cannot disagree. A
+ * finish the milestone has ruled out has no member row in that array and is
+ * never chosen.
+ *
+ * WHEN IT RETURNS `undefined`, the caller prints the median form instead:
+ *  - not a Playoffs cell, or a team on no alliance (`notPicked`, its own words);
+ *  - no pricing: the Champ Locks District points row sums several events, and
+ *    no single finish describes a sum;
+ *  - a season outside `BRACKET_REGISTERED_SEASONS`, checked BEFORE any call that
+ *    reaches `playoffPoints`, which throws and would blank the whole table;
+ *  - a cell flagged `shiftedByFinals`: its mass is a placement plus finals
+ *    points, and can land exactly on a named value by accident (a DCMP 21 plus a
+ *    finals 39 is 60);
+ *  - mass at a point value no named placement covers.
+ */
+export function districtPlayoffBestGuess(cell: OpenLedgerCell, pricing: DistrictCellPricing | undefined): DistrictPlayoffBestGuess | undefined {
+  if (cell.cell !== "elim" || cell.notPicked === true || cell.shiftedByFinals === true) return undefined;
+  if (pricing === undefined || !BRACKET_REGISTERED_SEASONS.includes(pricing.season)) return undefined;
+  const everyRow = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, undefined);
+  if (districtOutcomeUnaccountedMass(cell.distribution, everyRow) > BEST_GUESS_UNACCOUNTED_MASS_TOLERANCE) return undefined;
+  const rows = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, cell.playoffMilestone);
+  let best: DistrictPlayoffBestGuess | undefined;
+  for (const finish of PLAYOFF_BEST_GUESS_FINISHES) {
+    const members = rows.filter((row) => finish.rows.has(row.id));
+    if (members.length === 0) continue;
+    const chance = members.reduce((sum, row) => sum + row.chance, 0);
+    if (best !== undefined && chance <= best.chance) continue;
+    // The pay keeps zero: fifth to eighth is the single value 0.
+    const values = [...new Set(members.map((row) => row.points))].sort((a, b) => a - b);
+    best = { id: finish.id, chance, pay: { kind: "values", values } };
+  }
+  return best;
 }

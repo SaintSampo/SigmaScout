@@ -12,7 +12,7 @@
  * from `10-UI-SPEC.md`'s `## Copy` section. They are a contract and a test pins
  * them.
  */
-import type { DistrictCellPay } from "./districtLedgerOutcomes.js";
+import type { DistrictCellPay, DistrictPlayoffBestGuess, DistrictPlayoffFinishId } from "./districtLedgerOutcomes.js";
 
 /** The tab's own label and its URL id — the id is `searchParams.ts`'s `DISTRICT_TABS` member, restated here only as the panel's test id root. */
 export const DISTRICT_LEDGER_TAB_LABEL = "District Locks";
@@ -661,6 +661,31 @@ export function districtLedgerPaysLine(pay: DistrictCellPay): string {
   const high = values[values.length - 1] ?? low;
   if (values.length === 2) return `${DISTRICT_LEDGER_PAYS_PREFIX} ${String(Math.round(low))} or ${String(Math.round(high))}`;
   return `${DISTRICT_LEDGER_PAYS_PREFIX} ${districtLedgerOutcomePointsRange(low, high)}`;
+}
+
+/** The words a Playoffs cell's bold line starts with: the finish it names is its best guess. */
+export const DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX = "best guess";
+
+/** The finish each best guess names, in the cell's lower case words. */
+export const DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS: Readonly<Record<DistrictPlayoffFinishId, string>> = {
+  first: "1st",
+  second: "2nd",
+  thirdOrFourth: "3rd or 4th",
+  fifthToEighth: "5th to 8th",
+};
+
+/**
+ * THE PLAYOFFS CELL'S TWO LINES (quick task 261014-i1c): the best guess finish
+ * in bold, then that finish's chance and what it pays on the small line, for
+ * example `best guess 3rd or 4th` over `36% · pays 7 or 13`. The chance goes
+ * through `districtLedgerCellChance`, so it never reads 100% and never carries
+ * a tilde.
+ */
+export function districtLedgerPlayoffBestGuessLines(guess: DistrictPlayoffBestGuess): { bold: string; small: string } {
+  return {
+    bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX} ${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS[guess.id]}`,
+    small: `${districtLedgerCellChance(guess.chance)} · ${districtLedgerPaysLine(guess.pay)}`,
+  };
 }
 
 /** The two words an open Playoffs cell's small line starts with where the team has secured playoff points. */

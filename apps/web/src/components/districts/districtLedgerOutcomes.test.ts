@@ -22,6 +22,7 @@ import {
   districtAwardOutcomes,
   districtCellRendersOutcomeList,
   districtOutcomeUnaccountedMass,
+  districtPlayoffBestGuess,
   districtPlayoffOutcomes,
   districtSelectionHeadline,
   districtSelectionOutcomes,
@@ -29,8 +30,10 @@ import {
   districtSelectionUnaccountedMass,
   InvalidRouteDenominatorError,
   PLAYOFF_ZERO_PLACEMENTS,
+  type DistrictCellPricing,
 } from "./districtLedgerOutcomes.js";
-import type { DistrictPlayoffMilestone, DistrictPointDistribution, DistrictSelectionRouteView } from "./districtLedgerRows.js";
+import { openDistrictLedgerCell } from "./districtLedgerRows.js";
+import type { DistrictLedgerCell, DistrictPlayoffMilestone, DistrictPointDistribution, DistrictSelectionRouteView } from "./districtLedgerRows.js";
 
 const SEASON = 2026;
 const TIER = "district" as const;
@@ -147,6 +150,100 @@ describe("districtPlayoffOutcomes", () => {
   it("applies the dcmp weight through playoffPoints rather than carrying a second table", () => {
     const rows = districtPlayoffOutcomes(SEASON, "dcmp", playoffDistribution(), undefined);
     expect(rows.map((row) => row.points)).toEqual([90, 60, 39, 21, 0]);
+  });
+});
+
+describe("districtPlayoffBestGuess (261014-i1c)", () => {
+  type OpenCell = Extract<DistrictLedgerCell, { kind: "open" }>;
+  const DISTRICT: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
+  const DCMP: DistrictCellPricing = { season: SEASON, tier: "dcmp", isRookie: false };
+
+  /** An open Playoffs cell over `points -> count` pairs at the given tier's ceiling. */
+  function elimCell(pairs: readonly (readonly [number, number])[], tier: "district" | "dcmp" = "district"): OpenCell {
+    const ceiling = maxEventPoints(SEASON, tier).elim;
+    return openDistrictLedgerCell("2026walive:elim", "elim", distributionOf(pairs, ceiling), ceiling) as OpenCell;
+  }
+  const finalist: DistrictPlayoffMilestone = { kind: "finalist", chance: 0.5, conditionalMedian: 20 };
+  const winner: DistrictPlayoffMilestone = { kind: "winner", chance: 0.5, conditionalMedian: 30 };
+
+  it("groups third and fourth, so two finishes that each lose to the biggest single row can win together", () => {
+    const guess = districtPlayoffBestGuess(elimCell([[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]), DISTRICT)!;
+    expect(guess.id).toBe("thirdOrFourth");
+    expect(guess.chance).toBeCloseTo(0.36, 12);
+    expect(guess.pay).toEqual({ kind: "values", values: [7, 13] });
+  });
+
+  it("prices 3rd or 4th at the DCMP's own values", () => {
+    const guess = districtPlayoffBestGuess(elimCell([[0, 34], [21, 16], [39, 20], [60, 15], [90, 15]], "dcmp"), DCMP)!;
+    expect(guess.id).toBe("thirdOrFourth");
+    expect(guess.pay.values).toEqual([21, 39]);
+  });
+
+  it("names 5th to 8th with the single pay 0, zero kept", () => {
+    const guess = districtPlayoffBestGuess(elimCell([[0, 60], [7, 10], [13, 10], [20, 10], [30, 10]]), DISTRICT)!;
+    expect(guess.id).toBe("fifthToEighth");
+    expect(guess.chance).toBeCloseTo(0.6, 12);
+    expect(guess.pay).toEqual({ kind: "values", values: [0] });
+  });
+
+  it("names 1st and 2nd with their own pay", () => {
+    expect(districtPlayoffBestGuess(elimCell([[0, 10], [20, 30], [30, 60]]), DISTRICT)).toMatchObject({ id: "first", pay: { values: [30] } });
+    expect(districtPlayoffBestGuess(elimCell([[0, 10], [20, 60], [30, 30]]), DISTRICT)).toMatchObject({ id: "second", pay: { values: [20] } });
+  });
+
+  it("gives a tie to the better finish", () => {
+    // 2nd 30 against 5th to 8th 30, with 1st and 3rd or 4th at 20.
+    expect(districtPlayoffBestGuess(elimCell([[0, 30], [7, 10], [13, 10], [20, 30], [30, 20]]), DISTRICT)!.id).toBe("second");
+    // 1st 40 against 2nd 40.
+    expect(districtPlayoffBestGuess(elimCell([[0, 20], [20, 40], [30, 40]]), DISTRICT)!.id).toBe("first");
+    // 3rd or 4th 40 against 5th to 8th 40.
+    expect(districtPlayoffBestGuess(elimCell([[0, 40], [7, 20], [13, 20], [30, 20]]), DISTRICT)!.id).toBe("thirdOrFourth");
+  });
+
+  it("never names a finish the milestone rules out, even where its mass is the largest", () => {
+    const missHeavy = { ...elimCell([[0, 70], [20, 20], [30, 10]]), playoffMilestone: finalist };
+    expect(districtPlayoffBestGuess(missHeavy, DISTRICT)!.id).toBe("second");
+    const thirdHeavy = { ...elimCell([[13, 70], [20, 20], [30, 10]]), playoffMilestone: winner };
+    expect(districtPlayoffBestGuess(thirdHeavy, DISTRICT)!.id).toBe("second");
+    // Top four secured: third or fourth stays on offer.
+    const top = { ...elimCell([[7, 40], [13, 30], [20, 20], [30, 10]]), playoffMilestone: finalist };
+    expect(districtPlayoffBestGuess(top, DISTRICT)).toMatchObject({ id: "thirdOrFourth", pay: { values: [7, 13] } });
+  });
+
+  it("reads the drawer's own rows: its chance is the sum of that finish's rows with the same milestone", () => {
+    const cell = { ...elimCell([[7, 10], [13, 15], [20, 25], [30, 50]]), playoffMilestone: finalist };
+    const rows = districtPlayoffOutcomes(SEASON, TIER, cell.distribution, cell.playoffMilestone);
+    const guess = districtPlayoffBestGuess(cell, DISTRICT)!;
+    expect(guess.id).toBe("first");
+    expect(guess.chance).toBe(rows.find((row) => row.id === "winner")!.chance);
+    const grouped = { ...elimCell([[7, 40], [13, 20], [20, 20], [30, 20]]), playoffMilestone: finalist };
+    const groupedRows = districtPlayoffOutcomes(SEASON, TIER, grouped.distribution, grouped.playoffMilestone);
+    const groupedGuess = districtPlayoffBestGuess(grouped, DISTRICT)!;
+    expect(groupedGuess.id).toBe("thirdOrFourth");
+    expect(groupedGuess.chance).toBe(groupedRows.filter((row) => row.id === "third" || row.id === "fourth").reduce((sum, row) => sum + row.chance, 0));
+  });
+
+  it("is undefined for a cell no single finish describes, and never throws", () => {
+    const named = elimCell([[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]);
+    // No pricing, as on the Champ Locks District points row.
+    expect(districtPlayoffBestGuess(named, undefined)).toBeUndefined();
+    // A season with no bracket: playoffPoints throws there, so the guard has to come first.
+    expect(() => districtPlayoffBestGuess(named, { season: 2019, tier: "district", isRookie: false })).not.toThrow();
+    expect(districtPlayoffBestGuess(named, { season: 2019, tier: "district", isRookie: false })).toBeUndefined();
+    // A finals shift can land on named values by accident (21 plus 39 is 60).
+    const shifted = { ...elimCell([[21, 50], [60, 50]], "dcmp"), shiftedByFinals: true } as const;
+    expect(districtPlayoffBestGuess(shifted, DCMP)).toBeUndefined();
+    // Mass at a value no placement pays.
+    expect(districtPlayoffBestGuess(elimCell([[0, 50], [25, 50]]), DISTRICT)).toBeUndefined();
+    // DCMP values priced at a district event.
+    expect(districtPlayoffBestGuess(elimCell([[0, 34], [21, 66]], "dcmp"), DISTRICT)).toBeUndefined();
+  });
+
+  it("is undefined for a team on no alliance and for any cell that is not a Playoffs cell", () => {
+    expect(districtPlayoffBestGuess({ ...elimCell([[0, 100]]), notPicked: true }, DISTRICT)).toBeUndefined();
+    const ceiling = maxEventPoints(SEASON, TIER).award;
+    const award = openDistrictLedgerCell("2026walive:award", "award", distributionOf([[0, 50], [5, 50]], ceiling), ceiling) as OpenCell;
+    expect(districtPlayoffBestGuess(award, DISTRICT)).toBeUndefined();
   });
 });
 
