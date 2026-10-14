@@ -71,6 +71,8 @@ import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
 import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinProbability.js";
 import { eventAwardOutcomeOdds } from "./ledgerSimulation.js";
+import { DcmpAwardSlateOnDistrictTierError } from "./ledgerSimulation.js";
+import type { DcmpAwardSlateInput } from "./dcmpAwardSlate.js";
 
 const SEASON = 2026;
 const TIER = "district" as const;
@@ -2346,5 +2348,119 @@ describe("eventAwardOutcomeOdds — the exact law of the shipped award draw (qui
     expect(() => eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles })).toThrow(
       MissingAwardProfileError
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The DCMP award slate draw path (261014-i8i)
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)", () => {
+  /** Thirty teams with both counts; teams 25 to 30 are rookies. */
+  function slateProfiles(): Map<string, DistrictAwardProfile> {
+    const out = profilesWithCounts(30);
+    for (let i = 25; i <= 30; i++) out.set(teamKey(i), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
+    return out;
+  }
+  /** Teams 1 to 4 eligible for Impact, 2 to 6 for EI, 25 and 26 for RAS; team 3 only half eligible for Impact. Everyone else ineligible. */
+  const SLATE: DcmpAwardSlateInput = {
+    role: "single",
+    expected: { impact: 1.8, engineeringInspiration: 1.6, rookieAllStar: 1, judged: 12 },
+    sources: { counts: "previousSeason", judged: "role" },
+    eligibility: [
+      { teamKey: teamKey(1), impact: 1, engineeringInspiration: 0, rookieAllStar: 0 },
+      { teamKey: teamKey(2), impact: 1, engineeringInspiration: 1, rookieAllStar: 0 },
+      { teamKey: teamKey(3), impact: 0.5, engineeringInspiration: 1, rookieAllStar: 0 },
+      { teamKey: teamKey(4), impact: 1, engineeringInspiration: 1, rookieAllStar: 0 },
+      { teamKey: teamKey(5), impact: 0, engineeringInspiration: 1, rookieAllStar: 0 },
+      { teamKey: teamKey(6), impact: 0, engineeringInspiration: 0.4, rookieAllStar: 0 },
+      { teamKey: teamKey(25), impact: 0, engineeringInspiration: 0, rookieAllStar: 1 },
+      { teamKey: teamKey(26), impact: 0, engineeringInspiration: 0, rookieAllStar: 1 },
+    ].sort((a, b) => (a.teamKey < b.teamKey ? -1 : 1)),
+  };
+  const ELIGIBLE = new Set(SLATE.eligibility.map((entry) => entry.teamKey));
+
+  function dcmpInput(overrides: Partial<DistrictLedgerEventInput> = {}): DistrictLedgerEventInput {
+    return inputFor(30, { tier: "dcmp", awardProfiles: slateProfiles(), dcmpAwardSlate: SLATE, ...overrides });
+  }
+
+  it("draws from the slate: per team frequencies match eventAwardOutcomeOdds within 4 standard errors at 20,000 draws", () => {
+    const draws = 20_000;
+    const input = dcmpInput();
+    const result = simulateDistrictEvent(input, draws, 11);
+    expect(result.awardOrdering).toBe("dcmp-slate");
+    const odds = eventAwardOutcomeOdds({
+      eventKey: input.eventKey,
+      season: SEASON,
+      tier: "dcmp",
+      awardField: input.baselines,
+      awardProfiles: input.awardProfiles,
+      dcmpAwardSlate: SLATE,
+    });
+    const weight = districtTierWeight(SEASON, "dcmp");
+    for (const baseline of input.baselines) {
+      const histogram = result.awardPoints.get(baseline.teamKey)!;
+      const team = odds.get(baseline.teamKey)!;
+      expect(team.p10 + team.p8 + team.p5 + team.p0).toBeCloseTo(1, 12);
+      for (const [points, p] of [
+        [10, team.p10],
+        [8, team.p8],
+        [5, team.p5],
+        [0, team.p0],
+      ] as const) {
+        const frequency = (histogram[points * weight] ?? 0) / draws;
+        const se = Math.sqrt(Math.max(p * (1 - p), 1e-12) / draws);
+        expect(Math.abs(frequency - p), `${baseline.teamKey} at ${String(points * weight)}`).toBeLessThanOrEqual(4 * se + 1e-12);
+      }
+    }
+  });
+
+  it("gives a team ineligible at the position zero mass at 30 and at 24", () => {
+    const result = simulateDistrictEvent(dcmpInput(), 5_000, 3);
+    let checked = 0;
+    for (const baseline of baselinesFor(30)) {
+      if (ELIGIBLE.has(baseline.teamKey)) continue;
+      const histogram = result.awardPoints.get(baseline.teamKey)!;
+      expect(histogram[30] ?? 0, baseline.teamKey).toBe(0);
+      expect(histogram[24] ?? 0, baseline.teamKey).toBe(0);
+      checked++;
+    }
+    expect(checked).toBe(22);
+    // The eligible heads of the field do win at 30.
+    expect(result.awardPoints.get(teamKey(1))![30]!).toBeGreaterThan(0);
+  });
+
+  it("reports each team's judged rung in awardSources", () => {
+    const result = simulateDistrictEvent(dcmpInput(), 50, 3);
+    expect([...result.awardSources.keys()]).toEqual(baselinesFor(30).map((baseline) => baseline.teamKey));
+    expect([...result.awardSources.values()].every((source) => source === "cell")).toBe(true);
+  });
+
+  it("is deterministic under a seed", () => {
+    const a = simulateDistrictEvent(dcmpInput(), 200, 9);
+    const b = simulateDistrictEvent(dcmpInput(), 200, 9);
+    expect([...a.awardPoints.entries()]).toEqual([...b.awardPoints.entries()]);
+  });
+
+  it("needs no slate pricing where the awards are posted", () => {
+    const known = new Map([[teamKey(1), 30]]);
+    const result = simulateDistrictEvent(dcmpInput({ knownAwardPoints: known }), 50, 3);
+    expect(result.awardOrdering).toBe("posted");
+    expect(result.awardPoints.get(teamKey(1))![30]).toBe(50);
+  });
+
+  it("refuses a slate on a district tier event before any draw, in the draw and in the odds", () => {
+    const district = inputFor(30, { awardProfiles: slateProfiles(), dcmpAwardSlate: SLATE });
+    expect(() => simulateDistrictEvent(district, 10, 1)).toThrow(DcmpAwardSlateOnDistrictTierError);
+    expect(() => simulateDistrictEvent({ ...district, knownAwardPoints: new Map() }, 10, 1)).toThrow(DcmpAwardSlateOnDistrictTierError);
+    expect(() =>
+      eventAwardOutcomeOdds({ eventKey: district.eventKey, season: SEASON, tier: "district", awardField: district.baselines, awardProfiles: district.awardProfiles, dcmpAwardSlate: SLATE })
+    ).toThrow(DcmpAwardSlateOnDistrictTierError);
+  });
+
+  it("refuses a field member with no profile on the slate path", () => {
+    const profiles = slateProfiles();
+    profiles.delete(teamKey(9));
+    expect(() => simulateDistrictEvent(dcmpInput({ awardProfiles: profiles }), 10, 1)).toThrow(MissingAwardProfileError);
   });
 });

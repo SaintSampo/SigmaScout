@@ -47,6 +47,7 @@
     "measure:alliance-win-probability": "tsx scripts/measureAllianceWinProbability.ts",
     "measure:district-award-base-rates": "tsx scripts/measureDistrictAwardBaseRates.ts",
     "measure:award-ordering-tables": "tsx scripts/measureAwardOrderingTables.ts",
+    "measure:dcmp-award-slate": "tsx scripts/measureDcmpAwardSlate.ts",
     "score:award-model": "tsx scripts/scoreAwardModel.ts",
     "measure:selection-agreement": "tsx scripts/measureSelectionAgreement.ts",
     "publish:live-windows": "tsx --env-file=.env scripts/publishLiveWindows.ts",

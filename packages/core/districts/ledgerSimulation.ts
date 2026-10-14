@@ -246,6 +246,12 @@ import {
   type PlayedBracketMatch,
 } from "./bracket.js";
 import { isDemoTeamKey } from "../algorithms/demoTeams.js";
+import {
+  dcmpSlateAssignments,
+  slateAwardOutcomeOdds,
+  type DcmpAwardSlateInput,
+  type DcmpSlateAssignment,
+} from "./dcmpAwardSlate.js";
 import { maxEventPoints, type DistrictTier } from "./pointModel.js";
 import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
@@ -346,6 +352,11 @@ export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({
  *                               from the residual table.
  *   `"no-table"`              — the season has no ordering table, so the run
  *                               kept the `awardBaseRate` path unchanged.
+ *   `"dcmp-slate"`            — a DCMP tier event priced from its DCMP
+ *                               award slate (`dcmpAwardSlate.ts`, quick task
+ *                               261014-i8i): eligibility first, measured
+ *                               counts, measured lifts. No district tier
+ *                               table is read.
  *   `"incomplete-profiles"`   — at least one roster team carries no
  *                               `priorJudgedAwards` or no `priorImpactWins`,
  *                               so the field cannot be ordered and the run
@@ -358,7 +369,7 @@ export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({
  * one missing count takes the WHOLE event back to the base rate, which is
  * exactly the price the artifact was published at before the ordering existed.
  */
-export type AwardOrderingDisposition = "posted" | "applied" | "no-table" | "incomplete-profiles";
+export type AwardOrderingDisposition = "posted" | "applied" | "dcmp-slate" | "no-table" | "incomplete-profiles";
 
 /**
  * One team's ordering-derived award parameters. A TEST SEAM AND A CONTRACT:
@@ -483,12 +494,15 @@ export interface EventAwardPricingInput {
   readonly tier: DistrictTier;
   readonly awardField: readonly { readonly teamKey: string }[];
   readonly awardProfiles: ReadonlyMap<string, DistrictAwardProfile>;
+  /** A DCMP tier event's slate. Refused at the district tier. */
+  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
 }
 
 /**
- * One event's resolved award pricing, before any draw. Exactly one of the two
- * paths is filled: `orderingAssignments` on the ordering path, otherwise every
- * team's folded base-rate pmf in `awardPmfByTeam` (in award field order).
+ * One event's resolved award pricing, before any draw. Exactly one of the
+ * three paths is filled: `slateAssignments` on the DCMP slate path,
+ * `orderingAssignments` on the ordering path, otherwise every team's folded
+ * base-rate pmf in `awardPmfByTeam` (in award field order).
  */
 export interface EventAwardPricing {
   readonly awardOrdering: Exclude<AwardOrderingDisposition, "posted">;
@@ -496,6 +510,22 @@ export interface EventAwardPricing {
   readonly awardSources: ReadonlyMap<string, AwardBaseRateSource>;
   readonly awardPmfByTeam: readonly (readonly number[])[];
   readonly orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
+  /** The DCMP slate's per team chances, in award field order; present exactly on the `dcmp-slate` path. */
+  readonly slateAssignments?: readonly DcmpSlateAssignment[];
+}
+
+/** Thrown when a DCMP award slate is handed to a district tier event: district tier pricing never reads one. */
+export class DcmpAwardSlateOnDistrictTierError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DcmpAwardSlateOnDistrictTierError";
+  }
+}
+
+function assertSlateTier(eventKey: string, tier: DistrictTier, slate: DcmpAwardSlateInput | undefined): void {
+  if (slate !== undefined && tier !== "dcmp") {
+    throw new DcmpAwardSlateOnDistrictTierError(`event ${eventKey}: a DCMP award slate was supplied for a ${tier} tier event`);
+  }
 }
 
 /**
@@ -507,6 +537,23 @@ export interface EventAwardPricing {
  */
 export function resolveEventAwardPricing(input: EventAwardPricingInput): EventAwardPricing {
   const { eventKey, season, awardField, awardProfiles } = input;
+  assertSlateTier(eventKey, input.tier, input.dcmpAwardSlate);
+  if (input.dcmpAwardSlate !== undefined) {
+    // THE DCMP SLATE PATH: no district tier table is read. Every field member
+    // still needs a profile, refused exactly as the other paths refuse.
+    const missing = awardField.filter((member) => !awardProfiles.has(member.teamKey)).map((member) => member.teamKey);
+    if (missing.length > 0) {
+      throw new MissingAwardProfileError(
+        `event ${eventKey}: ${missing.length} roster team(s) have no award profile and no known award points were supplied: ${missing.join(", ")}`
+      );
+    }
+    const slateAssignments = dcmpSlateAssignments(season, awardField, awardProfiles, input.dcmpAwardSlate);
+    const sources = new Map<string, AwardBaseRateSource>();
+    // The reported rung is each team's JUDGED lift rung: the one table the
+    // slate prices by class.
+    for (const assignment of slateAssignments) sources.set(assignment.teamKey, assignment.judgedSource);
+    return { awardOrdering: "dcmp-slate", awardSources: sources, awardPmfByTeam: [], orderingAssignments: undefined, slateAssignments };
+  }
   const awardSources = new Map<string, AwardBaseRateSource>();
   const awardPmfByTeam: (readonly number[])[] = [];
   let orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
@@ -603,6 +650,8 @@ function addOutcomeMass(odds: { p10: number; p8: number; p5: number; p0: number 
  * `q = (1 - pI)(1 - pR)` and residual masses `r` by support value,
  * `p10 = pI + q (r10 + r15)`, `p8 = (1 - pI) pR + q (r8 + r13)`,
  * `p5 = q r5`, `p0 = q r0`. Base-rate path: the folded pmf's own masses.
+ * DCMP slate path: `p10 = pI`, `p8 = (1 - pI) p8`,
+ * `p5 = (1 - pI)(1 - p8) pJ` (`slateAwardOutcomeOdds`).
  */
 export function eventAwardOutcomeOdds(input: EventAwardPricingInput): ReadonlyMap<string, AwardOutcomeOdds> {
   const pricing = resolveEventAwardPricing(input);
@@ -610,6 +659,11 @@ export function eventAwardOutcomeOdds(input: EventAwardPricingInput): ReadonlyMa
   input.awardField.forEach((member, i) => {
     const odds = { p10: 0, p8: 0, p5: 0, p0: 0, impact: 0 };
     const where = `event ${input.eventKey} team ${member.teamKey}`;
+    const slateAssignment = pricing.slateAssignments?.[i];
+    if (slateAssignment !== undefined) {
+      out.set(member.teamKey, slateAwardOutcomeOdds(slateAssignment));
+      return;
+    }
     const assignment = pricing.orderingAssignments?.[i];
     if (assignment !== undefined) {
       const pI = assignment.impactProbability;
@@ -735,6 +789,15 @@ export interface DistrictLedgerEventInput {
    * for each unless `knownAwardPoints` is supplied.
    */
   readonly awardOnlyTeams?: readonly string[];
+  /**
+   * THE DCMP AWARD SLATE (quick task 261014-i8i): how a DCMP tier event
+   * prices its awards, built by `buildDcmpAwardSlate` from the same
+   * eligibility the champ draws read. Required at the dcmp tier once every
+   * caller carries one (261014-i8i Task 3); REFUSED at the district tier with
+   * `DcmpAwardSlateOnDistrictTierError`, before any draw. Ignored where
+   * `knownAwardPoints` is supplied: a posted award needs no pricing.
+   */
+  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
 }
 
 /**
@@ -1312,6 +1375,9 @@ export function simulateDistrictEvent(
   // `UnratedTeamError`, so the cell reads "unavailable" rather than wrong.
   assertKnownPointsInRange(eventKey, "elim", input.knownElimPoints, ceilings.elim);
   assertKnownPointsInRange(eventKey, "award", input.knownAwardPoints, ceilings.award);
+  // A slate on a district tier event is refused before any draw, posted
+  // awards or not (quick task 261014-i8i).
+  assertSlateTier(eventKey, tier, input.dcmpAwardSlate);
 
   const unrated: string[] = [];
   const roster: AllianceMemberRating[] = [];
@@ -1368,6 +1434,7 @@ export function simulateDistrictEvent(
   const awardSources = new Map<string, AwardBaseRateSource>();
   const awardPmfByTeam: (readonly number[])[] = [];
   let orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
+  let slateAssignments: readonly DcmpSlateAssignment[] | undefined;
   let awardOrdering: AwardOrderingDisposition = "posted";
   if (!awardIsKnown) {
     // A POSTED award needs no base rate, which is why the whole resolution —
@@ -1375,10 +1442,18 @@ export function simulateDistrictEvent(
     // award outcome is already known. ONE resolution, shared with
     // `eventAwardOutcomeOdds` (quick task 261014-i8i), so the exact odds the
     // scorer reads and the draw below cannot price two different models.
-    const pricing = resolveEventAwardPricing({ eventKey, season, tier, awardField, awardProfiles });
+    const pricing = resolveEventAwardPricing({
+      eventKey,
+      season,
+      tier,
+      awardField,
+      awardProfiles,
+      ...(input.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: input.dcmpAwardSlate }),
+    });
     for (const [teamKey, source] of pricing.awardSources) awardSources.set(teamKey, source);
     awardPmfByTeam.push(...pricing.awardPmfByTeam);
     orderingAssignments = pricing.orderingAssignments;
+    slateAssignments = pricing.slateAssignments;
     awardOrdering = pricing.awardOrdering;
   }
 
@@ -1615,11 +1690,33 @@ export function simulateDistrictEvent(
    */
   const knownAwardPoints = input.knownAwardPoints;
   const assignments = orderingAssignments;
+  const slate = slateAssignments;
   const drawAwardPoints = (i: number): number => {
     if (knownAwardPoints !== undefined) {
       // AWARDS POSTED: nothing is drawn and no randomness is consumed. A team
       // absent from the map scores 0.
       return knownAwardPoints.get(awardField[i]!.teamKey) ?? 0;
+    }
+    if (slate !== undefined) {
+      // THE DCMP SLATE PATH (quick task 261014-i8i). Pinned order: Impact,
+      // then the 8 point award (Engineering Inspiration for a veteran, Rookie
+      // All Star for a rookie), then one judged award. NO RANDOMNESS for a
+      // zero chance, so an ineligible team consumes none for the award it
+      // cannot win. The highest single award is kept: never a stack.
+      const chances = slate[i]!;
+      const impactWon = chances.impact > 0 ? ledgerRng() < chances.impact : false;
+      const eightWon = chances.eight > 0 ? ledgerRng() < chances.eight : false;
+      const judgedWon = chances.judged > 0 ? ledgerRng() < chances.judged : false;
+      const base = impactWon
+        ? IMPACT_AWARD_POINTS
+        : eightWon
+          ? ROOKIE_ALL_STAR_AWARD_POINTS
+          : judgedWon
+            ? AWARD_POINT_SUPPORT[1]!
+            : 0;
+      const composed = base * weight;
+      // The same ceiling backstop the ordering path keeps.
+      return composed > ceilings.award ? ceilings.award : composed;
     }
     if (assignments !== undefined) {
       // THE ORDERING PATH. Three consumptions per team, in this pinned order:
