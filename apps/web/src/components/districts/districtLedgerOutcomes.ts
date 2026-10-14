@@ -14,6 +14,10 @@
  * information in less space. Qualification, the event total and the grand total
  * are genuinely spread and keep their plots.
  *
+ * THE PLAYOFFS LIST CAN SPLIT ITS ZERO POINT MASS (quick task 261014-jfx): where
+ * the run reported its alliance routes, a `notPicked` row separates a team on no
+ * alliance from an alliance that finished fifth to eighth.
+ *
  * ALLIANCE SELECTION JOINED THEM IN 260925-w4y, on a different quantity. Its
  * points are not lumpy enough to name from the histogram alone, and worse, they
  * are AMBIGUOUS: a captain and a first pick earn the same points at one alliance
@@ -54,7 +58,7 @@ import type {
 } from "./districtLedgerRows.js";
 
 /** The outcome identifiers, so a caller names an outcome rather than matching its label. */
-export type DistrictPlayoffOutcomeId = "winner" | "finalist" | "third" | "fourth" | "none";
+export type DistrictPlayoffOutcomeId = "winner" | "finalist" | "third" | "fourth" | "none" | "notPicked";
 export type DistrictAwardOutcomeId = "impact" | "rookieAllStar" | "engineeringInspiration" | "judged" | "none";
 
 /** One rendered outcome row. `chance` is in `[0, 1]`; the list is ordered by `points` descending. */
@@ -93,6 +97,29 @@ const PLAYOFF_OUTCOME_PLACEMENTS: readonly { readonly id: DistrictPlayoffOutcome
  * The Playoffs cell's outcome rows, with the ones the bracket has RULED OUT
  * omitted.
  *
+ * THE ZERO POINT SPLIT (quick task 261014-jfx). Without `selection` the `none`
+ * row is the whole zero point mass, today's reading. With the run's route view
+ * the mass splits in two: a `notPicked` row (the team left on no alliance, the
+ * run's `notSelectedDraws`) appended last, and the `none` row, which then means
+ * picked but out (fifth to eighth).
+ *
+ * WHY THE SPLIT IS EXACT. In `simulateDistrictEvent` the elimination points start
+ * at zero for every team and only alliance members (`allianceMemberIndices`) are
+ * paid. The one path that pays a non member is `knownElimPoints`, supplied only
+ * once TBA's playoff points are in, and the Playoffs cell is grey then. So the
+ * not selected draws are a subset of the zero point draws.
+ *
+ * THE CLAMP: the not picked chance is the smaller of the not selected share and
+ * the zero point share, and `none` is the zero point share minus that, so the
+ * rows always sum to the distribution's mass. If a future simulation paid a
+ * not selected team while the cell was open, the clamp could only OVERSTATE not
+ * picked, by at most the paid backup share.
+ *
+ * Both are zero point rows. The drawer list hides them (261007-3ik) and keeps
+ * the paying rows, and `districtOutcomeUnaccountedMass` counts a shared point
+ * value once. A milestone proves the team is on an alliance, so it rules out
+ * `notPicked` together with the rows it already removes.
+ *
  * The omission is driven by the cell's own milestone and by nothing else, so the
  * list and the headline are ruled out by one fact: a secured top-four finish
  * removes "did not reach the top four", and a place in the final removes third
@@ -106,17 +133,32 @@ export function districtPlayoffOutcomes(
   season: number,
   tier: DistrictTier,
   distribution: DistrictPointDistribution,
-  milestone: DistrictPlayoffMilestone | undefined
+  milestone: DistrictPlayoffMilestone | undefined,
+  selection?: DistrictSelectionRouteView
 ): readonly DistrictOutcomeRow<DistrictPlayoffOutcomeId>[] {
-  const rows = PLAYOFF_OUTCOME_PLACEMENTS.map((entry) => {
+  const placed: DistrictOutcomeRow<DistrictPlayoffOutcomeId>[] = PLAYOFF_OUTCOME_PLACEMENTS.map((entry) => {
     const points = playoffPoints(season, tier, entry.placement);
     return { id: entry.id, points, chance: chanceAt(distribution, points) };
   });
+  let rows = placed;
+  if (selection !== undefined) {
+    assertRouteDenominator("districtPlayoffOutcomes", selection);
+    rows = placed.flatMap((row): DistrictOutcomeRow<DistrictPlayoffOutcomeId>[] => {
+      if (row.id !== "none") return [row];
+      const notPicked = Math.min(Math.max(0, selection.routes.notSelectedDraws / selection.denominator), row.chance);
+      return [
+        { ...row, chance: row.chance - notPicked },
+        { id: "notPicked", points: row.points, chance: notPicked },
+      ];
+    });
+  }
   if (milestone === undefined) return rows;
-  // A secured top-four finish rules out the nothing row; a place in the final
-  // rules out third and fourth as well.
+  // A secured top-four finish rules out the nothing row and not picked; a place
+  // in the final rules out third and fourth as well.
   const ruledOut: ReadonlySet<DistrictPlayoffOutcomeId> =
-    milestone.kind === "winner" ? new Set<DistrictPlayoffOutcomeId>(["none", "third", "fourth"]) : new Set<DistrictPlayoffOutcomeId>(["none"]);
+    milestone.kind === "winner"
+      ? new Set<DistrictPlayoffOutcomeId>(["none", "notPicked", "third", "fourth"])
+      : new Set<DistrictPlayoffOutcomeId>(["none", "notPicked"]);
   return rows.filter((row) => !ruledOut.has(row.id));
 }
 
@@ -188,6 +230,10 @@ export function districtCellRendersOutcomeList(cell: string): cell is "elim" | "
  * point value no named outcome covers — a stacked award that escaped the fold, or
  * a placement table that changed. `districtLedgerOutcomes.test.ts` asserts it is
  * zero rather than leaving that to be noticed on a screenshot.
+ *
+ * EACH DISTINCT POINT VALUE COUNTS ONCE: the split Playoffs rows (`none` and
+ * `notPicked`) share the point value 0, and the mass at 0 is accounted for a
+ * single time.
  */
 export function districtOutcomeUnaccountedMass<Id extends string>(
   distribution: DistrictPointDistribution,
@@ -195,7 +241,7 @@ export function districtOutcomeUnaccountedMass<Id extends string>(
 ): number {
   let total = 0;
   for (let i = 0; i < distribution.counts.length; i++) total += distribution.counts[i] ?? 0;
-  const accounted = rows.reduce((sum, row) => sum + (distribution.counts[Math.round(row.points)] ?? 0), 0);
+  const accounted = [...new Set(rows.map((row) => Math.round(row.points)))].reduce((sum, point) => sum + (distribution.counts[point] ?? 0), 0);
   return (total - accounted) / distribution.denominator;
 }
 
@@ -488,8 +534,8 @@ export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPrici
 // THE PLAYOFFS BEST GUESS FINISH (quick task 261014-i1c)
 // ---------------------------------------------------------------------------
 
-/** The four finishes a Playoffs cell can name, better finish first in `PLAYOFF_BEST_GUESS_FINISHES`. */
-export type DistrictPlayoffFinishId = "first" | "second" | "thirdOrFourth" | "fifthToEighth";
+/** The five finishes a Playoffs cell can name. The four on an alliance are better first in `PLAYOFF_BEST_GUESS_FINISHES`; `notPicked` is the fifth. */
+export type DistrictPlayoffFinishId = "first" | "second" | "thirdOrFourth" | "fifthToEighth" | "notPicked";
 
 /** The finish a Playoffs cell names, its share of the runs (in 0 to 1) and the points that finish pays. */
 export interface DistrictPlayoffBestGuess {
@@ -499,9 +545,11 @@ export interface DistrictPlayoffBestGuess {
 }
 
 /**
- * The four finishes, BETTER FIRST, each with the outcome rows it groups. Third
- * and fourth are one finish; fifth through eighth are one finish, which is the
- * drawer's single `none` row.
+ * The four finishes on an alliance, BETTER FIRST, each with the outcome rows it
+ * groups. Third and fourth are one finish; fifth through eighth are one finish,
+ * which is the drawer's `none` row (picked but out, where the run reported its
+ * routes). Not picked is not a fifth bucket in this contest: see
+ * `NOT_PICKED_MAJORITY`.
  */
 const PLAYOFF_BEST_GUESS_FINISHES: readonly { readonly id: DistrictPlayoffFinishId; readonly rows: ReadonlySet<DistrictPlayoffOutcomeId> }[] = [
   { id: "first", rows: new Set<DistrictPlayoffOutcomeId>(["winner"]) },
@@ -509,6 +557,14 @@ const PLAYOFF_BEST_GUESS_FINISHES: readonly { readonly id: DistrictPlayoffFinish
   { id: "thirdOrFourth", rows: new Set<DistrictPlayoffOutcomeId>(["third", "fourth"]) },
   { id: "fifthToEighth", rows: new Set<DistrictPlayoffOutcomeId>(["none"]) },
 ];
+
+/**
+ * THE NOT PICKED THRESHOLD (Jacob, 2026-10-14): the cell names not picked only
+ * when the team is left off every alliance in MORE THAN HALF of the runs, which
+ * makes it strictly the largest outcome. Otherwise the best guess is the finish
+ * with the most runs among the four on an alliance, as it was.
+ */
+const NOT_PICKED_MAJORITY = 0.5;
 
 /** The most mass no named placement may cover before the cell stops describing one event's finish. Float noise only. */
 const BEST_GUESS_UNACCOUNTED_MASS_TOLERANCE = 1e-9;
@@ -521,6 +577,12 @@ const BEST_GUESS_UNACCOUNTED_MASS_TOLERANCE = 1e-9;
  * The best guess is the finish with the most runs, and a TIE GOES TO THE BETTER
  * FINISH (the walk below is better first and only a strictly greater sum
  * replaces the leader).
+ *
+ * NOT PICKED (quick task 261014-jfx), only where the cell carries the run's route
+ * view (`cell.selection`): the cell names `notPicked` when its share is more than
+ * half of the runs, and fifth to eighth then means picked but out. Without a view
+ * the zero point mass stays one finish, exactly as before. A secured figure above
+ * zero proves the team's alliance has won, so it rules not picked out.
  *
  * IT READS THE DRAWER'S OWN ROWS, `districtPlayoffOutcomes` with the cell's own
  * milestone, so the cell and the drawer read one array and cannot disagree. A
@@ -543,7 +605,12 @@ export function districtPlayoffBestGuess(cell: OpenLedgerCell, pricing: District
   if (pricing === undefined || !BRACKET_REGISTERED_SEASONS.includes(pricing.season)) return undefined;
   const everyRow = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, undefined);
   if (districtOutcomeUnaccountedMass(cell.distribution, everyRow) > BEST_GUESS_UNACCOUNTED_MASS_TOLERANCE) return undefined;
-  const rows = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, cell.playoffMilestone);
+  const rows = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, cell.playoffMilestone, cell.selection);
+  const notPickedRow = rows.find((row) => row.id === "notPicked");
+  const securedAbove = cell.securedAtLeast !== undefined && cell.securedAtLeast > 0;
+  if (notPickedRow !== undefined && !securedAbove && notPickedRow.chance > NOT_PICKED_MAJORITY) {
+    return { id: "notPicked", chance: notPickedRow.chance, pay: { kind: "values", values: [notPickedRow.points] } };
+  }
   let best: DistrictPlayoffBestGuess | undefined;
   for (const finish of PLAYOFF_BEST_GUESS_FINISHES) {
     const members = rows.filter((row) => finish.rows.has(row.id));

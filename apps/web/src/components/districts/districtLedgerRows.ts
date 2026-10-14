@@ -354,6 +354,24 @@ export interface DistrictSelectionRouteView {
 }
 
 /**
+ * THE PLAYOFFS CELL READS THE SAME OBJECT (quick task 261014-jfx). The zero
+ * point mass of a Playoffs distribution mixes two outcomes, an alliance that
+ * finished fifth to eighth and a team on no alliance at all, and
+ * `routes.notSelectedDraws` is what separates them. The Playoffs cell therefore
+ * carries the same view under the same `selection` field, with its own
+ * denominator.
+ */
+export function selectionRouteViewFor(
+  eventDistributions: DistrictEventDistributions | undefined,
+  teamKey: string,
+  denominator: number
+): DistrictSelectionRouteView | undefined {
+  const routes = eventDistributions?.selectionRoutesByTeam?.get(teamKey);
+  if (routes === undefined || eventDistributions?.rankingFixed === undefined) return undefined;
+  return { routes, denominator, rankingFixed: eventDistributions.rankingFixed };
+}
+
+/**
  * THE FINISHES THE BRACKET HAS RULED OUT for a Playoffs cell whose alliance is
  * still alive (Jacob, 2026-09-25: "top four > finalist > winner").
  *
@@ -404,7 +422,13 @@ export type DistrictLedgerCell =
       readonly ceiling: number;
       /** Present only on a Playoffs cell whose bracket has already ruled out its lower finishes — see `DistrictPlayoffMilestone`. */
       readonly playoffMilestone?: DistrictPlayoffMilestone;
-      /** Present only on an Alliance selection cell whose run reported its routes — see `DistrictSelectionRouteView`. */
+      /**
+       * Present on an Alliance selection cell AND on a Playoffs cell whose run
+       * reported its routes: the same `DistrictSelectionRouteView`, built by one
+       * helper (`selectionRouteViewFor`), each with its own cell's denominator.
+       * Readers MUST check `cell.cell` first. The Playoffs cell reads it only to
+       * tell not picked from fifth to eighth (quick task 261014-jfx).
+       */
       readonly selection?: DistrictSelectionRouteView;
       /**
        * PRESENT AND TRUE only on a Playoffs cell whose team is on no alliance
@@ -2123,20 +2147,20 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           // THE ROUTES, or the honest absence. A baked event has pmfs and no
           // routes; that cell keeps the shipped wording and the event is named in
           // the disclosed gaps.
-          const eventDistributions = distributions.get(entry.eventKey);
-          const routes = eventDistributions?.selectionRoutesByTeam?.get(team.teamKey);
-          if (routes === undefined || eventDistributions?.rankingFixed === undefined) {
+          const selection = selectionRouteViewFor(distributions.get(entry.eventKey), team.teamKey, distribution.denominator);
+          if (selection === undefined) {
             eventsWithUnknownSelectionRoutes.add(entry.eventKey);
             return cell;
           }
-          const selection: DistrictSelectionRouteView = {
-            routes,
-            denominator: distribution.denominator,
-            rankingFixed: eventDistributions.rankingFixed,
-          };
           return { ...cell, selection };
         }
         if (category !== "elim" || cell.kind !== "open") return cell;
+        // THE PLAYOFFS CELL'S ROUTE VIEW (quick task 261014-jfx): the same view
+        // the Alliance selection cell carries, so the cell can tell not picked
+        // from fifth to eighth. Not added to the disclosed gaps here: the Alliance
+        // selection cell already names an event that reports no routes.
+        const playoffSelection = selectionRouteViewFor(distributions.get(entry.eventKey), team.teamKey, distribution.denominator);
+        const playoffCell = playoffSelection === undefined ? cell : { ...cell, selection: playoffSelection };
         // A TEAM ON NO ALLIANCE once selection is final (quick task
         // 261008-3il): still open, flagged so the cell reads not picked.
         //
@@ -2153,10 +2177,10 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           deriveStageFromState(entry.state).final
         ).alliance;
         if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, selectionOverOnTheField)) {
-          return { ...cell, notPicked: true };
+          return { ...playoffCell, notPicked: true };
         }
         const milestone = playoffMilestoneFor(distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey));
-        const withMilestone = milestone === undefined ? cell : { ...cell, playoffMilestone: milestone };
+        const withMilestone = milestone === undefined ? playoffCell : { ...playoffCell, playoffMilestone: milestone };
         return securedElim === undefined ? withMilestone : { ...withMilestone, securedAtLeast: securedElim };
       });
 

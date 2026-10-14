@@ -237,6 +237,17 @@ function medianCell(p10: number, p50: number, p90: number): OpenCell {
 const DISTRICT_2026: DistrictCellPricing = { season: 2026, tier: "district", isRookie: false };
 const DCMP_2026: DistrictCellPricing = { season: 2026, tier: "dcmp", isRookie: false };
 
+/** An open Playoffs cell over `mass` that carries the run's route view (quick task 261014-jfx): `notSelectedDraws` of its 100 runs left the team on no alliance. */
+function playoffWith(mass: Readonly<Record<number, number>>, notSelectedDraws: number, ceiling = 30): OpenCell {
+  return {
+    ...openFrom("2026walive:elim", "elim", mass, ceiling),
+    selection: { routes: { bySlot: [], notSelectedDraws }, denominator: 100, rankingFixed: false },
+  };
+}
+
+/** The 6932 shape: 99 runs at zero points, 97 of them on no alliance. */
+const SIX_9_3_2 = playoffWith({ 0: 99, 7: 1 }, 97);
+
 /** Every line a fixture prints, for the guards that hold over all of them. */
 const PRINTED: { bold: string; small: string | undefined }[] = [];
 function lines(cell: OpenCell, pricing?: DistrictCellPricing): { bold: string; small: string | undefined } {
@@ -300,6 +311,52 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
     expect(lines({ ...TOP_FOUR, notPicked: true }, DISTRICT_2026)).toEqual({ bold: "not picked", small: "backup call only" });
     // Even a cell that somehow carried a milestone reads not picked first.
     expect(lines({ ...FINALIST, notPicked: true }, DISTRICT_2026)).toEqual({ bold: "not picked", small: "backup call only" });
+  });
+
+  it("names not picked over the share on an alliance, with no pays and no at least, past half of the runs (261014-jfx)", () => {
+    expect(lines(SIX_9_3_2, DISTRICT_2026)).toEqual({ bold: "~not picked", small: "3% on an alliance" });
+    expect(lines(playoffWith({ 0: 99, 21: 1 }, 97, 90), DCMP_2026)).toEqual({ bold: "~not picked", small: "3% on an alliance" });
+    // Every run left the team off: the selection is still open, so the cell is not flagged, and it reads 0% rather than 100%.
+    expect(lines(playoffWith({ 0: 100 }, 100), DISTRICT_2026)).toEqual({ bold: "~not picked", small: "<1% on an alliance" });
+  });
+
+  it("keeps 5th to 8th where not picked is not past half, even when it is the single largest outcome", () => {
+    // Not picked 40, picked but out 30, 3rd or 4th 15, 2nd 8, 1st 7.
+    expect(lines(playoffWith({ 0: 70, 7: 8, 13: 7, 20: 8, 30: 7 }, 40), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "30% · pays 0" });
+    // Not picked is 40, short of half, so picked but out (also 40) names the cell.
+    expect(lines(playoffWith({ 0: 80, 7: 10, 13: 10 }, 40), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "40% · pays 0" });
+    expect(lines(playoffWith({ 0: 70, 13: 30 }, 20), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "50% · pays 0" });
+  });
+
+  it("prints a not picked small line that is whole percent words and nothing else", () => {
+    const small = lines(SIX_9_3_2, DISTRICT_2026).small!;
+    expect(small).toMatch(/^\d+% on an alliance$/);
+    expect(small).not.toContain("pays");
+    expect(small).not.toContain("at least");
+  });
+
+  it("prints exactly what it printed before where the cell carries no route view", () => {
+    expect(lines(openFrom("2026walive:elim", "elim", { 0: 99, 7: 1 }, 30), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "99% · pays 0" });
+  });
+
+  it("never prints not picked beside a secured figure above zero", () => {
+    const secured = { ...SIX_9_3_2, securedAtLeast: 13 };
+    const printed = lines(secured, DISTRICT_2026);
+    expect(printed.bold).not.toBe("~not picked");
+    expect(printed.small).toMatch(/^at least 13/);
+  });
+
+  it("prints not picked over backup call only for the flagged cell, with or without a route view", () => {
+    expect(lines({ ...SIX_9_3_2, notPicked: true }, DISTRICT_2026)).toEqual({ bold: "not picked", small: "backup call only" });
+    expect(lines({ ...TOP_FOUR, notPicked: true }, DISTRICT_2026)).toEqual({ bold: "not picked", small: "backup call only" });
+  });
+
+  it("renders the not picked cell's two lines in the table cell, in the two spans and classes every open cell has", () => {
+    const { container } = inRow(<LedgerCell cell={SIX_9_3_2} interaction={INTERACTION} pricing={DISTRICT_2026} />);
+    const button = container.querySelector("button")!;
+    const spans = [...button.querySelectorAll("span")];
+    expect(spans.map((span) => span.className)).toEqual([OPEN_CELL_BOLD_CLASS, OPEN_CELL_SMALL_CLASS]);
+    expect(spans.map((span) => span.textContent)).toEqual(["~not picked", "3% on an alliance"]);
   });
 
   it("prints the Awards cell as its chance, the word award, then what an award pays", () => {

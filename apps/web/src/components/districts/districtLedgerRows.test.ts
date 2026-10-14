@@ -59,6 +59,7 @@ import {
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
+import { openCellLines } from "./LedgerParts.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
 type EventPoints = DistrictTeam["eventPoints"][number];
@@ -2165,14 +2166,186 @@ describe("the alliance selection cell's route view", () => {
     });
   });
 
-  it("puts NO route view on any other category's cell", () => {
-    const built = builtWith(routesFor(200, 100, 700), false);
+  it("puts a route view only on the Alliance selection and Playoffs cells, and on no other category's cell (261014-jfx)", () => {
+    const built = builtWith(routesFor(200, 100, 700), false, lumpy(300, 16), { elim: lumpy(970, 30) });
     const cells = built.teams[0]!.rows[0]!.cells;
-    for (const [index, cell] of cells.entries()) {
+    for (const cell of cells) {
       if (cell.kind !== "open") continue;
-      if (index === 1) continue;
-      expect(cell.selection, `cell ${String(index)} carries a route view`).toBeUndefined();
+      if (cell.cell === "alliance" || cell.cell === "elim") expect(cell.selection, cell.cell).toBeDefined();
+      else expect(cell.selection, `${cell.cell} carries a route view`).toBeUndefined();
     }
+  });
+
+  describe("the open Playoffs cell's route view (261014-jfx)", () => {
+    const ELIM = lumpy(970, 30);
+    const elimOf = (built: ReturnType<typeof builtWith>) => {
+      const cell = built.teams[0]!.rows[0]!.cells.find((candidate) => candidate.cell === "elim")!;
+      if (cell.kind !== "open") throw new Error("the Playoffs cell is not open");
+      return cell;
+    };
+
+    it("carries the run's own not selected count and the Playoffs distribution's own denominator", () => {
+      const cell = elimOf(builtWith(routesFor(200, 100, 700), false, lumpy(300, 16), { elim: ELIM }));
+      expect(cell.selection).toBeDefined();
+      expect(cell.selection!.routes.notSelectedDraws).toBe(700);
+      expect(cell.selection!.denominator).toBe(cell.distribution.denominator);
+      expect(cell.selection!.rankingFixed).toBe(false);
+    });
+
+    it("leaves the Alliance selection cell as it was, and does not name the event in the gaps on the Playoffs cell's account", () => {
+      const built = builtWith(routesFor(200, 100, 700), false, lumpy(300, 16), { elim: ELIM });
+      expect(built.gaps.eventsWithUnknownSelectionRoutes).toEqual([]);
+      const alliance = built.teams[0]!.rows[0]!.cells[1]!;
+      if (alliance.kind !== "open") throw new Error("unreachable");
+      expect(alliance.selection!.denominator).toBe(alliance.distribution.denominator);
+    });
+
+    it("is absent where the run reported no routes, or no fixed ranking flag", () => {
+      expect(elimOf(builtWith(undefined, undefined, lumpy(300, 16), { elim: ELIM })).selection).toBeUndefined();
+      expect(elimOf(builtWith(routesFor(200, 100, 700), undefined, lumpy(300, 16), { elim: ELIM })).selection).toBeUndefined();
+    });
+
+    it("rides on the not picked flagged cell too, and the flag stays", () => {
+      const nobody: DistrictSelectionRoutes = { bySlot: [slot(), slot(), slot(), slot()], notSelectedDraws: 1000 };
+      const final: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+      const cell = elimOf(builtWith(nobody, true, lumpy(1000, 16), { elim: ELIM, stage: final }));
+      expect(cell.notPicked).toBe(true);
+      expect(cell.selection!.routes.notSelectedDraws).toBe(1000);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE PLAYOFFS CELL'S ROUTE VIEW, proven against the real simulation (quick task
+// 261014-jfx). A 40 team roster, so 16 teams are left on no alliance.
+// ---------------------------------------------------------------------------
+
+describe("the Playoffs cell tells not picked from fifth to eighth with the run's own routes (261014-jfx)", () => {
+  const EVENT = "2026wabig";
+  const ROSTER = Array.from({ length: 40 }, (_unused, i) => `frc${String(2001 + i)}`);
+  const RP_PMF = [0.2, 0.3, 0.3, 0.2];
+  const bigState = state({ qualMatchesPlayed: 3, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+  const OPEN_STAGE: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+
+  function qualRow(m: number, played: boolean) {
+    const at = (offset: number): string => ROSTER[(m * 6 + offset) % ROSTER.length]!;
+    const base = {
+      matchKey: `${EVENT}_qm${String(m + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: m + 1,
+      sortTime: 1_760_000_000 + m * 600,
+      redTeams: [at(0), at(1), at(2)],
+      blueTeams: [at(3), at(4), at(5)],
+      predictedWinner: "red",
+      pRedWin: 0.55,
+      predictedRedScore: 90,
+      predictedBlueScore: 85,
+      redRpPmf: RP_PMF,
+      blueRpPmf: RP_PMF,
+    };
+    return played ? { ...base, actualWinner: "red", actualRedScore: 95, actualBlueScore: 80, actualRedRp: 3, actualBlueRp: 1 } : base;
+  }
+
+  const artifact = artifactOf(
+    ROSTER.map((teamKey) =>
+      team({ teamKey, pointTotal: 0, remainingEvents: [remainingEvent({ eventKey: EVENT, week: 2, state: bigState })] })
+    ),
+    { dcmpSlots: 12 }
+  );
+  const eventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: EVENT,
+    season: SEASON,
+    matches: Array.from({ length: 20 }, (_unused, m) => qualRow(m, true)),
+    upcoming: Array.from({ length: 60 }, (_unused, m) => qualRow(m + 20, false)),
+    teams: ROSTER.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: Number(teamKey.replace("frc", "")),
+      rank: i + 1,
+      record: { wins: 2, losses: 1, ties: 0 },
+      rp: 2 + (40 - i) / 40,
+      // Metric totals fall steeply down the roster, so the weakest teams are rarely drafted.
+      metrics: { total: { value: 20 + (40 - i) * 3 }, sigma: { value: 8 } },
+    })),
+  });
+  const built = buildDistrictEventSimulationInput({
+    eventKey: EVENT,
+    season: SEASON,
+    eventArtifact,
+    districtArtifact: artifact,
+    stage: OPEN_STAGE,
+    startMatchKey: `${EVENT}_qm21`,
+  });
+  if (!built.ok) throw new Error("fixture: the 40 team event input did not build");
+  const DRAWS = 200;
+
+  // The simulation's own observer seam: in every draw, a roster team on no
+  // alliance must have been paid nothing in the playoffs.
+  const baselineKeys = built.input.baselines.map((baseline) => baseline.teamKey);
+  let unpickedTeamDraws = 0;
+  let violations = 0;
+  const result = simulateDistrictEvent(built.input, DRAWS, 29, (observation) => {
+    const onAnAlliance = new Set(observation.alliances.flat());
+    baselineKeys.forEach((teamKey, index) => {
+      if (onAnAlliance.has(teamKey)) return;
+      unpickedTeamDraws++;
+      if ((observation.elim[index] ?? 0) !== 0) violations++;
+    });
+  });
+  const distributions = distributionsFromResult(result);
+  const rows = buildDistrictLedgerRows({ artifact, distributions: new Map([[EVENT, distributions]]) });
+  const PRICING = { season: SEASON, tier: "district", isRookie: false } as const;
+
+  it("pays no playoff points to a team on no alliance, draw by draw, over a positive number of such draws", () => {
+    expect(unpickedTeamDraws).toBeGreaterThan(0);
+    expect(violations).toBe(0);
+  });
+
+  it("carries the run's own not selected count on every Playoffs cell, never above that team's zero point mass", () => {
+    let seen = 0;
+    for (const entry of rows.teams) {
+      const cell = entry.rows[0]!.cells.find((candidate) => candidate.cell === "elim")!;
+      expect(cell.kind, entry.teamKey).toBe("open");
+      if (cell.kind !== "open") continue;
+      const routes = result.selectionRoutes.get(entry.teamKey)!;
+      expect(cell.selection!.routes.notSelectedDraws, entry.teamKey).toBe(routes.notSelectedDraws);
+      expect(cell.selection!.denominator, entry.teamKey).toBe(cell.distribution.denominator);
+      expect(routes.notSelectedDraws, entry.teamKey).toBeLessThanOrEqual(cell.distribution.counts[0] ?? 0);
+      seen += routes.notSelectedDraws;
+    }
+    expect(seen).toBe(unpickedTeamDraws);
+  });
+
+  it("prints not picked over the share on an alliance for the team left off most often, and only past half of the runs", () => {
+    let leastPicked: { teamKey: string; notSelected: number } | undefined;
+    for (const [teamKey, routes] of result.selectionRoutes) {
+      if (leastPicked === undefined || routes.notSelectedDraws > leastPicked.notSelected) leastPicked = { teamKey, notSelected: routes.notSelectedDraws };
+    }
+    expect(leastPicked!.notSelected).toBeGreaterThan(DRAWS / 2);
+    const printed = new Set<string>();
+    for (const entry of rows.teams) {
+      const cell = entry.rows[0]!.cells.find((candidate) => candidate.cell === "elim")!;
+      if (cell.kind !== "open") continue;
+      const lines = openCellLines(cell, PRICING);
+      const notSelected = cell.selection!.routes.notSelectedDraws;
+      if (lines.bold === "~not picked") {
+        printed.add(entry.teamKey);
+        expect(notSelected / DRAWS, entry.teamKey).toBeGreaterThan(0.5);
+        expect(lines.small, entry.teamKey).toMatch(/^\d+% on an alliance$/);
+      } else {
+        expect(notSelected / DRAWS, entry.teamKey).toBeLessThanOrEqual(0.5);
+      }
+    }
+    expect(printed.has(leastPicked!.teamKey)).toBe(true);
+    const cell = rows.teams.find((entry) => entry.teamKey === leastPicked!.teamKey)!.rows[0]!.cells.find((candidate) => candidate.cell === "elim")!;
+    if (cell.kind !== "open") throw new Error("unreachable");
+    const runs = Math.round((100 * leastPicked!.notSelected) / DRAWS);
+    expect(openCellLines(cell, PRICING).small).toBe(`${String(100 - runs)}% on an alliance`);
   });
 });
 

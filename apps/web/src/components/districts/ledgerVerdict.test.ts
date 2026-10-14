@@ -262,7 +262,7 @@ describe("buildVerdictModel on an outcome cell", () => {
     const model = buildVerdictModel(baseInput(openCell("elim", counts, CEILINGS.elim), { cellTitle: "Playoffs" }));
     expect(model.headline).toBe("Out before the top four in 69 of 100 runs.");
     expect(model.tiles).toEqual([
-      { key: "mostLikely", label: "most likely", value: "Out before the top four" },
+      { key: "mostLikely", label: "best guess", value: "Out before the top four" },
       { key: "chanceOfPoints", label: "chance of points", value: "31%" },
     ]);
     expect(model.chart.kind).toBe("outcomes");
@@ -453,7 +453,7 @@ describe("buildVerdictModel on a Playoffs cell names the cell's best guess finis
     const model = buildVerdictModel(baseInput(cell, { cellTitle: "Playoffs" }));
     expect(model.headline).toBe("Third or fourth place in 36 of 100 runs.");
     expect(model.tiles).toEqual([
-      { key: "mostLikely", label: "most likely", value: "Third or fourth place" },
+      { key: "mostLikely", label: "best guess", value: "Third or fourth place" },
       { key: "chanceOfPoints", label: "chance of points", value: "66%" },
     ]);
     expect(model.chart.kind === "outcomes" ? model.chart.rows.map((row) => row.key) : []).toEqual(["winner", "finalist", "third", "fourth"]);
@@ -473,7 +473,7 @@ describe("buildVerdictModel on a Playoffs cell names the cell's best guess finis
     });
     const model = buildVerdictModel(baseInput(cell));
     expect(model.headline).toBe("Finalist in 20 of 100 runs.");
-    expect(model.tiles[0]).toEqual({ key: "mostLikely", label: "most likely", value: "Finalist" });
+    expect(model.tiles[0]).toEqual({ key: "mostLikely", label: "best guess", value: "Finalist" });
   });
 
   it("keeps the Awards drawer as it was", () => {
@@ -571,5 +571,70 @@ describe("the cell's pays line agrees with the drawer's outcome rows (261008-3il
       expect(rows.map((row) => row.points)).toContain(low);
       expect(rows.map((row) => row.pointsHigh)).toContain(high);
     }
+  });
+});
+
+describe("buildVerdictModel on a Playoffs cell that carries the route view (261014-jfx)", () => {
+  const pricing: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
+
+  /** A Playoffs cell over `pairs` with a route view of `notSelected` draws. */
+  function withView(pairs: ReadonlyArray<readonly [number, number]>, notSelected: number, extra: Partial<VerdictOpenCell> = {}): VerdictOpenCell {
+    const counts = sparse(CEILINGS.elim, pairs);
+    const denominator = counts.reduce((sum, value) => sum + value, 0);
+    const selection: DistrictSelectionRouteView = { routes: { bySlot: [], notSelectedDraws: notSelected }, denominator, rankingFixed: false };
+    return openCell("elim", counts, CEILINGS.elim, { selection, ...extra });
+  }
+
+  it("heads Not picked for the 6932 shape, hides both zero point rows from the list and keeps the row chances summing to one", () => {
+    const cell = withView([[0, 99], [7, 1]], 97);
+    const model = buildVerdictModel(baseInput(cell, { cellTitle: "Playoffs" }));
+    expect(model.headline).toBe("Not picked in 97 of 100 runs.");
+    expect(model.tiles).toEqual([
+      { key: "mostLikely", label: "best guess", value: "Not picked" },
+      { key: "chanceOfPoints", label: "chance of points", value: "1%" },
+    ]);
+    expect(model.chart.kind === "outcomes" ? model.chart.rows.map((row) => row.key) : []).toEqual(["winner", "finalist", "third", "fourth"]);
+    const all = verdictOutcomeRows(cell, SEASON, "district", false, true)!.rows;
+    expect(all.find((row) => row.key === "none")!.chance).toBeCloseTo(0.02, 12);
+    expect(all.find((row) => row.key === "notPicked")!.chance).toBeCloseTo(0.97, 12);
+    expect(all.reduce((sum, row) => sum + row.chance, 0)).toBeCloseTo(1, 12);
+    // The cell reads the same finish.
+    expect(openCellLines(cell, pricing)).toEqual({ bold: "~not picked", small: "3% on an alliance" });
+  });
+
+  it("makes the cell's picked percent and the headline's run count add to 100 where the share rounds the awkward way", () => {
+    const cell = withView([[0, 990], [7, 10]], 975);
+    const model = buildVerdictModel(baseInput(cell));
+    expect(model.headline).toBe("Not picked in 98 of 100 runs.");
+    expect(openCellLines(cell, pricing).small).toBe("2% on an alliance");
+  });
+
+  it("heads Not picked in 100 of 100 runs for the flagged cell, which prints backup call only", () => {
+    const cell = withView([[0, 100]], 100, { notPicked: true });
+    const model = buildVerdictModel(baseInput(cell));
+    expect(model.headline).toBe("Not picked in 100 of 100 runs.");
+    expect(model.tiles[0]).toEqual({ key: "mostLikely", label: "best guess", value: "Not picked" });
+    expect(openCellLines(cell, pricing)).toEqual({ bold: "not picked", small: "backup call only" });
+  });
+
+  it("names the picked finish where not picked is the single largest outcome but not past half, as the cell does", () => {
+    // Not picked 40, picked but out 30, 3rd or 4th 15, 2nd 8, 1st 7.
+    const cell = withView([[0, 70], [7, 8], [13, 7], [20, 8], [30, 7]], 40);
+    const model = buildVerdictModel(baseInput(cell));
+    expect(model.headline).toBe("Out before the top four in 30 of 100 runs.");
+    expect(model.tiles[0]).toEqual({ key: "mostLikely", label: "best guess", value: "Out before the top four" });
+    expect(openCellLines(cell, pricing).bold).toBe("~5th to 8th");
+  });
+
+  it("is today's reading with no view, apart from the tile label", () => {
+    const cell = openCell("elim", sparse(CEILINGS.elim, [[0, 99], [7, 1]]), CEILINGS.elim);
+    const model = buildVerdictModel(baseInput(cell));
+    expect(model.headline).toBe("Out before the top four in 99 of 100 runs.");
+    expect(model.tiles[0]).toEqual({ key: "mostLikely", label: "best guess", value: "Out before the top four" });
+  });
+
+  it("keeps most likely on the Awards drawer", () => {
+    const award = openCell("award", sparse(CEILINGS.award, [[0, 78], [5, 19], [10, 3]]), CEILINGS.award);
+    expect(buildVerdictModel(baseInput(award)).tiles[0]).toMatchObject({ key: "mostLikely", label: "most likely" });
   });
 });

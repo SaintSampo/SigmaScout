@@ -61,8 +61,17 @@ const PLUS_MINUS = String.fromCharCode(0x00b1);
  * and a finish, an optional `at least <n> · ` prefix, a percent, ` · pays ` and
  * the pay text. Checks that the pay text is the named finish's pay at the tab's
  * tier, built from `playoffPoints`, and returns the parts.
+ *
+ * THE NOT PICKED FORM (quick task 261014-jfx): `~not picked` over `<n>% on an
+ * alliance`, with no secured prefix and no pays line. It returns the finish
+ * `not picked` and `chance` is the printed share on an alliance.
  */
 function parseBestGuess(text: string, tier: "district" | "dcmp"): { finish: string; secured: number | undefined; chance: number } {
+  const notPicked = /^~not picked(\d+)% on an alliance$/.exec(text);
+  if (notPicked !== null) {
+    expect(text).not.toContain("100%");
+    return { finish: "not picked", secured: undefined, chance: Number(notPicked[1]) };
+  }
   const match = /^~(1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
   expect(match, text).not.toBeNull();
   const [, finish, secured, chance, pays] = match!;
@@ -550,9 +559,14 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     const elim = dcmpRow.querySelector('[data-cell-id="dcmp-row:elim"]')!;
     expect(elim.getAttribute("data-cell")).toBe("open");
     const small = elim.querySelector(".district-ledger-cell__small")?.textContent ?? "";
-    expect(small).toMatch(/^\d+% \u00b7 pays /);
-    const dcmpValues = [0, 1, 2, 3, 4].map((placement) => (placement === 0 ? 0 : playoffPoints(2026, "dcmp", placement)));
-    for (const value of small.replace(/^\d+% \u00b7 /, "").match(/\d+/g)!.map(Number)) expect(dcmpValues).toContain(value);
+    // Either the paying form, or a not picked best guess's share on an alliance (quick task 261014-jfx).
+    if (/^\d+% on an alliance$/.test(small)) {
+      expect(elim.textContent ?? "").toMatch(/^~not picked/);
+    } else {
+      expect(small).toMatch(/^\d+% \u00b7 pays /);
+      const dcmpValues = [0, 1, 2, 3, 4].map((placement) => (placement === 0 ? 0 : playoffPoints(2026, "dcmp", placement)));
+      for (const value of small.replace(/^\d+% \u00b7 /, "").match(/\d+/g)!.map(Number)) expect(dcmpValues).toContain(value);
+    }
     parseBestGuess(elim.textContent ?? "", "dcmp");
   }, 30000);
 
@@ -1244,8 +1258,9 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     for (const teamKey of allianceRoster(1)) {
       const guess = parseBestGuess(textOf(teamKey, "elim"), "dcmp");
       expect(guess.secured, teamKey).toBe(39);
-      // A secured top four never reads 5th to 8th.
+      // A secured top four never reads 5th to 8th, and never not picked.
       expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
+      expect(guess.finish, teamKey).not.toBe("not picked");
     }
     for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
       expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
@@ -1308,8 +1323,9 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     for (const teamKey of allianceRoster(1)) {
       const guess = parseBestGuess(textOf(teamKey, "elim"), "dcmp");
       expect(guess.secured, teamKey).toBe(39);
-      // A secured top four never reads 5th to 8th.
+      // A secured top four never reads 5th to 8th, and never not picked.
       expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
+      expect(guess.finish, teamKey).not.toBe("not picked");
     }
     const input = lastRunInput();
     expect(input.knownAlliances).toHaveLength(8);
@@ -1386,7 +1402,8 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
     expect(free, teamCellText(FREE)).not.toBeNull();
     expect(Number(free![1])).toBe(24 + 30 + alliancePointsOf(FREE) + 39);
-    expect(parseBestGuess(textOf(FREE, "elim"), "dcmp").secured).toBe(39);
+    expect(parseBestGuess(textOf(FREE, "elim"), "dcmp")).toMatchObject({ secured: 39 });
+    expect(parseBestGuess(textOf(FREE, "elim"), "dcmp").finish).not.toBe("not picked");
     expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
     expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
 

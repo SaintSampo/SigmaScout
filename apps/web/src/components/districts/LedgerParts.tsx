@@ -527,7 +527,9 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  * own support.
  *
  * THE ORDER: a team on no alliance once selection is final reads not picked;
- * then the Playoffs best guess finish (`districtPlayoffBestGuess`), or, where
+ * then the Playoffs best guess finish (`districtPlayoffBestGuess`), which is
+ * `~not picked` over `N% on an alliance` where the runs left the team off every
+ * alliance in more than half of them (quick task 261014-jfx), or, where
  * no single finish describes the cell, its median form; then the median form
  * of every other cell; then the Alliance selection route, where the run
  * reported routes; then the chance form every other open cell prints.
@@ -545,7 +547,9 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  *   The verdict drawer's chips print through this function, so they read the
  *   same line.
  *   WHERE IT DOES NOT: a not picked cell (only a backup call can pay it, and
- *   no alliance list names it); a cell of any other category, whatever it is
+ *   no alliance list names it), nor a not picked best guess (a secured figure
+ *   above zero proves the team is on an alliance, so the best guess never
+ *   names not picked there); a cell of any other category, whatever it is
  *   handed; an event total or a grand total; a figure that is zero, below
  *   zero or rounds to zero. The Champ Locks District points row is a sum over
  *   several events and its Playoffs cell is the plain sum, built without the
@@ -617,8 +621,9 @@ export function openCellLines(
     const headline = districtSelectionHeadline(selection);
     return { bold: `${districtLedgerCellChance(headline.chance)} ${DISTRICT_LEDGER_SELECTION_ROUTE_WORDS[headline.id].bold}`, small: paysLine() };
   }
-  // The chance form: the chance, then the outcome, then what it pays. The
-  // tilde stays on point figures only; a percentage never carries one.
+  // The chance form: the chance, then the outcome, then what it pays. A
+  // percentage never carries a tilde; the tilde marks this site's predictions,
+  // a predicted point figure or a Playoffs best guess finish.
   return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${chanceWordsFor(cell.cell)}`, small: withSecured(paysLine()) };
 }
 
