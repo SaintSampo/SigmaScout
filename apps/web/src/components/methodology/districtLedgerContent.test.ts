@@ -429,6 +429,28 @@ describe("districtLedgerContent: the rewound view and the championship field (26
   });
 });
 
+describe("districtLedgerContent: the weighted draft (261014-ol7)", () => {
+  it("says each pick is drawn from the pick table and names the Predicting alliance picks page, directly after the captain rule", () => {
+    const section = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "the-alliance-selection-model")!;
+    expect(section.paragraphs[0]).toBe(
+      "The captain at each alliance's turn is the highest ranked team not yet on an alliance. The draft runs alliance 1 through alliance 8 and then alliance 8 back down to alliance 1.",
+    );
+    expect(section.paragraphs[1]).toBe(
+      "Each pick is drawn from a table of where real picks sat in the line of teams still available, sorted by rating. That table and how it scores are on the Predicting alliance picks page.",
+    );
+    const pageText = allStrings()
+      .map((entry) => entry.text)
+      .join(" ");
+    expect(pageText).not.toMatch(/taken in rating order/);
+  });
+
+  it("keeps the agreement table, which measures the rating order list itself", () => {
+    const section = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "the-alliance-selection-model")!;
+    expect(section.table?.caption).toBe("Measured against the real draft");
+    expect(section.table?.rows.map((row) => row[0])).toContain("Pick order, exact agreement, 2,256 turns in 2026");
+  });
+});
+
 describe("districtLedgerContent voice", () => {
   it("contains no hyphen minus in any exported string", () => {
     for (const { where, text } of allStrings()) {

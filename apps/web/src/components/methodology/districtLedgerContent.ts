@@ -264,7 +264,8 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
     id: "the-alliance-selection-model",
     heading: "The alliance selection model",
     paragraphs: [
-      "The captain at each alliance's turn is the highest ranked team not yet on an alliance. The draft runs alliance 1 through alliance 8 and then alliance 8 back down to alliance 1. Picks are taken in rating order among the teams still available.",
+      "The captain at each alliance's turn is the highest ranked team not yet on an alliance. The draft runs alliance 1 through alliance 8 and then alliance 8 back down to alliance 1.",
+      "Each pick is drawn from a table of where real picks sat in the line of teams still available, sorted by rating. That table and how it scores are on the Predicting alliance picks page.",
       "The one captain slot the rule missed is alliance 8 at 2026milac, where the rule expected the team ranked 13 and the real captain was ranked 14.",
       "The second pick is the weaker half. Its exact agreement is 22.34% against a floor of 7.85%, about 2.8 times the floor, where first picks run about 11 times their own floor. The real second pick typically sits at position 4 in the model's list, against position 2 for a first pick.",
     ],
