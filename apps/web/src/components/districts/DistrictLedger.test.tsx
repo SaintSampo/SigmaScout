@@ -2510,8 +2510,30 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
   const WIDE_ROSTER = Array.from({ length: 30 }, (_unused, i) => `frc${String(300 + i)}`);
 
   const WIDE_QUALS_OPEN = state({ qualMatchesPlayed: 6, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
-  /** Quals DONE and the alliances not yet announced: the one position where the draft is a settled ranking's own. */
+  /**
+   * Quals DONE and the alliances not yet announced. The ranking is settled, but
+   * the draft is DRAWN from the weighted pick tables (quick task 261014-ol6), so
+   * every pick here is a chance and never a settled route.
+   */
   const WIDE_QUALS_DONE = state({ qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+  /** The alliances ANNOUNCED and the playoffs not yet over: the position where the draft is a fact. */
+  const WIDE_ALLIANCES_ANNOUNCED = state({ qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+
+  /**
+   * Eight announced alliances of three drawn from `WIDE_ROSTER`: captains
+   * frc300 to frc307, first picks frc308 to frc315, second picks frc316 to
+   * frc323 (serpentine, so alliance 8 takes frc316). frc324 to frc329, six
+   * teams, are on no alliance.
+   */
+  const WIDE_ALLIANCES = Array.from({ length: 8 }, (_unused, n) => ({
+    allianceNumber: n + 1,
+    picks: [WIDE_ROSTER[n]!, WIDE_ROSTER[8 + n]!, WIDE_ROSTER[23 - n]!],
+  }));
+
+  /** A settled route line: the route's exact points, then "route, alliance N". */
+  const SETTLED_ROUTE = /^~\d+(captain|first pick|second pick), alliance \d$/;
+  /** A picked chance strictly between 0% and 99%, the drawn draft's own mark. */
+  const DRAWN_PICK_CHANCE = /^([1-9]|[1-8]\d|9[0-8])% picked/;
 
   function wideTeam(teamKey: string, eventState: DistrictEventState): DistrictTeam {
     return {
@@ -2522,8 +2544,11 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     };
   }
 
-  /** Twelve qualification rows over thirty teams, `played` of them played and the rest still to come. */
-  function wideEventArtifact(played: number): EventArtifact {
+  /**
+   * Twelve qualification rows over thirty teams, `played` of them played and the
+   * rest still to come, with `alliances` published when given.
+   */
+  function wideEventArtifact(played: number, alliances?: typeof WIDE_ALLIANCES): EventArtifact {
     const matches = [];
     const upcoming = [];
     for (let m = 0; m < 12; m++) {
@@ -2569,11 +2594,12 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
         rp: 2 + (30 - i) / 30,
         metrics: { total: { value: 60 + (30 - i) }, sigma: { value: 8 } },
       })),
+      ...(alliances !== undefined ? { alliances } : {}),
     });
   }
 
-  async function renderWide(played: number, eventState: DistrictEventState) {
-    installFetch({ eventArtifact: wideEventArtifact(played) });
+  async function renderWide(played: number, eventState: DistrictEventState, alliances?: typeof WIDE_ALLIANCES) {
+    installFetch({ eventArtifact: wideEventArtifact(played, alliances) });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf(WIDE_ROSTER.map((teamKey) => wideTeam(teamKey, eventState))));
     await waitFor(() => {
@@ -2643,8 +2669,13 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     expect(chances.every((text) => /^(0%|<1%|\d+%)$/.test(text))).toBe(true);
   });
 
-  it("prints the settled route and its alliance once quals are DONE, in place of a range whose ends are equal", async () => {
-    await renderWide(12, WIDE_QUALS_DONE);
+  // THE DRAFT IS A FACT ONLY ONCE THE ALLIANCES ARE ANNOUNCED (quick task
+  // 261014-ol6). These four tests used to sit at Quals done, where the shipped
+  // draft was greedy by SPR and so deterministic at a settled ranking. The
+  // weighted pick draft DRAWS its picks, so at Quals done a route is a chance;
+  // the settled forms below now belong to the announced alliance position.
+  it("prints the settled route and its alliance once the ALLIANCES ARE ANNOUNCED, in place of a range whose ends are equal", async () => {
+    await renderWide(12, WIDE_ALLIANCES_ANNOUNCED, WIDE_ALLIANCES);
     const texts = selectionTexts();
     const captains = texts.filter((text) => /^~\d+captain, alliance \d$/.test(text));
     const firstPicks = texts.filter((text) => /^~\d+first pick, alliance \d$/.test(text));
@@ -2663,7 +2694,7 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
   });
 
   it("leaves a settled captain ONE row in the drawer, at its exact points", async () => {
-    await renderWide(12, WIDE_QUALS_DONE);
+    await renderWide(12, WIDE_ALLIANCES_ANNOUNCED, WIDE_ALLIANCES);
     clickSelectionCellMatching(/^~\d+captain, alliance \d$/);
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
@@ -2675,7 +2706,7 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
   });
 
   it("leaves a settled second pick with NO captain row, which is the omission Jacob asked for", async () => {
-    await renderWide(12, WIDE_QUALS_DONE);
+    await renderWide(12, WIDE_ALLIANCES_ANNOUNCED, WIDE_ALLIANCES);
     clickSelectionCellMatching(/^~\d+second pick, alliance \d$/);
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     expect(within(list).getAllByTestId("district-ledger-outcome-row").map((row) => row.getAttribute("data-outcome"))).toEqual([
@@ -2684,10 +2715,9 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
   });
 
   it("prints not picked over backup call only, in an OPEN Playoffs cell, for a team on no alliance once selection is over (261008-3il)", async () => {
-    const selectionOver = state({ qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false });
-    installFetch({ eventArtifact: wideEventArtifact(12) });
+    installFetch({ eventArtifact: wideEventArtifact(12, WIDE_ALLIANCES) });
     handle = installMockWorker({ script: realRunScript });
-    renderLedger(artifactOf(WIDE_ROSTER.map((teamKey) => wideTeam(teamKey, selectionOver))));
+    renderLedger(artifactOf(WIDE_ROSTER.map((teamKey) => wideTeam(teamKey, WIDE_ALLIANCES_ANNOUNCED))));
     const elimCells = (): Element[] => [...document.querySelectorAll('[data-cell-id="2026wawide:elim"]')];
     await waitFor(() => {
       expect(elimCells().length).toBe(WIDE_ROSTER.length);
@@ -2703,6 +2733,34 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
       if (notPicked.includes(cell)) continue;
       parseBestGuess(cell.textContent ?? "", "district");
     }
+  });
+
+  it("prints CHANCES, never a settled route, at Quals done with no announced alliances, because the draft is drawn (261014-ol6)", async () => {
+    await renderWide(12, WIDE_QUALS_DONE);
+    const texts = selectionTexts();
+    expect(texts.filter((text) => SETTLED_ROUTE.test(text)), `settled lines among ${JSON.stringify(texts)}`).toEqual([]);
+    expect(texts.some((text) => DRAWN_PICK_CHANCE.test(text)), `a drawn pick chance among ${JSON.stringify(texts)}`).toBe(true);
+  });
+
+  it("keeps all four routes in the drawer of a drawn pick at Quals done, none omitted as impossible (261014-ol6)", async () => {
+    await renderWide(12, WIDE_QUALS_DONE);
+    clickSelectionCellMatching(DRAWN_PICK_CHANCE);
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    const rows = within(list).getAllByTestId("district-ledger-outcome-row");
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
+  });
+
+  it("never reads not picked when selection is over on the field but NO alliance list is published (261014-ol6)", async () => {
+    installFetch({ eventArtifact: wideEventArtifact(12) });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(WIDE_ROSTER.map((teamKey) => wideTeam(teamKey, WIDE_ALLIANCES_ANNOUNCED))));
+    const elimCells = (): Element[] => [...document.querySelectorAll('[data-cell-id="2026wawide:elim"]')];
+    await waitFor(() => {
+      expect(elimCells().length).toBe(WIDE_ROSTER.length);
+      expect(elimCells().every((cell) => cell.getAttribute("data-cell") === "open")).toBe(true);
+    });
+    // Left out of a DRAWN draft is a chance, not a fact.
+    expect(elimCells().filter((cell) => (cell.textContent ?? "") === "not pickedbackup call only")).toEqual([]);
   });
 
   it("prints the any points chance under picked and keeps the histogram for an UNSTARTED event, whose sidecar carries no routes", async () => {

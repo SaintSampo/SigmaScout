@@ -164,6 +164,7 @@ import {
   type PlayedBracketMatch,
 } from "../../../../../packages/core/districts/bracket.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
+import { pickPositionPmfForSeason } from "../../../../../packages/core/districts/pickDraft.js";
 import type { DcmpAwardSlateInput } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
 import { securedPlayoffPoints, type PlayoffWinRow } from "../../../../../packages/core/districts/securedPlayoffPoints.js";
 import { allianceRatingsFromMetrics, type AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
@@ -1398,6 +1399,13 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
         ? playedBracketMatchesFor(eventArtifact, new Set(options.asOfPlayedElimMatchKeys))
         : { matches: [], unresolvedMatchKeys: [] };
 
+  // THE WEIGHTED PICK DRAFT (quick task 261014-ol6, Jacob's SHIP IT after
+  // 261014-mji measured it against the fixed SPR draft). Set at EVERY stage:
+  // the run ignores it where `knownAlliances` is supplied, so the rule stays
+  // one line with no stage branch. The season's pmf is a pure function of the
+  // event key's season, so it is not folded into `districtRunSignature`.
+  const pickPositionPmf = pickPositionPmfForSeason(season);
+
   const input: DistrictLedgerEventInput = {
     eventKey,
     season,
@@ -1414,6 +1422,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(playedElims.matches.length > 0 ? { playedElimMatches: playedElims.matches } : {}),
     ...(awardOnlyTeams.length > 0 ? { awardOnlyTeams } : {}),
     ...(tier === "dcmp" && options.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: options.dcmpAwardSlate } : {}),
+    ...(pickPositionPmf !== undefined ? { pickPositionPmf } : {}),
   };
 
   return {
@@ -1727,7 +1736,7 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
     byTeam,
     playoffMilestoneByTeam: result.playoffMilestones,
     selectionRoutesByTeam: result.selectionRoutes,
-    rankingFixed: result.rankingFixed,
+    rankingFixed: result.rankingFixed && result.randomDraft !== true,
     ...(result.awardOnlyTeams !== undefined && result.awardOnlyTeams.length > 0
       ? { awardOnlyTeams: new Set(result.awardOnlyTeams) }
       : {}),

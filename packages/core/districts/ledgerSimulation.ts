@@ -87,19 +87,25 @@
  * A straight 1-through-N round two would run the gradient the other way.
  *
  * ---------------------------------------------------------------------------
- * THE CANDIDATE RANDOM PICK DRAFT (quick task 261014-mji)
+ * THE WEIGHTED PICK DRAFT (quick tasks 261014-mji and 261014-ol6)
  * ---------------------------------------------------------------------------
  *
- * The shipped draft picks greedily by published SPR mean and draws no
- * randomness, so at a fixed ranking every pick chance is 0% or 100%. The
- * OPTIONAL `pickPositionPmf` input is a MEASUREMENT CANDIDATE: at each pick
- * turn it draws a POSITION in the list of still available teams ordered by
- * published SPR mean, from one measured pmf for first picks and one for
- * second picks, truncated to the list and renormalised. It reads its own
- * stream (`PICK_STREAM_SALT`). It is INERT AT DEFAULT: absent, the draft is
- * today's greedy draft byte for byte, and nothing in the web app, the Worker,
- * the publisher or the bake passes it. Captains still follow the progressive
- * rule, and declines stay unmodelled either way.
+ * Without the option the draft picks greedily by published SPR mean and draws
+ * no randomness, so at a fixed ranking every pick chance is 0% or 100%. The
+ * OPTIONAL `pickPositionPmf` input draws, at each pick turn, a POSITION in the
+ * list of still available teams ordered by published SPR mean, from one
+ * measured pmf for first picks and one for second picks, truncated to the list
+ * and renormalised. It reads its own stream (`PICK_STREAM_SALT`). Quick task
+ * 261014-mji measured it against the greedy draft and it won (pooled Brier
+ * 0.0917 vs 0.1327); Jacob shipped it on 2026-10-14 (quick task 261014-ol6).
+ *
+ * It is still INERT AT DEFAULT: absent, the draft is the greedy draft byte for
+ * byte, which is what this module's tests and the measurement's fixed draft
+ * arm rely on. Every SHIPPED caller passes it, always through one of the two
+ * input builders (`buildDistrictEventSimulationInput` in the web app and
+ * `bakeDistrictEvent` in the harness), which read
+ * `pickPositionPmfForSeason(season)` from `pickDraft.ts`. Captains still follow
+ * the progressive rule, and declines stay unmodelled either way.
  *
  * ---------------------------------------------------------------------------
  * SHORT ROSTERS: WHOLE FILLER ALLIANCES, MEASURED
@@ -750,7 +756,9 @@ export interface SuppliedAlliance {
 }
 
 /**
- * The candidate random pick draft's two position pmfs (quick task 261014-mji).
+ * The weighted pick draft's two position pmfs (measured in quick task
+ * 261014-mji; the shipped values come from `pickPositionPmfForSeason` in
+ * `pickDraft.ts`, quick task 261014-ol6).
  * Index `i` is the weight for position `i + 1` in the list of still available
  * roster teams ordered exactly as the greedy pick order is: descending
  * published `total`, ties by ascending team key. Weights need not sum to 1;
@@ -864,9 +872,11 @@ export interface DistrictLedgerEventInput {
    */
   readonly dcmpAwardSlate?: DcmpAwardSlateInput;
   /**
-   * A MEASUREMENT CANDIDATE from quick task 261014-mji: the random pick draft.
-   * Nothing in the web app, the Worker, the publisher or the bake passes it.
-   * Absent means today's greedy draft, byte for byte. Present, each pick turn
+   * The weighted pick draft (measured in quick task 261014-mji, shipped in
+   * 261014-ol6). Every shipped caller passes `pickPositionPmfForSeason(season)`
+   * through the two input builders; the default stays inert for this module's
+   * tests and the measurement's fixed draft arm. Absent means the greedy draft,
+   * byte for byte. Present, each pick turn
    * of a SIMULATED draft draws a position from this pmf on its own stream
    * (`PICK_STREAM_SALT`). Ignored when `knownAlliances` is supplied, because
    * the draft does not run. Plain arrays, so it stays structured cloneable.
@@ -945,7 +955,8 @@ export interface DistrictLedgerResult {
    *
    * CONSUMES NO RANDOMNESS AND CHANGES NO SEEDED OUTPUT. The draft is
    * deterministic given the ranking and the ratings when `pickPositionPmf` is
-   * absent, and either way recording which slot a
+   * absent (shipped callers pass it, so their draft is drawn), and either way
+   * recording which slot a
    * team filled adds observation and nothing else;
    * `ledgerSimulation.test.ts` pins every marginal and every ledger-stream
    * count as unchanged.
@@ -959,18 +970,30 @@ export interface DistrictLedgerResult {
    * when the run was handed no remaining matches.
    *
    * Reported rather than left to be inferred, because it changes what an absent
-   * route MEANS. With a fixed ranking the draft is deterministic when
-   * `pickPositionPmf` is absent, so a route no
-   * run took is IMPOSSIBLE and the alliance number a route landed on is a fact;
-   * with matches still to play the same absence is merely "none of these 1,000
-   * runs", and the alliance number is a prediction. 10-07's drawer omits a
-   * ruled-out route on exactly this basis and keeps a merely-unobserved one.
+   * route MEANS, but a fixed ranking ALONE no longer fixes the draft: every
+   * shipped caller passes the weighted `pickPositionPmf`, so its picks are
+   * drawn and `randomDraft` is set. Only with a fixed ranking AND no drawn
+   * draft (alliances supplied, or the option absent) is a route no run took
+   * IMPOSSIBLE and the alliance number a route landed on a fact; otherwise the
+   * same absence is merely "none of these 1,000 runs", and the alliance number
+   * is a prediction. The web reads `rankingFixed && randomDraft !== true` as
+   * its "draft fixed" fact (quick task 261014-ol6).
    *
    * `remainingMatches.length === 0` is this module's own expression of a
    * finished qualification stage — see the header's "every stage is an input"
    * section — so this is that same fact forwarded, never a fifth flag.
    */
   readonly rankingFixed: boolean;
+  /**
+   * PRESENT, and true, only when this run SIMULATED the draft (`knownAlliances`
+   * absent) with a `pickPositionPmf` that puts weight beyond position 1 in
+   * either round, so the picks were DRAWN (quick task 261014-ol6). Then even at
+   * a fixed ranking a route no draw took, or an alliance number the draws
+   * disagreed on, is a chance and not a fact. Absent otherwise, which keeps a
+   * run without the option, and the degenerate `[1]` pmf, deep equal to the
+   * greedy draft's result.
+   */
+  readonly randomDraft?: true;
   /**
    * The input's `awardOnlyTeams`, in their given order, present ONLY when that
    * list was non-empty. These keys appear in `awardPoints`, `eventTotal` and
@@ -1498,8 +1521,8 @@ export function simulateDistrictEvent(
   // A slate on a district tier event is refused before any draw, posted
   // awards or not (quick task 261014-i8i).
   assertSlateTier(eventKey, tier, input.dcmpAwardSlate);
-  // The candidate random pick draft's pmf, validated before any draw and only
-  // when present (quick task 261014-mji).
+  // The weighted pick draft's pmf, validated before any draw and only when
+  // present (quick tasks 261014-mji and 261014-ol6).
   const pickPmf = input.pickPositionPmf;
   const pickPmfProblems = pickPositionPmfProblems(pickPmf);
   if (pickPmfProblems.length > 0) {
@@ -1588,6 +1611,13 @@ export function simulateDistrictEvent(
 
   const teamIndex = new Map<string, number>(baselines.map((baseline, i) => [baseline.teamKey, i]));
   const suppliedAlliances = validateSuppliedAlliances(input, teamIndex, allianceCount);
+  // The picks are DRAWN only when the draft runs (no supplied alliances) and
+  // the pmf can land beyond position 1 in some round (quick task 261014-ol6).
+  const randomDraft =
+    suppliedAlliances === undefined &&
+    pickPmf !== undefined &&
+    (pickPmf.firstPick.slice(1).some((weight) => weight > 0) ||
+      pickPmf.secondPick.slice(1).some((weight) => weight > 0));
 
   // THE PARTIALLY-PLAYED BRACKET, resolved ONCE before any draw. `routePlayedBracket`
   // raises `InvalidBracketDecisionError` for a match whose winner was not one of
@@ -1719,7 +1749,7 @@ export function simulateDistrictEvent(
   // with `pickPositionPmf` absent the draft consumes no randomness, so the
   // order they are PICKED in is fixed too). Ties on `total` break by team key,
   // for the same reproducibility reason `compareByAvgRpDesc` breaks its own.
-  // The candidate random pick draft draws its positions in this same list.
+  // The weighted pick draft draws its positions in this same list.
   //
   // GREEDY BY PUBLISHED SPR MEAN is the selection model CONTEXT settles on.
   // `total` is the published SPR mean, never a band or a spread. The model's
@@ -1809,7 +1839,7 @@ export function simulateDistrictEvent(
     return rawLedgerRng();
   };
 
-  // THE CANDIDATE RANDOM PICK DRAFT (quick task 261014-mji). The third stream
+  // THE WEIGHTED PICK DRAFT (quick tasks 261014-mji and 261014-ol6). The third stream
   // is constructed ONLY when the option is present — see `PICK_STREAM_SALT` —
   // so an absent option builds and reads nothing. `simulatedAllied` counts the
   // roster teams a SIMULATED draft has claimed this draw (captains and picks),
@@ -1961,9 +1991,10 @@ export function simulateDistrictEvent(
     //    `pickPositionPmf` is absent — it consumes no randomness at all,
     //    because declines are not modelled. A reader will look for a decline
     //    draw; there is none, and the measured size of that omission is one
-    //    captain slot in 3,880. With the option present each pick turn reads
-    //    one value from the separate pick stream (quick task 261014-mji); the
-    //    ledger stream is untouched either way.
+    //    captain slot in 3,880. With the option present, as every shipped
+    //    caller passes it, each pick turn reads one value from the separate
+    //    pick stream (quick tasks 261014-mji and 261014-ol6); the ledger
+    //    stream is untouched either way.
     for (let n = 0; n < allianceCount; n++) {
       allianceMemberIndices[n]!.length = 0;
       allianceMemberSlots[n]!.length = 0;
@@ -2221,6 +2252,9 @@ export function simulateDistrictEvent(
     // `remainingMatches.length === 0` is this module's own expression of a
     // finished qualification stage; forwarded, never re-derived.
     rankingFixed: input.remainingMatches.length === 0,
+    // Present ONLY when the picks were actually drawn (quick task 261014-ol6),
+    // so a run without the option is deep equal to the greedy draft's result.
+    ...(randomDraft ? { randomDraft: true as const } : {}),
     // Present ONLY for a non-empty list, so a run without one is deep equal to
     // the shipped result.
     ...(awardOnlyKeys.length > 0 ? { awardOnlyTeams: [...awardOnlyKeys] } : {}),
