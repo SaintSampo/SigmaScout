@@ -41,9 +41,19 @@
  * 2. WHEN A RUN SET DISAGREES WITH A VERDICT (`reconcileAdvancementChances`).
  *    The chip wins, always. A Locked team reading below 1 is reachable through
  *    the POOLED lock, whose whole argument is that points are conserved inside
- *    an event — which independent draws do not honour. The disagreement is
- *    counted in `gaps` and never printed, because a "93% chance" under a chip
- *    saying "Locked" is the site contradicting itself in one table cell.
+ *    an event. The joint draw (quick task 261014-qv2) honours that inside every
+ *    event this session simulated or baked, but the rest parts, awards drawn
+ *    per team and sidecar priced events still do not, so the disagreement
+ *    stays reachable. It is counted in `gaps` and never printed, because a
+ *    "93% chance" under a chip saying "Locked" is the site contradicting
+ *    itself in one table cell.
+ *
+ * THE JOINT DRAW IS BUILT HERE AND NOWHERE ELSE (quick task 261014-qv2). Given
+ * the `distributions` map the rows were built from, every open event that
+ * carries per run totals is drawn once per advancement run, shared by every
+ * team at it; each such team's `counts` become its points OUTSIDE those events.
+ * An open event with no per run data (a published sidecar) is drawn per team
+ * as before and named in `independentEventKeys`.
  *
  * A CHANCE IS ONLY EVER PRINTED FOR `In range` AND `Out of range`. Locked,
  * Locked · award and Prequalified are guarantees and a number beside them can
@@ -51,9 +61,19 @@
  * rule — no prediction feeds the `locks.ts` guarantee — is unchanged here: the
  * chance reads the verdicts, never the other way round.
  */
-import type { AdvancementChanceInputs, AdvancementChanceTeam } from "../../../../../packages/core/districts/advancementChance.js";
+import type {
+  AdvancementChanceInputs,
+  AdvancementChanceJointEvent,
+  AdvancementChanceTeam,
+} from "../../../../../packages/core/districts/advancementChance.js";
+import { convolveDistrictGrandTotal } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { pointMassDistribution, type DistrictLedgerTeam, type DistrictPointDistribution } from "./districtLedgerRows.js";
+import {
+  pointMassDistribution,
+  type DistrictEventDistributions,
+  type DistrictLedgerTeam,
+  type DistrictPointDistribution,
+} from "./districtLedgerRows.js";
 import type { DistrictLedgerShownState } from "./districtFieldOverlay.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
 
@@ -70,6 +90,13 @@ export interface DistrictAdvancementChanceRun {
    * fact in a form a test can assert and a future surface could count.
    */
   readonly excludedTeams: readonly string[];
+  /**
+   * The open events some included team still reads from a MARGINAL, drawn per
+   * team rather than jointly because the session holds no per run data for
+   * them (a published sidecar), sorted. Set only when `distributions` was
+   * supplied (quick task 261014-qv2).
+   */
+  readonly independentEventKeys?: readonly string[];
 }
 
 export interface BuildAdvancementChanceRunOptions {
@@ -88,6 +115,12 @@ export interface BuildAdvancementChanceRunOptions {
   readonly runSignature: string | null;
   /** The rewind position id, so moving the slider always re-runs. */
   readonly positionId: string;
+  /**
+   * THE SAME distributions map the rows were built from (quick task
+   * 261014-qv2). Present, every open event that carries `eventTotalByRun` is
+   * drawn jointly; absent, the run is exactly the independent one.
+   */
+  readonly distributions?: ReadonlyMap<string, DistrictEventDistributions>;
 }
 
 /**
@@ -110,10 +143,11 @@ export interface BuildAdvancementChanceRunOptions {
 function chanceSignature(
   options: BuildAdvancementChanceRunOptions,
   teams: readonly AdvancementChanceTeam[],
-  excludedTeams: readonly string[]
+  excludedTeams: readonly string[],
+  jointEvents: readonly AdvancementChanceJointEvent[] = []
 ): string {
   const { artifact, statuses, runSignature, positionId } = options;
-  return [
+  const parts = [
     // The EXCLUDED set by name, not just by count. A team going from unavailable
     // to available shortens this list and lengthens the team fold below, so
     // either alone would do; naming them makes the re-run obvious to a reader
@@ -129,7 +163,19 @@ function chanceSignature(
     statuses.awardQualified.join("+"),
     statuses.prequalified.join("+"),
     teams.map((team) => `${team.teamKey}=${String(team.counts.length)}/${String(team.denominator)}`).join(","),
-  ].join("|");
+  ];
+  // THE JOINT PART, appended only when an event is drawn jointly, so the
+  // independent run's signature is the shipped one exactly (quick task 261014-qv2).
+  if (jointEvents.length > 0) {
+    parts.push(
+      `joint:${jointEvents.map((event) => `${event.eventKey}:${String(event.runs)}x${String(event.teamKeys.length)}`).join(",")}`,
+      teams
+        .filter((team) => (team.jointEventKeys?.length ?? 0) > 0)
+        .map((team) => `${team.teamKey}@${team.jointEventKeys!.join("+")}`)
+        .join(",")
+    );
+  }
+  return parts.join("|");
 }
 
 /**
@@ -218,18 +264,89 @@ export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOpti
   const prepared = prepareChanceRanking(teams, artifact.dcmpSlots, runSignature);
   if (prepared === undefined) return undefined;
 
+  const joint = options.distributions === undefined ? undefined : jointDrawParts(options, options.distributions, prepared.chanceTeams);
+  const chanceTeams = joint?.teams ?? prepared.chanceTeams;
+  const jointEvents = joint?.jointEvents ?? [];
+
   const inputs: AdvancementChanceInputs = {
-    teams: prepared.chanceTeams,
+    teams: chanceTeams,
     slots: artifact.dcmpSlots!,
     awardQualified: statuses.awardQualified,
     prequalified: statuses.prequalified,
     reservedSlots: statuses.reservedSlots,
+    // OMITTED, not empty, where nothing is drawn jointly.
+    ...(jointEvents.length > 0 ? { jointEvents } : {}),
   };
   return {
     inputs,
-    signature: chanceSignature(options, prepared.chanceTeams, prepared.excludedTeams),
+    signature: chanceSignature(options, chanceTeams, prepared.excludedTeams, jointEvents),
     excludedTeams: prepared.excludedTeams,
+    ...(joint === undefined ? {} : { independentEventKeys: joint.independentEventKeys }),
   };
+}
+
+/**
+ * THE JOINT INPUTS, built once per run (quick task 261014-qv2).
+ *
+ * For each included team whose grand total is open: a row is JOINT when its
+ * event total is open, the event's entry carries `eventTotalByRun`, and that
+ * record lists the team. A team with no joint row keeps its counts. Otherwise
+ * its counts become the REST: the same convolution `buildDistrictLedgerRows`
+ * builds the grand total cell with (a final row's point mass, an open row's
+ * own distribution, the ARTIFACT team's rounded rookie bonus and adjustments),
+ * over every row but the joint ones. Reading a joint event's column at a
+ * uniformly drawn run is a draw from that same event total, so the team's
+ * marginal is its grand total cell's distribution.
+ */
+function jointDrawParts(
+  options: BuildAdvancementChanceRunOptions,
+  distributions: ReadonlyMap<string, DistrictEventDistributions>,
+  chanceTeams: readonly AdvancementChanceTeam[]
+): {
+  readonly teams: AdvancementChanceTeam[];
+  readonly jointEvents: AdvancementChanceJointEvent[];
+  readonly independentEventKeys: readonly string[];
+} {
+  const rowsByKey = new Map(options.teams.map((team) => [team.teamKey, team] as const));
+  const artifactTeamByKey = new Map(options.artifact.teams.map((team) => [team.teamKey, team] as const));
+  const used = new Map<string, AdvancementChanceJointEvent>();
+  const independent = new Set<string>();
+
+  const teams = chanceTeams.map((chanceTeam): AdvancementChanceTeam => {
+    const team = rowsByKey.get(chanceTeam.teamKey);
+    const artifactTeam = artifactTeamByKey.get(chanceTeam.teamKey);
+    if (team === undefined || artifactTeam === undefined || team.grandTotal.kind !== "open") return chanceTeam;
+    const jointEventKeys: string[] = [];
+    const rest: DistrictPointDistribution[] = [];
+    const marginalEvents: string[] = [];
+    for (const row of team.rows) {
+      const cell = row.eventTotal;
+      if (cell.kind === "final") {
+        rest.push(pointMassDistribution(cell.earned));
+        continue;
+      }
+      // An open grand total has every event total known; anything else is a
+      // row this builder cannot account for, so the team keeps its counts.
+      if (cell.kind !== "open") return chanceTeam;
+      const record = distributions.get(row.eventKey)?.eventTotalByRun;
+      if (record !== undefined && record.teamKeys.includes(team.teamKey)) {
+        jointEventKeys.push(row.eventKey);
+        if (!used.has(row.eventKey)) {
+          used.set(row.eventKey, { eventKey: row.eventKey, teamKeys: record.teamKeys, runs: record.runs, totals: record.totals });
+        }
+        continue;
+      }
+      marginalEvents.push(row.eventKey);
+      rest.push(cell.distribution);
+    }
+    for (const eventKey of marginalEvents) independent.add(eventKey);
+    if (jointEventKeys.length === 0) return chanceTeam;
+    const counts = convolveDistrictGrandTotal(rest, Math.round(artifactTeam.rookieBonus), Math.round(artifactTeam.adjustments));
+    return { teamKey: chanceTeam.teamKey, counts, denominator: 1, jointEventKeys };
+  });
+
+  const jointEvents = [...used.values()].sort((a, b) => (a.eventKey < b.eventKey ? -1 : a.eventKey > b.eventKey ? 1 : 0));
+  return { teams, jointEvents, independentEventKeys: [...independent].sort() };
 }
 
 export interface DistrictLedgerChanceModel {

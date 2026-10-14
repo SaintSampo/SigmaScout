@@ -17,12 +17,25 @@
  * to play. The points race is then ranked inside each run, and the chance is
  * the share of runs in which the team sits inside the points slots.
  *
- * TOTALS ARE DRAWN INDEPENDENTLY, and that is an approximation rather than a
- * detail. Points are conserved inside an event: two teams at the same event
- * cannot both be captain one, and one team's qualification points are another's
- * loss. The true joint distribution is therefore correlated and this one is not.
- * The methodology page says so in a sentence; nothing here pretends otherwise,
- * and no verdict is ever derived from these numbers.
+ * EACH EVENT IS DRAWN ONCE PER RUN (quick task 261014-qv2). Points are
+ * conserved inside an event: two teams at the same event cannot both be
+ * captain one, and one team's qualification points are another's loss. Where
+ * the caller holds an event's per run totals (`jointEvents`: an event the
+ * browser simulated or baked this session), each run picks ONE run of that
+ * event, uniformly and with replacement, and every team at the event reads its
+ * points from that same run, so the event's points stay conserved inside the
+ * advancement run. Different events draw their runs independently of each
+ * other, never through a shared index. A team's points OUTSIDE its joint
+ * events (finished events, events with no per run data, the rookie bonus and
+ * adjustments) are its `counts`, drawn on their own exactly as before. One
+ * team's joint read is a draw from its own empirical event marginal, so its
+ * marginal is unchanged; only the coupling between teams at one event moves.
+ *
+ * THE FALLBACK: an event with no per run data (a published sidecar, which in a
+ * live season prices every unstarted event) is still drawn per team and
+ * independently, inside each team's `counts`. That part remains an
+ * approximation, and the caller names those events. No verdict is ever derived
+ * from these numbers.
  *
  * THE SLOT COUNT IS `locks.ts`'s OWN. `pointsRaceSlots` is the same derivation
  * `computeLocksWithQualifiers` narrows its pool and its two slot counts with,
@@ -39,11 +52,16 @@
  *   - A team the elimination test locked out reads 0 in every run. At least
  *     `pointsSlots >= lockSlots` rivals' floors sit strictly above its ceiling.
  *
+ * Both still hold under joint draws: a joint value is a run the team itself
+ * took, so it lies inside the team's own support, and its floor and ceiling
+ * bound it exactly as before.
+ *
  * The POOLED lock carries no such guarantee, and deliberately so: its whole
- * argument is that the district's remaining points are conserved, which these
- * independent draws do not honour. A pooled locked team can therefore read
- * below 1 here. The verdict wins; the caller counts the disagreement and prints
- * nothing (`apps/web/src/components/districts/districtLedgerChances.ts`).
+ * argument is that the district's remaining points are conserved. Joint events
+ * now honour that inside each event, but the rest parts, awards drawn per team
+ * and sidecar priced events still do not. A pooled locked team can therefore
+ * still read below 1 here. The verdict wins; the caller counts the disagreement
+ * and prints nothing (`apps/web/src/components/districts/districtLedgerChances.ts`).
  *
  * TIES AT THE LAST SLOT COUNT AS OUT. `locks.ts`'s tie philosophy is that a tie
  * is settled by a tiebreaker this model does not carry, so it must count as a
@@ -84,6 +102,9 @@ export interface AdvancementChanceTeam {
    * carries `dcmp`, this is the DISTRICT PART alone: the district subtotal
    * convolved with the rookie bonus and adjustments, with the District
    * Championship drawn separately from `dcmp` below.
+   *
+   * On a team naming `jointEventKeys`, this is its points OUTSIDE those events
+   * (the rest): its joint events are read from their drawn runs and added.
    */
   readonly counts: ArrayLike<number>;
   readonly denominator: number;
@@ -99,6 +120,26 @@ export interface AdvancementChanceTeam {
    *   of its own distribution, so a winner is always a high DCMP draw.
    */
   readonly dcmp?: AdvancementChanceDcmpPart;
+  /**
+   * LEGACY MODE ONLY (quick task 261014-qv2): the `jointEvents` this team reads
+   * its points at from that event's drawn run, each named once and each
+   * listing this team in its `teamKeys`. Absent or empty is today's team: its
+   * `counts` are its whole grand total. Refused in champ mode.
+   */
+  readonly jointEventKeys?: readonly string[];
+}
+
+/**
+ * ONE EVENT'S PER RUN TOTALS (quick task 261014-qv2): `totals[run *
+ * teamKeys.length + j]` is team `j`'s event total in that event's run `run`.
+ * Every team naming the event reads the SAME run per advancement run. Passed
+ * through untouched; never copied, never written.
+ */
+export interface AdvancementChanceJointEvent {
+  readonly eventKey: string;
+  readonly teamKeys: readonly string[];
+  readonly runs: number;
+  readonly totals: Uint8Array | Uint16Array;
 }
 
 /** One team's District Championship part — see `AdvancementChanceTeam.dcmp`. */
@@ -148,6 +189,31 @@ export interface AdvancementChanceInputs {
   readonly reservedSlots: number;
   /** CHAMP MODE ONLY: the DCMP judged award draws, in the order they are drawn. Absent or empty with no `dcmp` part on any team is legacy mode. */
   readonly awardDraws?: readonly AdvancementChanceAwardDraw[];
+  /**
+   * LEGACY MODE ONLY (quick task 261014-qv2): the events drawn jointly, see
+   * `AdvancementChanceJointEvent`. An event no pool team names consumes no
+   * randomness. Absent, empty, or named by no pool team is today's run, byte
+   * for byte. Refused in champ mode.
+   */
+  readonly jointEvents?: readonly AdvancementChanceJointEvent[];
+}
+
+/**
+ * One advancement run as the optional observer sees it (quick task
+ * 261014-qv2). A TEST SEAM, documented like `DistrictDrawObservation`: every
+ * array is a REUSED internal buffer, valid only during the callback; observing
+ * consumes no randomness; it never crosses a Worker boundary; legacy mode only.
+ */
+export interface AdvancementChanceObservation {
+  readonly run: number;
+  /** The points-competing pool, in input order. */
+  readonly poolKeys: readonly string[];
+  /** Each pool team's drawn season total this run. */
+  readonly totals: Int32Array;
+  /** The part of each pool team's total read from its joint events this run. */
+  readonly jointPoints: Int32Array;
+  /** Per `jointEvents` entry in input order: the run index drawn this run, or -1 for an event no pool team names. */
+  readonly eventIndices: Int32Array;
 }
 
 export interface AdvancementChanceResult {
@@ -294,7 +360,12 @@ function drawValue(table: DrawTable, u: number): number {
  * once from the top to turn it into "how many teams drew at least this much",
  * and reads one entry per team. No per run sort, and no pairwise comparison.
  */
-export function advancementChances(inputs: AdvancementChanceInputs, draws: number, seed: number): AdvancementChanceResult {
+export function advancementChances(
+  inputs: AdvancementChanceInputs,
+  draws: number,
+  seed: number,
+  observer?: (observation: AdvancementChanceObservation) => void
+): AdvancementChanceResult {
   if (!Number.isInteger(draws) || draws < 1) {
     throw new AdvancementChanceInputError(`draws must be a positive integer, got ${String(draws)}`);
   }
@@ -329,16 +400,26 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
   const pointsSlots = narrowed.pointsSlots;
 
   // CHAMP MODE branches off here and leaves the legacy loop below byte for
-  // byte what it was: the District Locks tab never reaches the branch.
-  if (isChampMode(inputs)) return champAdvancementChances(inputs, draws, seed, narrowed, qualifiers);
+  // byte what it was: the District Locks tab never reaches the branch. Joint
+  // events are refused there (quick task 261014-qv2): the champ run keeps its
+  // independent draws, and a half applied joint draw is worse than none.
+  if (isChampMode(inputs)) {
+    if ((inputs.jointEvents?.length ?? 0) > 0 || inputs.teams.some((team) => team.jointEventKeys !== undefined)) {
+      throw new AdvancementChanceInputError("joint events are legacy mode only; champ mode draws every team on its own");
+    }
+    return champAdvancementChances(inputs, draws, seed, narrowed, qualifiers);
+  }
+
+  const jointByKey = validateJointEvents(inputs);
 
   const chanceByTeam = new Map<string, number>();
   // An empty pool reports BOTH slot counts and NO array — see `cutoffByRun`.
   if (pool.length === 0) return { draws, lockSlots, pointsSlots, chanceByTeam };
 
   const tables = pool.map(drawTableFor);
+  const joint = prepareJointDraw(pool, inputs.jointEvents ?? [], jointByKey);
   let maxValue = 0;
-  for (const table of tables) maxValue = Math.max(maxValue, table.maxValue);
+  for (let i = 0; i < pool.length; i++) maxValue = Math.max(maxValue, tables[i]!.maxValue + joint.maxJointByTeam[i]!);
 
   const rng = mulberry32(seed ^ ADVANCEMENT_CHANCE_STREAM_SALT);
   const totals = new Int32Array(pool.length);
@@ -347,11 +428,38 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
   const insideRuns = new Int32Array(pool.length);
   // THE ONE EXTRA ALLOCATION, and only where a line exists to take.
   const cutoffByRun = pointsSlots >= 1 && pool.length >= pointsSlots ? new Float64Array(draws) : undefined;
+  const referenced = joint.referenced;
+  const rowOffset = new Int32Array(referenced.length);
+  const jointPoints = new Int32Array(pool.length);
+  const eventIndices = new Int32Array((inputs.jointEvents ?? []).length).fill(-1);
+  const observedKeys = observer === undefined ? [] : pool.map((team) => team.teamKey);
 
+  // THE RNG CONSUMPTION ORDER IS PART OF THE CONTRACT (quick task 261014-qv2).
+  // Per run:
+  //   1. For each REFERENCED joint event (one some pool team names), in
+  //      `jointEvents` input order: one uniform `u`, and the run index
+  //      `min(floor(u * runs), runs - 1)`, with replacement.
+  //   2. For each pool team, in input order: one uniform for its `counts` (its
+  //      rest), then its joint events' values read at their drawn indices,
+  //      which consume nothing.
+  // With no referenced event this is exactly the loop shipped before it.
   for (let run = 0; run < draws; run++) {
     histogram.fill(0);
+    for (let r = 0; r < referenced.length; r++) {
+      const event = referenced[r]!;
+      const index = Math.min(Math.floor(rng() * event.runs), event.runs - 1);
+      rowOffset[r] = index * event.width;
+      eventIndices[event.inputIndex] = index;
+    }
     for (let i = 0; i < pool.length; i++) {
-      const value = drawValue(tables[i]!, rng());
+      let value = drawValue(tables[i]!, rng());
+      let fromJoint = 0;
+      for (let k = joint.start[i]!; k < joint.start[i + 1]!; k++) {
+        const r = joint.ref[k]!;
+        fromJoint += referenced[r]!.totals[rowOffset[r]! + joint.column[k]!]!;
+      }
+      value += fromJoint;
+      jointPoints[i] = fromJoint;
       totals[i] = value;
       histogram[value] = histogram[value]! + 1;
     }
@@ -374,11 +482,118 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
       // own tie philosophy read the other way round.
       if (atOrAbove[totals[i]!]! <= lockSlots) insideRuns[i] = insideRuns[i]! + 1;
     }
+    if (observer !== undefined) observer({ run, poolKeys: observedKeys, totals, jointPoints, eventIndices });
   }
 
   for (let i = 0; i < pool.length; i++) chanceByTeam.set(pool[i]!.teamKey, insideRuns[i]! / draws);
   // The field is OMITTED rather than set to `undefined` where there is no line.
   return { draws, lockSlots, pointsSlots, chanceByTeam, ...(cutoffByRun === undefined ? {} : { cutoffByRun }) };
+}
+
+// ---------------------------------------------------------------------------
+// Joint events (quick task 261014-qv2)
+// ---------------------------------------------------------------------------
+
+interface ValidatedJointEvent {
+  readonly event: AdvancementChanceJointEvent;
+  readonly inputIndex: number;
+  readonly columnByTeam: ReadonlyMap<string, number>;
+}
+
+/**
+ * Every refusal the joint inputs can earn, before any draw: a repeated event
+ * key, a repeated team key inside one event, a non positive or non integer run
+ * count, a totals length that is not `runs x teamKeys.length`, and a team
+ * naming an unknown event, an event that does not list it, or one event twice.
+ */
+function validateJointEvents(inputs: AdvancementChanceInputs): ReadonlyMap<string, ValidatedJointEvent> {
+  const byKey = new Map<string, ValidatedJointEvent>();
+  (inputs.jointEvents ?? []).forEach((event, inputIndex) => {
+    if (byKey.has(event.eventKey)) throw new AdvancementChanceInputError(`joint event ${event.eventKey} appears twice`);
+    if (!Number.isInteger(event.runs) || event.runs < 1) {
+      throw new AdvancementChanceInputError(`joint event ${event.eventKey} carries runs ${String(event.runs)}, not a positive integer`);
+    }
+    if (event.totals.length !== event.runs * event.teamKeys.length) {
+      throw new AdvancementChanceInputError(
+        `joint event ${event.eventKey} carries ${String(event.totals.length)} totals, not runs x teams = ${String(event.runs * event.teamKeys.length)}`
+      );
+    }
+    const columnByTeam = new Map<string, number>();
+    event.teamKeys.forEach((teamKey, column) => {
+      if (columnByTeam.has(teamKey)) throw new AdvancementChanceInputError(`joint event ${event.eventKey} lists ${teamKey} twice`);
+      columnByTeam.set(teamKey, column);
+    });
+    byKey.set(event.eventKey, { event, inputIndex, columnByTeam });
+  });
+  for (const team of inputs.teams) {
+    const named = new Set<string>();
+    for (const eventKey of team.jointEventKeys ?? []) {
+      if (named.has(eventKey)) throw new AdvancementChanceInputError(`team ${team.teamKey} names joint event ${eventKey} twice`);
+      named.add(eventKey);
+      const found = byKey.get(eventKey);
+      if (found === undefined) throw new AdvancementChanceInputError(`team ${team.teamKey} names unknown joint event ${eventKey}`);
+      if (!found.columnByTeam.has(team.teamKey)) {
+        throw new AdvancementChanceInputError(`team ${team.teamKey} names joint event ${eventKey}, which does not list it`);
+      }
+    }
+  }
+  return byKey;
+}
+
+interface ReferencedJointEvent {
+  readonly inputIndex: number;
+  readonly runs: number;
+  readonly width: number;
+  readonly totals: Uint8Array | Uint16Array;
+}
+
+interface PreparedJointDraw {
+  /** The events some pool team names, in `jointEvents` input order. */
+  readonly referenced: readonly ReferencedJointEvent[];
+  /** Pool team `i`'s joint reads are `ref[k]`/`column[k]` for `k` in `start[i]` to `start[i + 1]`. */
+  readonly start: Int32Array;
+  readonly ref: Int32Array;
+  readonly column: Int32Array;
+  /** Per pool team: the sum of its joint columns' maxima, so the histogram is sized once. */
+  readonly maxJointByTeam: Int32Array;
+}
+
+function prepareJointDraw(
+  pool: readonly AdvancementChanceTeam[],
+  jointEvents: readonly AdvancementChanceJointEvent[],
+  byKey: ReadonlyMap<string, ValidatedJointEvent>
+): PreparedJointDraw {
+  const referencedInputs = new Set<number>();
+  for (const team of pool) for (const eventKey of team.jointEventKeys ?? []) referencedInputs.add(byKey.get(eventKey)!.inputIndex);
+  const referenced: ReferencedJointEvent[] = [];
+  const refOfInput = new Map<number, number>();
+  jointEvents.forEach((event, inputIndex) => {
+    if (!referencedInputs.has(inputIndex)) return;
+    refOfInput.set(inputIndex, referenced.length);
+    referenced.push({ inputIndex, runs: event.runs, width: event.teamKeys.length, totals: event.totals });
+  });
+
+  const start = new Int32Array(pool.length + 1);
+  const ref: number[] = [];
+  const column: number[] = [];
+  const maxJointByTeam = new Int32Array(pool.length);
+  pool.forEach((team, i) => {
+    start[i] = ref.length;
+    for (const eventKey of team.jointEventKeys ?? []) {
+      const validated = byKey.get(eventKey)!;
+      const r = refOfInput.get(validated.inputIndex)!;
+      const c = validated.columnByTeam.get(team.teamKey)!;
+      // Each referenced column is scanned once for its maximum.
+      const event = referenced[r]!;
+      let max = 0;
+      for (let run = 0; run < event.runs; run++) max = Math.max(max, event.totals[run * event.width + c]!);
+      maxJointByTeam[i] = maxJointByTeam[i]! + max;
+      ref.push(r);
+      column.push(c);
+    }
+  });
+  start[pool.length] = ref.length;
+  return { referenced, start, ref: Int32Array.from(ref), column: Int32Array.from(column), maxJointByTeam };
 }
 
 // ---------------------------------------------------------------------------

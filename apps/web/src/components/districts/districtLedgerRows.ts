@@ -139,6 +139,7 @@
 import {
   convolveDistrictGrandTotal,
   type DistrictAwardProfile,
+  type DistrictEventTotalByRun,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
   type DistrictSelectionRoutes,
@@ -1424,6 +1425,10 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(awardOnlyTeams.length > 0 ? { awardOnlyTeams } : {}),
     ...(tier === "dcmp" && options.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: options.dcmpAwardSlate } : {}),
     ...(pickPositionPmf !== undefined ? { pickPositionPmf } : {}),
+    // THE PER RUN RECORD (quick task 261014-qv2), at the district tier only:
+    // the District Locks advancement run reads every team at this event from
+    // one shared run. The dcmp tier is never read jointly.
+    ...(tier === "district" ? { recordEventTotalByRun: true as const } : {}),
   };
 
   return {
@@ -1494,6 +1499,14 @@ export interface DistrictEventDistributions {
   readonly awardOnlyTeams?: ReadonlySet<string>;
   /** Each listed pick's secured playoff minimum at the position, from the played rows (quick task 261012-mw2). Present only where a team has one above 0. */
   readonly securedElimByTeam?: ReadonlyMap<string, number>;
+  /**
+   * Every team's event total in every run (quick task 261014-qv2), present only
+   * for an event this session simulated or baked with `recordEventTotalByRun`.
+   * Absent for a published sidecar, whose pmfs carry no run. The advancement
+   * run reads it to draw every team at this event from one shared run
+   * (`buildAdvancementChanceRun`). Never published.
+   */
+  readonly eventTotalByRun?: DistrictEventTotalByRun;
 }
 
 /** A District Championship's bracket facts at a position: the eight published alliances and the played playoff rows, as alliance numbered decisions. */
@@ -1749,6 +1762,7 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
     ...(result.awardOnlyTeams !== undefined && result.awardOnlyTeams.length > 0
       ? { awardOnlyTeams: new Set(result.awardOnlyTeams) }
       : {}),
+    ...(result.eventTotalByRun !== undefined ? { eventTotalByRun: result.eventTotalByRun } : {}),
   };
 }
 
@@ -1762,6 +1776,8 @@ export function distributionsFromPreSim(artifact: {
   readonly eventKey: string;
   readonly roster: readonly string[];
   readonly rows: readonly DistrictPreSimArtifact["rows"][number][];
+  /** A bake run in this session with `recordEventTotalByRun` (quick task 261014-qv2); never on a published sidecar. */
+  readonly eventTotalByRun?: DistrictEventTotalByRun;
 }): DistrictEventDistributions {
   const byTeam = new Map<string, Record<DistrictCellKind, DistrictPointDistribution | undefined>>();
   for (const row of artifact.rows) {
@@ -1775,7 +1791,11 @@ export function distributionsFromPreSim(artifact: {
     record.eventTotal = decodeDistrictPointPmf(row.total);
     byTeam.set(teamKey, record);
   }
-  return { eventKey: artifact.eventKey, byTeam };
+  return {
+    eventKey: artifact.eventKey,
+    byTeam,
+    ...(artifact.eventTotalByRun !== undefined ? { eventTotalByRun: artifact.eventTotalByRun } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

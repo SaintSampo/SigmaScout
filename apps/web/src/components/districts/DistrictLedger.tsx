@@ -452,8 +452,18 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   const runSignature =
     asOf?.status === "loading" ? null : data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
   const chanceRun = useMemo(
-    () => buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature, positionId }),
-    [artifact, rows.teams, statuses, runSignature, positionId]
+    () =>
+      buildAdvancementChanceRun({
+        artifact,
+        teams: rows.teams,
+        statuses,
+        runSignature,
+        positionId,
+        // THE SAME map the rows were built from: every event this session
+        // simulated or baked is drawn jointly (quick task 261014-qv2).
+        distributions: data.distributions,
+      }),
+    [artifact, rows.teams, statuses, runSignature, positionId, data.distributions]
   );
 
   const chanceState = useDistrictAdvancementChance(chanceRun);

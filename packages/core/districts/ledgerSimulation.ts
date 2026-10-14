@@ -883,6 +883,44 @@ export interface DistrictLedgerEventInput {
    * Validated before any draw (`InvalidPickPositionPmfError`).
    */
   readonly pickPositionPmf?: PickPositionPmf;
+  /**
+   * RECORD EVERY TEAM'S EVENT TOTAL PER RUN (quick task 261014-qv2). Present
+   * means the result carries `eventTotalByRun`; absent means it does not, and
+   * the result is deep equal to a run without the option. Recording reads the
+   * draw body's own sums and draws nothing, so neither stream moves.
+   *
+   * WHY IT EXISTS: the District Locks advancement run reads every team at one
+   * event from the SAME run of that event, so the points an event hands out
+   * stay conserved inside it (`advancementChance.ts`, joint events). The
+   * marginal histograms cannot carry that coupling; the per run totals can.
+   * Set by the browser's district tier input builders only; never published.
+   */
+  readonly recordEventTotalByRun?: true;
+}
+
+/**
+ * EVERY TEAM'S EVENT TOTAL IN EVERY RUN (quick task 261014-qv2), the per run
+ * record behind the advancement run's joint draw. Never published.
+ *
+ * RUN MAJOR: `totals[run * teamKeys.length + j]` is team `j`'s event total in
+ * run `run`. `teamKeys` is the AWARD FIELD order, the roster in `baselines`
+ * order and then the award only teams in their given order, so team `j`'s
+ * column, read as a histogram over the runs, is its `eventTotal` exactly.
+ *
+ * A `Uint8Array` while the event total ceiling is at most 255 (every district
+ * tier event), a `Uint16Array` above it: `allocateEventTotalByRun` is the one
+ * rule, shared with the bake that pools many schedules' runs.
+ */
+export interface DistrictEventTotalByRun {
+  readonly teamKeys: readonly string[];
+  readonly runs: number;
+  readonly totals: Uint8Array | Uint16Array;
+}
+
+/** The one allocation rule for a per run event total record: one byte per cell while the event total ceiling fits in one. */
+export function allocateEventTotalByRun(runs: number, teamCount: number, totalCeiling: number): Uint8Array | Uint16Array {
+  const cells = runs * teamCount;
+  return totalCeiling <= 255 ? new Uint8Array(cells) : new Uint16Array(cells);
 }
 
 /**
@@ -1002,6 +1040,14 @@ export interface DistrictLedgerResult {
    * with no match to play.
    */
   readonly awardOnlyTeams?: readonly string[];
+  /**
+   * PRESENT ONLY when the input set `recordEventTotalByRun` (quick task
+   * 261014-qv2): every award field team's event total in every run, for the
+   * advancement run's joint draw. See `DistrictEventTotalByRun`. Recorded from
+   * the same sums the `eventTotal` histograms count, so each team's column is
+   * its histogram exactly. Never published.
+   */
+  readonly eventTotalByRun?: DistrictEventTotalByRun;
 }
 
 /**
@@ -1689,6 +1735,10 @@ export function simulateDistrictEvent(
     awardOnlyAwardByIndex.push(awardHistogram);
     awardOnlyTotalByIndex.push(totalHistogram);
   }
+  // THE PER RUN RECORD (quick task 261014-qv2), allocated once and only with
+  // the option. Award field order, run major; see `DistrictEventTotalByRun`.
+  const eventTotalByRun =
+    input.recordEventTotalByRun === true ? allocateEventTotalByRun(draws, awardFieldCount, totalLength - 1) : undefined;
 
   // Qualification points are a pure function of rank, so the whole rank-to-
   // points table is computed once rather than `teamCount x draws` times.
@@ -2164,6 +2214,7 @@ export function simulateDistrictEvent(
       const points = drawAwardPoints(j);
       awardOnlyAwardByIndex[j - teamCount]![points]! += 1;
       awardOnlyTotalByIndex[j - teamCount]![points]! += 1;
+      if (eventTotalByRun !== undefined) eventTotalByRun[drawIndex * awardFieldCount + j] = points;
     }
 
     // 5. Accumulate. Every histogram is a marginal of THESE runs, and the
@@ -2176,6 +2227,7 @@ export function simulateDistrictEvent(
       elimByIndex[i]![elim[i]!]! += 1;
       awardByIndex[i]![award[i]!]! += 1;
       totalByIndex[i]![sum]! += 1;
+      if (eventTotalByRun !== undefined) eventTotalByRun[drawIndex * awardFieldCount + i] = sum;
 
       // The route, folded in the same pass and from the same draw's buffers, so
       // a team's route counts and its selection histogram are marginals of one
@@ -2258,6 +2310,10 @@ export function simulateDistrictEvent(
     // Present ONLY for a non-empty list, so a run without one is deep equal to
     // the shipped result.
     ...(awardOnlyKeys.length > 0 ? { awardOnlyTeams: [...awardOnlyKeys] } : {}),
+    // Present ONLY with the option (quick task 261014-qv2).
+    ...(eventTotalByRun === undefined
+      ? {}
+      : { eventTotalByRun: { teamKeys: awardField.map((team) => team.teamKey), runs: draws, totals: eventTotalByRun } }),
   };
 }
 
