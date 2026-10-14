@@ -54,6 +54,29 @@ import {
 
 /** The forbidden glyph and the em dash, both built from their CODEPOINTS so this file never types either character. */
 const PLUS_MINUS = String.fromCharCode(0x00b1);
+
+/**
+ * Parses an open Playoffs cell's text content (the bold line then the small line,
+ * concatenated) as the best guess grammar (quick task 261014-i1c): `best guess`
+ * and a finish, an optional `at least <n> · ` prefix, a percent, ` · pays ` and
+ * the pay text. Checks that the pay text is the named finish's pay at the tab's
+ * tier, built from `playoffPoints`, and returns the parts.
+ */
+function parseBestGuess(text: string, tier: "district" | "dcmp"): { finish: string; secured: number | undefined; chance: number } {
+  const match = /^best guess (1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
+  expect(match, text).not.toBeNull();
+  const [, finish, secured, chance, pays] = match!;
+  const at = (placement: number): number => playoffPoints(2026, tier, placement);
+  const expected: Readonly<Record<string, string>> = {
+    "1st": String(at(1)),
+    "2nd": String(at(2)),
+    "3rd or 4th": `${String(at(4))} or ${String(at(3))}`,
+    "5th to 8th": String(at(5)),
+  };
+  expect(pays, text).toBe(expected[finish!]);
+  expect(text).not.toContain("100%");
+  return { finish: finish!, secured: secured === undefined ? undefined : Number(secured), chance: Number(chance) };
+}
 const EM_DASH = String.fromCharCode(0x2014);
 const SEASON = 2026;
 const ALGORITHM_VERSION = "7.0.0+rolling";
@@ -523,13 +546,14 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     expect(dcmpRow.querySelectorAll('[data-cell="out-of-range"]')).toHaveLength(0);
     expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(0);
     // THE DCMP ROW IS PRICED AT ITS OWN TIER (261008-3il): an open Playoffs cell
-    // prints a pays line whose every number is a DCMP placement value.
+    // prints a best guess whose pays line is only DCMP placement values (0 for 5th to 8th).
     const elim = dcmpRow.querySelector('[data-cell-id="dcmp-row:elim"]')!;
     expect(elim.getAttribute("data-cell")).toBe("open");
     const small = elim.querySelector(".district-ledger-cell__small")?.textContent ?? "";
-    expect(small).toMatch(/^pays /);
-    const dcmpValues = [1, 2, 3, 4].map((placement) => playoffPoints(2026, "dcmp", placement));
-    for (const value of small.match(/\d+/g)!.map(Number)) expect(dcmpValues).toContain(value);
+    expect(small).toMatch(/^\d+% \u00b7 pays /);
+    const dcmpValues = [0, 1, 2, 3, 4].map((placement) => (placement === 0 ? 0 : playoffPoints(2026, "dcmp", placement)));
+    for (const value of small.replace(/^\d+% \u00b7 /, "").match(/\d+/g)!.map(Number)) expect(dcmpValues).toContain(value);
+    parseBestGuess(elim.textContent ?? "", "dcmp");
   }, 30000);
 
   it("prints a grand total that is TBA's own, with no district-only label, once both tiers are final", async () => {
@@ -1214,7 +1238,12 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     // nothing, and sf7, which pays 13, with all three robots on the field for
     // both: 13 x 3 = 39 secured each (quick task 261012-mw2), read off the
     // played rows with no point on any row. The pays line after it is unchanged.
-    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalat least 39 · pays 60 or 90$/);
+    for (const teamKey of allianceRoster(1)) {
+      const guess = parseBestGuess(textOf(teamKey, "elim"), "dcmp");
+      expect(guess.secured, teamKey).toBe(39);
+      // A secured top four never reads 5th to 8th.
+      expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
+    }
     for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
       expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
       expect(textOf(teamKey, "elim"), teamKey).toBe("0");
@@ -1273,7 +1302,12 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
       expect(kindOf(teamKey, "alliance"), teamKey).toBe("final");
       expect(textOf(teamKey, "alliance"), teamKey).toBe(String(alliancePointsOf(teamKey)));
     }
-    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalat least 39 · pays 60 or 90$/);
+    for (const teamKey of allianceRoster(1)) {
+      const guess = parseBestGuess(textOf(teamKey, "elim"), "dcmp");
+      expect(guess.secured, teamKey).toBe(39);
+      // A secured top four never reads 5th to 8th.
+      expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
+    }
     const input = lastRunInput();
     expect(input.knownAlliances).toHaveLength(8);
     expect(input.playedElimMatches).toEqual(PLAYED_ROWS);
@@ -1349,7 +1383,7 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
     expect(free, teamCellText(FREE)).not.toBeNull();
     expect(Number(free![1])).toBe(24 + 30 + alliancePointsOf(FREE) + 39);
-    expect(textOf(FREE, "elim")).toMatch(/^\d+% finalat least 39 · pays 60 or 90$/);
+    expect(parseBestGuess(textOf(FREE, "elim"), "dcmp").secured).toBe(39);
     expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
     expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
 

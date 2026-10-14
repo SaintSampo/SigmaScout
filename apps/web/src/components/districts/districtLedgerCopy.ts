@@ -502,6 +502,19 @@ export const DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS = {
   none: "Out before the top four",
 } as const;
 
+/**
+ * The Playoffs drawer's labels for the four finishes a best guess can name.
+ * The drawer headline and its most likely tile print these, so they name the
+ * cell's own best guess (quick task 261014-i1c). The three single finishes reuse
+ * the outcome list's labels; third and fourth, grouped, read as one.
+ */
+export const DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS: Readonly<Record<DistrictPlayoffFinishId, string>> = {
+  first: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.winner,
+  second: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.finalist,
+  thirdOrFourth: "Third or fourth place",
+  fifthToEighth: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none,
+};
+
 /** See `DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS`. `judged` is one judged award, which is the award support's own second bin. */
 export const DISTRICT_LEDGER_AWARD_OUTCOME_LABELS = {
   impact: "Impact",

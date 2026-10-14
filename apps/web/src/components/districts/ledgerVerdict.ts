@@ -20,6 +20,7 @@ import {
   DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL,
   DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
+  DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
   DISTRICT_LEDGER_VERDICT_CHIP_LABELS,
@@ -48,6 +49,7 @@ import {
 import {
   districtAwardOutcomes,
   districtCellRendersOutcomeList,
+  districtPlayoffBestGuess,
   districtPlayoffOutcomes,
   districtSelectionOutcomes,
   type DistrictCellPricing,
@@ -246,6 +248,14 @@ export function buildVerdictModel(input: BuildVerdictModelInput): VerdictModel {
     // The likeliest row; on an exact tie the EARLIER row, which pays more.
     let top = outcomes.rows[0]!;
     for (const row of outcomes.rows) if (row.chance > top.chance) top = row;
+    // A PLAYOFFS DRAWER NAMES THE CELL'S BEST GUESS FINISH (third and fourth
+    // grouped, ties to the better finish), so the cell and its drawer read one
+    // finish, while the list below keeps every row separate. Where no single
+    // finish describes the cell the per row pick above stands.
+    const guess =
+      cell.cell === "elim" ? districtPlayoffBestGuess(cell, { season: input.season, tier: input.tier, isRookie: input.isRookie }) : undefined;
+    const headlineLabel = guess === undefined ? top.label : DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS[guess.id];
+    const headlineChance = guess === undefined ? top.chance : guess.chance;
     const chanceOfPoints = outcomes.rows.reduce((sum, row) => ((row.pointsHigh ?? row.points) > 0 ? sum + row.chance : sum), 0);
     // The "Out before the top four" and "No award" rows are implicit, and Jacob
     // asked for them gone from the drawer list (quick task 261007-3ik,
@@ -259,8 +269,8 @@ export function buildVerdictModel(input: BuildVerdictModelInput): VerdictModel {
     const shownRows = cell.cell === "elim" || cell.cell === "award" ? outcomes.rows.filter((row) => row.key !== "none") : outcomes.rows;
     return {
       eyebrow,
-      headline: districtLedgerVerdictOutcomeHeadline(top.label, top.chance),
-      tiles: [tile("mostLikely", top.label), tile("chanceOfPoints", districtLedgerVerdictChanceOfPoints(chanceOfPoints))],
+      headline: districtLedgerVerdictOutcomeHeadline(headlineLabel, headlineChance),
+      tiles: [tile("mostLikely", headlineLabel), tile("chanceOfPoints", districtLedgerVerdictChanceOfPoints(chanceOfPoints))],
       chart: { kind: "outcomes", label: outcomes.label, rows: shownRows },
       sourceChips,
     };

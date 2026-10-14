@@ -417,7 +417,7 @@ describe("the source chips", () => {
     const qualLines = openCellLines(qual, pricing);
     const elimLines = openCellLines(elim, pricing);
     const awardLines = openCellLines(award, pricing);
-    expect(elimLines).toEqual({ bold: "66% top 4", small: "pays 7 to 30" });
+    expect(elimLines).toEqual({ bold: "best guess 3rd or 4th", small: "36% · pays 7 or 13" });
     expect(verdictCategoryChips(cells, pricing)).toEqual([
       { kind: "category", label: "Quals", figure: qualLines.bold, small: qualLines.small, open: true },
       { kind: "category", label: "Alliance", figure: "16", small: undefined, open: false },
@@ -443,27 +443,93 @@ describe("verdictCategoryChips on a settled Playoffs value that is not exact (qu
   });
 });
 
-/** Every number a pays line prints, in order. */
+describe("buildVerdictModel on a Playoffs cell names the cell's best guess finish (261014-i1c)", () => {
+  const pricing: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
+  const counts = sparse(CEILINGS.elim, [[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]);
+
+  it("heads with 3rd or 4th grouped, while the list keeps every row separate and the chance tile is unchanged", () => {
+    const cell = openCell("elim", counts, CEILINGS.elim);
+    const model = buildVerdictModel(baseInput(cell, { cellTitle: "Playoffs" }));
+    expect(model.headline).toBe("Third or fourth place in 36 of 100 runs.");
+    expect(model.tiles).toEqual([
+      { key: "mostLikely", label: "most likely", value: "Third or fourth place" },
+      { key: "chanceOfPoints", label: "chance of points", value: "66%" },
+    ]);
+    expect(model.chart.kind === "outcomes" ? model.chart.rows.map((row) => row.key) : []).toEqual(["winner", "finalist", "third", "fourth"]);
+    // The cell reads the same finish.
+    expect(openCellLines(cell, pricing).bold).toBe("best guess 3rd or 4th");
+  });
+
+  it("names the better finish on a tie, as the cell does", () => {
+    const tie = openCell("elim", sparse(CEILINGS.elim, [[0, 30], [7, 10], [13, 10], [20, 30], [30, 20]]), CEILINGS.elim);
+    expect(buildVerdictModel(baseInput(tie)).headline).toBe("Finalist in 30 of 100 runs.");
+    expect(openCellLines(tie, pricing).bold).toBe("best guess 2nd");
+  });
+
+  it("never names a finish the milestone rules out", () => {
+    const cell = openCell("elim", sparse(CEILINGS.elim, [[0, 70], [20, 20], [30, 10]]), CEILINGS.elim, {
+      playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 20 },
+    });
+    const model = buildVerdictModel(baseInput(cell));
+    expect(model.headline).toBe("Finalist in 20 of 100 runs.");
+    expect(model.tiles[0]).toEqual({ key: "mostLikely", label: "most likely", value: "Finalist" });
+  });
+
+  it("keeps the Awards drawer as it was", () => {
+    const award = openCell("award", sparse(CEILINGS.award, [[0, 78], [5, 19], [10, 3]]), CEILINGS.award);
+    expect(buildVerdictModel(baseInput(award)).headline).toBe("No award in 78 of 100 runs.");
+  });
+
+  it("falls back to the median form where no single finish describes the cell, matching the drawer's median and likely tiles", () => {
+    // Mass at 25, a value no placement pays.
+    const unnamed = openCell("elim", sparse(CEILINGS.elim, [[0, 50], [25, 50]]), CEILINGS.elim);
+    const lines = openCellLines(unnamed, pricing);
+    const histogramModel = buildVerdictModel(baseInput(unnamed, { namedOutcomes: false }));
+    expect(histogramModel.chart.kind).toBe("histogram");
+    const digits = (text: string): string[] => text.match(/\d+/g) ?? [];
+    const [median, likely] = histogramModel.tiles;
+    expect(digits(lines.bold)).toEqual(digits(median!.value));
+    expect(digits(lines.small ?? "")).toEqual(digits(likely!.value));
+    // A cell shifted by finals prints the median form, never throws, and its drawer still builds.
+    const shifted = openCell("elim", sparse(CEILINGS.elim * 3, [[21, 50], [60, 50]]), CEILINGS.elim * 3, { shiftedByFinals: true });
+    const dcmp: DistrictCellPricing = { season: SEASON, tier: "dcmp", isRookie: false };
+    expect(openCellLines(shifted, dcmp).bold).toMatch(/^~\d+$/);
+    expect(() => buildVerdictModel(baseInput(shifted, { tier: "dcmp" }))).not.toThrow();
+  });
+});
+
+/** Every number a pays line prints, in order. A Playoffs best guess small line leads with its chance, `36% · `, which is not a pay. */
 function paysNumbers(small: string | undefined): number[] {
-  expect(small).toMatch(/^pays /);
-  return (small ?? "").match(/\d+/g)!.map(Number);
+  expect(small).toMatch(/^(\d+% · )?pays /);
+  return (small ?? "").replace(/^\d+% · /, "").match(/\d+/g)!.map(Number);
 }
 
 describe("the cell's pays line agrees with the drawer's outcome rows (261008-3il)", () => {
-  const elimCounts = sparse(CEILINGS.elim, [[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]);
-  const topFour = openCell("elim", elimCounts, CEILINGS.elim);
-  const finalist = openCell("elim", elimCounts, CEILINGS.elim, { playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 30 } });
-  const winner = openCell("elim", elimCounts, CEILINGS.elim, { playoffMilestone: { kind: "winner", chance: 0.15, conditionalMedian: 30 } });
+  // The Playoffs counts sit on EACH TIER'S OWN placement values: a cell priced at
+  // a tier whose values its mass does not sit on takes the median form, by design.
+  const elimFixtures = (tier: "district" | "dcmp") => {
+    const [first, second, third, fourth] = [1, 2, 3, 4].map((placement) => playoffPoints(SEASON, tier, placement)) as [number, number, number, number];
+    const ceiling = maxEventPoints(SEASON, tier).elim;
+    const counts = sparse(ceiling, [[0, 34], [fourth, 16], [third, 20], [second, 15], [first, 15]]);
+    return {
+      topFour: openCell("elim", counts, ceiling),
+      finalist: openCell("elim", counts, ceiling, { playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 30 } }),
+      winner: openCell("elim", counts, ceiling, { playoffMilestone: { kind: "winner", chance: 0.15, conditionalMedian: 30 } }),
+      fourth,
+      third,
+    };
+  };
 
   for (const tier of ["district", "dcmp"] as const) {
     it(`prints only drawer row points on every Playoffs fixture at the ${tier} tier`, () => {
       const pricing: DistrictCellPricing = { season: SEASON, tier, isRookie: false };
+      const { topFour, finalist, winner, fourth, third } = elimFixtures(tier);
       for (const cell of [topFour, finalist, winner]) {
         const drawer = verdictOutcomeRows(cell, SEASON, tier, false, true)!.rows.map((row) => row.points);
         for (const value of paysNumbers(openCellLines(cell, pricing).small)) expect(drawer).toContain(value);
       }
-      // The top four pays line spans the fourth place value to the winner's.
-      expect(paysNumbers(openCellLines(topFour, pricing).small)).toEqual([playoffPoints(SEASON, tier, 4), playoffPoints(SEASON, tier, 1)]);
+      // The best guess is 3rd or 4th here, and its pay is the fourth place value then the third's.
+      expect(paysNumbers(openCellLines(topFour, pricing).small)).toEqual([fourth, third]);
     });
   }
 

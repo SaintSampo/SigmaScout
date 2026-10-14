@@ -42,6 +42,7 @@ import { DistrictLedger } from "./DistrictLedger.js";
 import { buildDistrictLedgerRows, type DistrictEventDistributions } from "./districtLedgerRows.js";
 import { districtLockBounds } from "./districtLedgerStatus.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { playoffPoints } from "../../../../../packages/core/districts/bracket.js";
 import { TEAM_CELL_CLASS } from "./LedgerParts.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
@@ -72,6 +73,35 @@ import {
 
 /** The forbidden glyph, built from its CODEPOINT so this file never types the character itself. */
 const PLUS_MINUS = String.fromCharCode(0x00b1);
+
+/**
+ * Parses an open Playoffs cell's text content (the bold line then the small line,
+ * concatenated) as the best guess grammar (quick task 261014-i1c): `best guess`
+ * and a finish, an optional `at least <n> · ` prefix, a percent, ` · pays ` and
+ * the pay text. Checks that the pay text is the named finish's pay at the tab's
+ * tier, built from `playoffPoints`, and returns the parts.
+ */
+const PLAYOFF_FINISH_LABELS: Readonly<Record<string, string>> = {
+  "1st": "Wins the event",
+  "2nd": "Finalist",
+  "3rd or 4th": "Third or fourth place",
+  "5th to 8th": "Out before the top four",
+};
+function parseBestGuess(text: string, tier: "district" | "dcmp"): { finish: string; secured: number | undefined; chance: number } {
+  const match = /^best guess (1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
+  expect(match, text).not.toBeNull();
+  const [, finish, secured, chance, pays] = match!;
+  const at = (placement: number): number => playoffPoints(2026, tier, placement);
+  const expected: Readonly<Record<string, string>> = {
+    "1st": String(at(1)),
+    "2nd": String(at(2)),
+    "3rd or 4th": `${String(at(4))} or ${String(at(3))}`,
+    "5th to 8th": String(at(5)),
+  };
+  expect(pays, text).toBe(expected[finish!]);
+  expect(text).not.toContain("100%");
+  return { finish: finish!, secured: secured === undefined ? undefined : Number(secured), chance: Number(chance) };
+}
 const SEASON = 2026;
 const ALGORITHM_VERSION = "7.0.0+rolling";
 
@@ -670,10 +700,9 @@ describe("DistrictLedger — the full table", () => {
     const award = document.querySelector('[data-cell-id="2026walive:award"]')!;
     expect(award.getAttribute("data-cell")).toBe("open");
     expect(award.textContent ?? "").toMatch(/^\d+% award(pays 5 (or|to) 10)?$/);
-    // And on playoffs: the chance of finishing top four (fifth through eighth
-    // pay nothing), then what the top four pays, from the 2026 placement table
-    // (261008-3il).
-    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(/^\d+% top 4pays 7 to 30$/);
+    // And on playoffs: the best guess finish, then its chance and what that
+    // finish pays, from the 2026 placement table (261014-i1c).
+    parseBestGuess(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "", "district");
   });
 
   it("prints the event name, its week and its stage word in the Event cell", async () => {
@@ -1649,27 +1678,29 @@ describe("DistrictLedger — the drawer", () => {
     expect(within(drawer).getByTestId("district-hist-cutoff-label").textContent).toBe(`cutoff ${tile}`);
   });
 
-  it("draws NO grand total plot beside a category cell: the playoffs pane is its outcome list, headed by the likeliest outcome", async () => {
+  it("draws NO grand total plot beside a category cell: the playoffs pane is its outcome list, headed by the cell's best guess finish", async () => {
     await renderWithOpenCells();
+    // What the table cell prints, read before the drawer opens.
+    const guess = parseBestGuess(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "", "district");
     fireEvent.click(cellButton("2026walive:elim"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     const list = within(drawer).getByTestId("district-ledger-drawer-outcomes");
     expect(within(drawer).queryByTestId("district-ledger-drawer-grand-plot")).toBeNull();
     expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
 
-    // The likeliest PRINTED chance names the headline.
-    const rows = within(list)
+    // The list keeps every row separate: third and fourth are not grouped there.
+    const labels = within(list)
       .getAllByTestId("district-ledger-outcome-row")
-      .map((row) => {
-        const chance = row.querySelector(".district-ledger-verdict-outcomes__chance")?.textContent ?? "";
-        return { label: row.querySelector(".district-ledger-verdict-outcomes__label")?.textContent ?? "", printed: /^(\d+)%$/.exec(chance)?.[1] };
-      });
-    const top = Math.max(...rows.map((row) => Number(row.printed ?? 0)));
+      .map((row) => row.querySelector(".district-ledger-verdict-outcomes__label")?.textContent ?? "");
+    expect(labels).toContain("Third place");
+    expect(labels).toContain("Fourth place");
+
+    // The headline names the same finish the cell does, with the same chance.
     const match = /^(.+) in (\d+) of 100 runs\.$/.exec(verdictHeadline(drawer));
     expect(match, verdictHeadline(drawer)).not.toBeNull();
+    expect(match![1]).toBe(PLAYOFF_FINISH_LABELS[guess.finish]);
     // The headline is a run count and may read 100; a printed chance stops at 99 (261008-3il).
-    expect(Math.min(Number(match![2]), 99)).toBe(top);
-    expect(rows.filter((row) => Number(row.printed ?? 0) === top).map((row) => row.label)).toContain(match![1]);
+    expect(Math.min(Number(match![2]), 99)).toBe(guess.chance);
 
     expect(verdictTiles(drawer).map((tile) => tile.key)).toEqual(["mostLikely", "chanceOfPoints"]);
     expect(verdictTile(drawer, "mostLikely")).toBe(match![1]);
@@ -2382,21 +2413,24 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     });
   }
 
-  it("asks about the FINALIST for an alliance that has secured a top-four finish, and says at least what its wins have secured", async () => {
+  it("names a best guess of 1st, 2nd or 3rd or 4th for an alliance that has secured a top-four finish, and says at least what its wins have secured", async () => {
     await renderPlayoffs();
     // Alliance 1 has won sf1, which pays nothing, and sf7, which pays 13, with all three robots on the field for
     // both: 13 secured each (quick task 261012-mw2). The pays line after it is unchanged.
     for (const teamKey of allianceRoster(1)) {
-      expect(elimTextFor(teamKey), teamKey).toMatch(/^\d+% finalat least 13 · pays 20 or 30$/);
+      const guess = parseBestGuess(elimTextFor(teamKey), "district");
+      expect(guess.secured, teamKey).toBe(13);
+      // A secured top four never reads 5th to 8th.
+      expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
     }
   });
 
-  it("still asks about the TOP FOUR for an alliance that is alive but has not secured one", async () => {
+  it("still names a best guess, with no secured line, for an alliance that is alive but has not secured a top four finish", async () => {
     await renderPlayoffs();
     // Alliance 4 lost sf7 and drops to sf9, whose loser is fifth and pays
     // nothing, so nothing is secured.
     for (const teamKey of allianceRoster(4)) {
-      expect(elimTextFor(teamKey), teamKey).toMatch(/^\d+% top 4pays 7 to 30$/);
+      expect(parseBestGuess(elimTextFor(teamKey), "district").secured, teamKey).toBeUndefined();
     }
   });
 
@@ -2417,12 +2451,11 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     }
   });
 
-  it("gives a secured alliance NO mass below fourth place, so the headline and the histogram agree", async () => {
+  it("gives a secured alliance NO mass below fourth place, so the cell never names 5th to 8th and never reads 100%", async () => {
     await renderPlayoffs();
-    // The chance of a top-four finish is settled at 1 for alliance 1, which is
-    // exactly why the cell has stopped asking about it.
+    // A top four finish is settled for alliance 1, which rules 5th to 8th out.
     const text = elimTextFor(allianceRoster(1)[0]!);
-    expect(text).not.toContain("top 4");
+    expect(text).not.toContain("5th to 8th");
     expect(text).not.toContain("100%");
   });
 
@@ -2648,10 +2681,10 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     // each of their cells stays blue: a backup call can still pay it.
     expect(notPicked).toHaveLength(6);
     for (const cell of notPicked) expect(within(cell as HTMLElement).getByRole("button")).toBeDefined();
-    // Every other team still reads the top four form.
+    // Every other team still reads the best guess form.
     for (const cell of elimCells()) {
       if (notPicked.includes(cell)) continue;
-      expect(cell.textContent ?? "").toMatch(/^\d+% top 4pays 7 to 30$/);
+      parseBestGuess(cell.textContent ?? "", "district");
     }
   });
 
@@ -2883,7 +2916,7 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
       expect(textOf(allianceRoster(5)[2]!, "alliance")).toMatch(/^~\d+second pick, alliance 5$/);
     });
 
-    it("an alliance the bracket has decided shows its Playoffs cell settled grey, and an alliance still alive keeps its milestone", async () => {
+    it("an alliance the bracket has decided shows its Playoffs cell settled grey, and an alliance still alive names a best guess", async () => {
       await render();
       for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
         expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
@@ -2892,10 +2925,12 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
       for (const teamKey of allianceRoster(1)) {
         expect(kindOf(teamKey, "elim"), teamKey).toBe("open");
         // The 13 its sf7 win has secured (quick task 261012-mw2), read off the played rows: it needs no point on any row.
-        expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalat least 13 · pays 20 or 30$/);
+        const guess = parseBestGuess(textOf(teamKey, "elim"), "district");
+        expect(guess.secured, teamKey).toBe(13);
+        expect(["1st", "2nd", "3rd or 4th"], teamKey).toContain(guess.finish);
       }
       // Alliance 4 has won only sf2, which pays nothing: no secured line.
-      for (const teamKey of allianceRoster(4)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% top 4pays 7 to 30$/);
+      for (const teamKey of allianceRoster(4)) expect(parseBestGuess(textOf(teamKey, "elim"), "district").secured, teamKey).toBeUndefined();
     });
 
     it("the lock math reads Qualification, Alliance selection and Playoffs open for that event's rows", () => {
@@ -2930,7 +2965,7 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
         expect(kindOf(teamKey, "alliance"), teamKey).toBe("final");
         expect(textOf(teamKey, "alliance"), teamKey).toBe(String(alliancePointsOf(teamKey)));
       }
-      for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalat least 13 · pays 20 or 30$/);
+      for (const teamKey of allianceRoster(1)) expect(parseBestGuess(textOf(teamKey, "elim"), "district").secured, teamKey).toBe(13);
       for (const teamKey of allianceRoster(5)) expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
       // The request is the same one: the alliances and the played rows never
       // depended on whether TBA's alliance points had arrived.
@@ -3043,7 +3078,7 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
       const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
       expect(free, teamCellText(FREE)).not.toBeNull();
       expect(Number(free![1])).toBe(24 + 9 + alliancePointsOf(FREE) + 13);
-      expect(textOf(FREE, "elim")).toMatch(/^\d+% finalat least 13 · pays 20 or 30$/);
+      expect(parseBestGuess(textOf(FREE, "elim"), "district").secured).toBe(13);
       expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
       expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
 
