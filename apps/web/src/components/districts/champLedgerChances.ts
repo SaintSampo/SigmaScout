@@ -32,16 +32,13 @@ import type {
   AdvancementChanceTeam,
   AdvancementChanceWeightedTeam,
 } from "../../../../../packages/core/districts/advancementChance.js";
-import { awardBaseRate, awardPointsBucketIndex } from "../../../../../packages/core/districts/awardBaseRates.js";
 import {
-  DCMP_DRAWN_AWARD_TYPES,
   champCutoffTuning,
   dcmpAwardCountDistribution,
   hypotheticalDcmpPart,
   hypotheticalDcmpTable,
   normalizedFieldRanks,
   type ChampCutoffSetting,
-  type DcmpDrawnAwardType,
 } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
@@ -50,7 +47,8 @@ import {
   type DistrictAdvancementChanceRun,
   type DistrictLedgerChanceModel,
 } from "./districtLedgerChances.js";
-import { awardProfileOrZero, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
+import { dcmpAwardFinalAt, dcmpEligibilityAt } from "./dcmpAwardInputs.js";
+import type { DistrictStageFinality } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
 import {
   dcmpEventKeysFor,
@@ -448,31 +446,6 @@ export function champDcmpAwardsFinal(dcmpEventKeys: readonly string[], stageByEv
   return fieldProven && dcmpEventKeys.length > 0 && dcmpEventKeys.every((key) => stageByEvent.get(key)?.award ?? false);
 }
 
-/** Impact weights by the 10 point award cell, Engineering Inspiration and Rookie All Star by the 8 point one. */
-const DECORATION_POINTS: Readonly<Record<DcmpDrawnAwardType, number>> = { 0: 10, 9: 8, 10: 8 };
-
-/**
- * One team's weight for one DCMP award. ELIGIBILITY FIRST: Rookie All Star is
- * rookies only, Engineering Inspiration veterans only, Impact anyone. A team
- * with no award profile reads the ZERO profile (Jacob, 2026-09-27): a veteran
- * with no decorations, so it is ineligible for Rookie All Star, exactly as
- * before, and under `decoration` it weighs as the `none` bucket rather than 1.
- * `decoration` weights by the award base rate cell the award cell already
- * prices from, falling back to 1 for a season with no table.
- */
-function awardWeight(team: DistrictArtifact["teams"][number], awardType: DcmpDrawnAwardType, season: number, setting: ChampCutoffSetting): number {
-  const profile = awardProfileOrZero(team);
-  if (awardType === 10 && profile.rookieState !== "rookie") return 0;
-  if (awardType === 9 && profile.rookieState === "rookie") return 0;
-  if (setting.weighting === "uniform") return 1;
-  try {
-    const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
-    return rate.pmf[awardPointsBucketIndex(DECORATION_POINTS[awardType])!] ?? 0;
-  } catch {
-    return 1;
-  }
-}
-
 /**
  * The DCMP judged award draws for the champ run at one position (Impact,
  * Engineering Inspiration, Rookie All Star, in that order).
@@ -489,28 +462,18 @@ function awardWeight(team: DistrictArtifact["teams"][number], awardType: DcmpDra
  * - Each district event whose award stage is still open contributes one
  *   entrant per run from its own roster, which is public before the event.
  * - A DCMP tier award is NEVER a candidate.
+ *
+ * THE RULE ITSELF LIVES IN CORE since quick task 261014-i8i:
+ * `packages/core/districts/dcmpAwardEligibility.ts` decides the candidates and
+ * the pending events, and `dcmpEntrantWeight` there is the weight. The per
+ * event DCMP award slate reads the same helper, so the two cannot disagree.
  */
 export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): AdvancementChanceAwardDraw[] {
   const { artifact, stageByEvent } = options;
   const season = artifact.year;
   const setting = options.setting ?? champCutoffTuning(season).setting;
 
-  const nowAwardFinal = new Map<string, boolean>();
-  const districtEventKeys = new Set<string>();
-  const entrantsByEvent = new Map<string, DistrictArtifact["teams"][number][]>();
-  for (const team of artifact.teams) {
-    for (const tier of ["district", "dcmp"] as const) {
-      for (const entry of tierEvents(team, tier)) {
-        if (!nowAwardFinal.has(entry.eventKey)) nowAwardFinal.set(entry.eventKey, deriveStageFromState(entry.state).final.award);
-        if (tier !== "district") continue;
-        districtEventKeys.add(entry.eventKey);
-        const list = entrantsByEvent.get(entry.eventKey) ?? [];
-        list.push(team);
-        entrantsByEvent.set(entry.eventKey, list);
-      }
-    }
-  }
-  const awardFinal = (eventKey: string): boolean => stageByEvent?.get(eventKey)?.award ?? nowAwardFinal.get(eventKey) ?? false;
+  const awardFinal = dcmpAwardFinalAt(artifact, stageByEvent);
 
   // NONE once EVERY championship's awards are final (quick task 261006-lwo). A
   // district with two championships still gets one set of draws — the count
@@ -520,22 +483,15 @@ export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): Adva
   if (options.fieldProven !== false && dcmpEventKeys.length > 0 && dcmpEventKeys.every(awardFinal)) return [];
 
   const countWeights = dcmpAwardCountDistribution(season, artifact.districtKey, artifact.cmpSlots ?? 0, setting.countMode);
-  const pendingKeys = [...districtEventKeys].filter((eventKey) => !awardFinal(eventKey)).sort();
-
-  return DCMP_DRAWN_AWARD_TYPES.map((awardType) => {
-    const candidates: AdvancementChanceWeightedTeam[] = [];
-    for (const team of artifact.teams) {
-      const held = team.qualifyingAwards.some(
-        (award) => award.awardType === awardType && districtEventKeys.has(award.eventKey) && awardFinal(award.eventKey)
-      );
-      if (held) candidates.push({ teamKey: team.teamKey, weight: awardWeight(team, awardType, season, setting) });
-    }
-    const pendingEvents = pendingKeys.map((eventKey) => ({
-      eventKey,
-      entrants: (entrantsByEvent.get(eventKey) ?? []).map((team) => ({ teamKey: team.teamKey, weight: awardWeight(team, awardType, season, setting) })),
-    }));
-    return { awardType, countWeights: [...countWeights[awardType]], candidates, pendingEvents };
-  });
+  return dcmpEligibilityAt(artifact, stageByEvent, setting).map((entry) => ({
+    awardType: entry.awardType,
+    countWeights: [...countWeights[entry.awardType]],
+    candidates: entry.candidates.map((candidate): AdvancementChanceWeightedTeam => ({ teamKey: candidate.teamKey, weight: candidate.weight })),
+    pendingEvents: entry.pendingEvents.map((event) => ({
+      eventKey: event.eventKey,
+      entrants: event.entrants.map((entrant): AdvancementChanceWeightedTeam => ({ teamKey: entrant.teamKey, weight: entrant.weight })),
+    })),
+  }));
 }
 
 /** The TERMINAL refusal reasons, declared beside the cutoff arm that carries them. */

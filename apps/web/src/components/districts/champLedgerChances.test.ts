@@ -27,6 +27,20 @@ import { CHAMP_CUTOFF_TUNING_GRID } from "../../../../../packages/core/districts
 import type { DistrictLedgerStatusModel, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import type { DistrictEventDistributions, DistrictPointDistribution, DistrictStageFinality } from "./districtLedgerRows.js";
 
+import { awardBaseRate, awardPointsBucketIndex } from "../../../../../packages/core/districts/awardBaseRates.js";
+import { dcmpAwardEligibility, dcmpEntrantWeight } from "../../../../../packages/core/districts/dcmpAwardEligibility.js";
+import {
+  DCMP_DRAWN_AWARD_TYPES,
+  champCutoffTuning,
+  dcmpAwardCountDistribution,
+  type ChampCutoffSetting,
+  type DcmpDrawnAwardType,
+} from "../../../../../packages/core/districts/hypotheticalDcmp.js";
+import { dcmpEligibilityTeamsFromArtifact } from "../../../../../packages/harness/districtDcmpAwardInputs.js";
+import { dcmpEventKeysFor } from "./champLedgerRows.js";
+import { dcmpAwardFinalAt, dcmpEligibilityAt } from "./dcmpAwardInputs.js";
+import { awardProfileOrZero, deriveStageFromState, tierEvents } from "./districtLedgerRows.js";
+
 type DistrictTeam = DistrictArtifact["teams"][number];
 type EventPoints = DistrictTeam["eventPoints"][number];
 
@@ -794,5 +808,162 @@ describe("champRangeState — the simulated DCMP in place of the estimate", () =
     expect(champRangeState(inputs({ simulatedDcmp: "ready", perEventRunSignature: null })).kind).toBe("pending");
     expect(champRangeState(inputs({ simulatedDcmp: "pending", districtRun: { built: true, status: "error" } }))).toEqual({ kind: "noCall", reason: "workerError" });
     expect(champRangeState(inputs({ simulatedDcmp: "unavailable", dcmpAwardsFinal: true })).kind).toBe("settled");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildChampAwardDraws reads the ONE core eligibility helper (261014-i8i)
+// ---------------------------------------------------------------------------
+
+describe("buildChampAwardDraws over the core eligibility helper (quick task 261014-i8i)", () => {
+  /**
+   * buildChampAwardDraws as it stood BEFORE 261014-i8i moved the rule into
+   * core, copied verbatim apart from its name, so the refactor is pinned
+   * against the old body rather than against itself.
+   */
+  function preRefactorAwardDraws(options: {
+    artifact: DistrictArtifact;
+    stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
+    setting?: ChampCutoffSetting;
+    fieldProven?: boolean;
+  }) {
+    const DECORATION_POINTS: Readonly<Record<DcmpDrawnAwardType, number>> = { 0: 10, 9: 8, 10: 8 };
+    function awardWeight(entry: DistrictTeam, awardType: DcmpDrawnAwardType, season: number, setting: ChampCutoffSetting): number {
+      const profile = awardProfileOrZero(entry);
+      if (awardType === 10 && profile.rookieState !== "rookie") return 0;
+      if (awardType === 9 && profile.rookieState === "rookie") return 0;
+      if (setting.weighting === "uniform") return 1;
+      try {
+        const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
+        return rate.pmf[awardPointsBucketIndex(DECORATION_POINTS[awardType])!] ?? 0;
+      } catch {
+        return 1;
+      }
+    }
+    const { artifact, stageByEvent } = options;
+    const season = artifact.year;
+    const setting = options.setting ?? champCutoffTuning(season).setting;
+    const nowAwardFinal = new Map<string, boolean>();
+    const districtEventKeys = new Set<string>();
+    const entrantsByEvent = new Map<string, DistrictTeam[]>();
+    for (const entry of artifact.teams) {
+      for (const tier of ["district", "dcmp"] as const) {
+        for (const event of tierEvents(entry, tier)) {
+          if (!nowAwardFinal.has(event.eventKey)) nowAwardFinal.set(event.eventKey, deriveStageFromState(event.state).final.award);
+          if (tier !== "district") continue;
+          districtEventKeys.add(event.eventKey);
+          const list = entrantsByEvent.get(event.eventKey) ?? [];
+          list.push(entry);
+          entrantsByEvent.set(event.eventKey, list);
+        }
+      }
+    }
+    const awardFinal = (eventKey: string): boolean => stageByEvent?.get(eventKey)?.award ?? nowAwardFinal.get(eventKey) ?? false;
+    const dcmpEventKeys = dcmpEventKeysFor(artifact);
+    if (options.fieldProven !== false && dcmpEventKeys.length > 0 && dcmpEventKeys.every(awardFinal)) return [];
+    const countWeights = dcmpAwardCountDistribution(season, artifact.districtKey, artifact.cmpSlots ?? 0, setting.countMode);
+    const pendingKeys = [...districtEventKeys].filter((eventKey) => !awardFinal(eventKey)).sort();
+    return DCMP_DRAWN_AWARD_TYPES.map((awardType) => {
+      const candidates: { teamKey: string; weight: number }[] = [];
+      for (const entry of artifact.teams) {
+        const held = entry.qualifyingAwards.some(
+          (award) => award.awardType === awardType && districtEventKeys.has(award.eventKey) && awardFinal(award.eventKey)
+        );
+        if (held) candidates.push({ teamKey: entry.teamKey, weight: awardWeight(entry, awardType, season, setting) });
+      }
+      const pendingEvents = pendingKeys.map((eventKey) => ({
+        eventKey,
+        entrants: (entrantsByEvent.get(eventKey) ?? []).map((entry) => ({ teamKey: entry.teamKey, weight: awardWeight(entry, awardType, season, setting) })),
+      }));
+      return { awardType, countWeights: [...countWeights[awardType]], candidates, pendingEvents };
+    });
+  }
+
+  const OPEN_STATE = state({ awardsPosted: false, playoffsDone: false, alliancesPicked: false, qualMatchesPlayed: 0 });
+  function eligibilityArtifact(dcmpAwardsPosted: boolean): DistrictArtifact {
+    return artifactOf([
+      team({
+        teamKey: "frc1",
+        awardProfile: { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 6, priorImpactWins: 2 },
+        eventPoints: [
+          eventPoints({ eventKey: "2026wabon", week: 0 }),
+          eventPoints({ eventKey: "2026pncmp", week: 5, tier: "dcmp", state: state({ awardsPosted: dcmpAwardsPosted }) }),
+        ],
+        remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE }],
+        qualifyingAwards: [
+          { eventKey: "2026wabon", awardType: 0, label: "Impact", awardOnly: false },
+          { eventKey: "2026wabon", awardType: 9, label: "EI", awardOnly: false },
+          { eventKey: "2026pncmp", awardType: 9, label: "EI", awardOnly: false },
+        ],
+      }),
+      team({
+        teamKey: "frc2",
+        awardProfile: { bucket: "none", rookie: true },
+        eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })],
+        remainingEvents: [{ eventKey: "2026waaaa", eventName: "Aaa", week: 3, tier: "district", maxPoints: 83, state: OPEN_STATE }],
+        qualifyingAwards: [{ eventKey: "2026wabon", awardType: 10, label: "RAS", awardOnly: true }],
+      }),
+      team({
+        teamKey: "frc3",
+        awardProfile: { bucket: "oneOrTwo", rookie: false },
+        remainingEvents: [
+          { eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE },
+          { eventKey: "2026waaaa", eventName: "Aaa", week: 3, tier: "district", maxPoints: 83, state: OPEN_STATE },
+        ],
+      }),
+      team({
+        teamKey: "frc4",
+        remainingEvents: [{ eventKey: "2026waaaa", eventName: "Aaa", week: 3, tier: "district", maxPoints: 83, state: OPEN_STATE }],
+      }),
+    ]);
+  }
+
+  const settings: readonly (ChampCutoffSetting | undefined)[] = [undefined, ...CHAMP_CUTOFF_TUNING_GRID];
+  const stages: readonly (ReadonlyMap<string, DistrictStageFinality> | undefined)[] = [
+    undefined,
+    new Map<string, DistrictStageFinality>([
+      ["2026wabon", { ...ALL_FINAL, award: false }],
+      ["2026pncmp", ALL_OPEN],
+      ["2026wasno", ALL_FINAL],
+    ]),
+  ];
+
+  it("returns deep equal output to the pre refactor body on every fixture, setting and stage", () => {
+    const artifacts = [eligibilityArtifact(false), eligibilityArtifact(true)];
+    let compared = 0;
+    for (const artifact of artifacts) {
+      for (const setting of settings) {
+        for (const stageByEvent of stages) {
+          for (const fieldProven of [undefined, true, false]) {
+            const options = {
+              artifact,
+              ...(stageByEvent === undefined ? {} : { stageByEvent }),
+              ...(setting === undefined ? {} : { setting }),
+              ...(fieldProven === undefined ? {} : { fieldProven }),
+            };
+            expect(buildChampAwardDraws(options)).toEqual(preRefactorAwardDraws(options));
+            compared++;
+          }
+        }
+      }
+    }
+    expect(compared).toBe(2 * settings.length * stages.length * 3);
+  });
+
+  it("hands the champ draws exactly the candidates and pending events dcmpAwardEligibility returns for the same artifact and stage", () => {
+    const artifact = eligibilityArtifact(false);
+    const byKey = new Map(artifact.teams.map((entry) => [entry.teamKey, entry] as const));
+    for (const setting of CHAMP_CUTOFF_TUNING_GRID) {
+      for (const stageByEvent of stages) {
+        const core = dcmpAwardEligibility({
+          teams: dcmpEligibilityTeamsFromArtifact(artifact, awardProfileOrZero),
+          awardFinal: dcmpAwardFinalAt(artifact, stageByEvent),
+          weight: (entry, awardType) => dcmpEntrantWeight(awardProfileOrZero(byKey.get(entry.teamKey)), awardType, artifact.year, setting.weighting),
+        });
+        expect(dcmpEligibilityAt(artifact, stageByEvent, setting)).toEqual(core);
+        const draws = buildChampAwardDraws({ artifact, ...(stageByEvent === undefined ? {} : { stageByEvent }), setting });
+        expect(draws.map((draw) => ({ awardType: draw.awardType, candidates: draw.candidates, pendingEvents: draw.pendingEvents }))).toEqual(core);
+      }
+    }
   });
 });
