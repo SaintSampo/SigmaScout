@@ -33,6 +33,7 @@ import {
   DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX,
   DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS,
   DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS,
+  DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_FLOOR,
   DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS,
   DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL,
   districtLedgerOutcomeRunCount,
@@ -391,7 +392,16 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
     expect(lines.small).not.toContain("pays");
     expect(lines.small).not.toContain("~");
     expect(lines.small).not.toMatch(/[-\u2013\u2014]/);
-    expect(districtLedgerPlayoffBestGuessLines({ id: "notPicked", chance: 1, pay: { kind: "values", values: [0] } }).small).toBe("0% on an alliance");
+    expect(districtLedgerPlayoffBestGuessLines({ id: "notPicked", chance: 1, pay: { kind: "values", values: [0] } }).small).toBe("<1% on an alliance");
+  });
+
+  it("never prints a flat 0% on an alliance: a share that rounds to 100 of 100 not picked floors at <1% (Jacob, 2026-10-14)", () => {
+    const small = (chance: number) => districtLedgerPlayoffBestGuessLines({ id: "notPicked", chance, pay: { kind: "values", values: [0] } }).small;
+    expect(DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_FLOOR).toBe("<1%");
+    expect(small(0.996)).toBe("<1% on an alliance");
+    expect(small(0.995)).toBe("<1% on an alliance");
+    expect(small(0.99)).toBe("1% on an alliance");
+    expect(small(0.51)).toBe("49% on an alliance");
   });
 
   it("prints the on an alliance percent as 100 minus the headline run count, so the two never add to 101", () => {

@@ -687,6 +687,9 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS: Readonly<Record<DistrictPlayo
  */
 export const DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS = "on an alliance";
 
+/** What that chance prints where it rounds to zero: a real draft can still surprise, so the line never says a flat 0%. */
+export const DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_FLOOR = "<1%";
+
 /**
  * A chance as the whole number of runs out of 100 that the drawer headline
  * prints. One expression, so the cell's small line and the headline can never
@@ -708,12 +711,20 @@ export function districtLedgerOutcomeRunCount(chance: number): number {
  * on any alliance, printed as 100 minus the headline's not picked run count
  * (through `districtLedgerCellChance`), so `97 of 100` never sits beside a
  * mismatched percent and the figure never reads 100%.
+ *
+ * IT NEVER READS 0% EITHER: a figure that rounds to zero prints `<1%`. Once
+ * qualification is over the simulated draft is the same in every run, so a team
+ * it leaves out would read 0%, yet real captains do not pick by rating alone
+ * (2026 UNC Asheville: 6932 read 0% at Quals done and was picked). Jacob,
+ * 2026-10-14: floor it, the same idea as never printing 100%.
  */
 export function districtLedgerPlayoffBestGuessLines(guess: DistrictPlayoffBestGuess): { bold: string; small: string } {
   if (guess.id === "notPicked") {
+    const onAlliance = 100 - districtLedgerOutcomeRunCount(guess.chance);
+    const figure = onAlliance < 1 ? DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_FLOOR : districtLedgerCellChance(onAlliance / 100);
     return {
       bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX}${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS.notPicked}`,
-      small: `${districtLedgerCellChance((100 - districtLedgerOutcomeRunCount(guess.chance)) / 100)} ${DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS}`,
+      small: `${figure} ${DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS}`,
     };
   }
   return {

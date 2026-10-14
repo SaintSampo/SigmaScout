@@ -317,7 +317,7 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
     expect(lines(SIX_9_3_2, DISTRICT_2026)).toEqual({ bold: "~not picked", small: "3% on an alliance" });
     expect(lines(playoffWith({ 0: 99, 21: 1 }, 97, 90), DCMP_2026)).toEqual({ bold: "~not picked", small: "3% on an alliance" });
     // Every run left the team off: the selection is still open, so the cell is not flagged, and it reads 0% rather than 100%.
-    expect(lines(playoffWith({ 0: 100 }, 100), DISTRICT_2026)).toEqual({ bold: "~not picked", small: "0% on an alliance" });
+    expect(lines(playoffWith({ 0: 100 }, 100), DISTRICT_2026)).toEqual({ bold: "~not picked", small: "<1% on an alliance" });
   });
 
   it("keeps 5th to 8th where not picked is not past half, even when it is the single largest outcome", () => {
