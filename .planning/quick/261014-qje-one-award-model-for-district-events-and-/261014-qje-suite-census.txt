@@ -1,0 +1,25 @@
+261014-qje Task 2 suite census (npx vitest run, repo root)
+
+BASELINE at HEAD c1aa0531 (before any change):
+ Test Files  2 failed | 375 passed (377)
+      Tests  2 failed | 9569 passed | 1 skipped (9572)
+ FAIL web  src/components/districts/DistrictLedger.test.tsx > posts the advancement chance to a SECOND Worker, once, and terminates it too (load flake; passes alone)
+ FAIL node scripts/measureDistrictAwardBaseRates.test.ts > re-measures every registered season ... (30 s timeout under load; file deleted by this task)
+
+AFTER (complete change, Task 1 ported plus Task 2):
+ Test Files  2 failed | 374 passed (376)
+      Tests  2 failed | 9535 passed | 1 skipped (9538)
+ (376 = 377 - 3 deleted test files + 2 new ones)
+
+OUTSIDE VALUES (pinned numbers that moved only because award draws now price from the slate; NOT edited, both passed in the baseline):
+ scripts/measureDistrictCutoff.test.ts > backtestDistrict on the committed 2026 PNW fixture, on the as-of path > prints each line inside its own likely range, at the seeded values
+   SEEDED_SIMULATED [62, 62, 62, 60] -> [64, 63, 63, 61]
+   SEEDED_MIDPOINT  [59, 57, 56, 56] -> [61, 59, 58, 57]
+   (new p10 [62, 61, 61, 58], p90 [67, 65, 66, 62]; openEvents, generatedEvents, realEvents unchanged)
+ apps/web/src/components/districts/LedgerParts.test.tsx > the least a total may print, over the local 2026 PNW fixture on both tabs > without the least a low end prints below the earned figure 154 times and a median 110 times on each tab ...
+   medianBelow 110 -> 100 on all four tallies (district grand, district event, champ district row, champ grand)
+   teamMedian below 110 -> 100 (district and champ)
+   unchanged: checked 1512, lowBelow 154, moved 154, held 0, stops 48, champFloors 6048
+   (the test name and its comment also quote 110)
+
+Earlier full run (before four fixture fixes) also showed DistrictLedger.test.tsx failures ("SECOND Worker", "is shareable", "not picked over backup"); the file passes 104 of 104 alone and in the final full run: load flakes.
