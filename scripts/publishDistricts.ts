@@ -149,7 +149,7 @@ import {
   type CorpusDistrictRanking,
   type CorpusEventAward,
 } from "../packages/corpus/db.js";
-import { DISTRICT_REGISTERED_SEASONS, maxEventPoints, type DistrictTier } from "../packages/core/districts/pointModel.js";
+import { maxEventPoints, type DistrictTier } from "../packages/core/districts/pointModel.js";
 import { type AwardTier } from "../packages/core/districts/qualification.js";
 import { awardsPostedRule, isJudgedAwardType, qualifyingAwardRecord } from "../packages/core/districts/eventAwards.js";
 import { bakeDistrictEvent, DISTRICT_BAKE_DRAWS_PER_SCHEDULE, DISTRICT_BAKE_SCHEDULE_COUNT } from "../packages/harness/districtBake.js";
@@ -184,7 +184,6 @@ import {
   DISTRICTS_INDEX_MAX_BYTES,
 } from "../packages/harness/publishBudget.js";
 import { getObjectIfExists, putObject } from "../packages/harness/r2Client.js";
-import { roundPmf } from "../packages/harness/rounding.js";
 import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
 import { guardLivePublish, type PublishedReader } from "./districtPublishGuard.js";
 import { carryPublishedIndex, checkLiveDistricts, checkLiveEvidence, seasonUploadPlan, type RunDistrict } from "./districtLiveGuard.js";
@@ -194,33 +193,27 @@ import {
   resolveDistrictPricingAlgorithm,
   underwayEventKeysAsOf,
 } from "./districtPricingState.js";
-import {
-  awardBaseRate,
-  AWARD_POINT_SUPPORT,
-  DECORATION_BUCKETS,
-  decorationBucket,
-  DISTRICT_AWARD_BASE_RATE_SEASONS,
-  rookieStateFor,
-  type AwardBaseRateSource,
-  type DecorationBucket,
-} from "../packages/core/districts/awardBaseRates.js";
-import {
-  awardOrderingTables,
-  awardResidualRate,
-  AWARD_ORDERING_SEASONS,
-  hasAwardOrderingTables,
-  MAX_IMPACT_POSITION,
-  MAX_ROOKIE_ALL_STAR_POSITION,
-  impactOrderingProbability,
-  rookieAllStarOrderingProbability,
-} from "../packages/core/districts/awardOrderingTables.js";
+import { decorationBucket, rookieStateFor, type DecorationBucket } from "../packages/core/districts/awardBaseRates.js";
 import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
 import { buildDcmpAwardSlate, UnknownDcmpAwardSlateSeasonError, type DcmpAwardSlateInput } from "../packages/core/districts/dcmpAwardSlate.js";
-import { dcmpAwardEligibility, dcmpEntrantWeight } from "../packages/core/districts/dcmpAwardEligibility.js";
+import {
+  buildDistrictAwardSlate,
+  DISTRICT_AWARD_MODEL_VERSION,
+  districtAwardEligibility,
+  hasAwardSlateTables,
+  type AwardSlateInput,
+} from "../packages/core/districts/awardSlate.js";
+import { dcmpAwardEligibility } from "../packages/core/districts/dcmpAwardEligibility.js";
 import { champCutoffTuning } from "../packages/core/districts/hypotheticalDcmp.js";
-import { dcmpEligibilityTeamsFromArtifact } from "../packages/harness/districtDcmpAwardInputs.js";
-import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND, priorImpactWinCount } from "./measureAwardOrderingTables.js";
-import { loadAwardInstances, loadRookieYears, MEASURED_COMMAND, priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
+import { dcmpEligibilityTeamsFromArtifact, districtEventWeeksFromArtifact } from "../packages/harness/districtDcmpAwardInputs.js";
+import {
+  loadAwardInstances,
+  loadRookieYears,
+  MIN_PRIOR_DISTRICT_SEASONS,
+  priorDecorationCount,
+  priorImpactWinCount,
+  type AwardInstance,
+} from "./measureAwardSlate.js";
 import { selectCorpusSeasons } from "../packages/corpus/db.js";
 
 const DEFAULT_BUCKET = "sigmascout-artifacts";
@@ -421,10 +414,6 @@ export interface ComposeDistrictArtifactOptions {
   /** `eventKey -> award recipients at that event`, scoped to `events` above (`selectEventAwardsForEvents`'s own shape). An event with no upserted awards (including every event, before the orchestrator's real awards ingest runs) is simply absent from this map — `buildDistrictArtifact` treats that identically to an empty array. */
   readonly awards: ReadonlyMap<string, readonly CorpusEventAward[]>;
   readonly teamMeta: ReadonlyMap<string, { teamNumber: number; nickname: string | null }>;
-  /** The season's six-cell award base-rate table, once per artifact. Absent for an unregistered season or an empty prior award corpus. */
-  readonly awardBaseRates?: DistrictArtifact["awardBaseRates"];
-  /** The season's ordering tables and the residual they are layered on, once per artifact. Absent for a season with no measured table. */
-  readonly awardOrderingTables?: DistrictArtifact["awardOrderingTables"];
   /** Team key -> the SAME profile object the bake was handed, mapped to the wire vocabulary at emission. A team absent here publishes no `awardProfile`. */
   readonly awardProfiles?: ReadonlyMap<string, DistrictAwardProfile>;
 }
@@ -566,6 +555,11 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     };
   });
 
+  // THE AWARD MODEL STAMP (quick task 261014-qje, Q-13): written exactly when
+  // any team carries a profile, so a reader can tell 2.0.0 decoration counts
+  // from an older artifact's per team model counts.
+  const carriesAwardProfile = teams.some((team) => team.awardProfile !== undefined);
+
   const seeded = DistrictArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation,
@@ -577,8 +571,6 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     dcmpSlots: district.dcmpSlots,
     cmpSlots: district.cmpSlots,
     teams,
-    ...(options.awardBaseRates === undefined ? {} : { awardBaseRates: options.awardBaseRates }),
-    ...(options.awardOrderingTables === undefined ? {} : { awardOrderingTables: options.awardOrderingTables }),
     insights: {
       teamCount: rankings.length,
       // `eventCount` is the ONE insights field the shared pass carries forward
@@ -592,6 +584,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
       champLockedCount: 0,
       champEliminatedCount: 0,
     },
+    ...(carriesAwardProfile ? { awardModelVersion: DISTRICT_AWARD_MODEL_VERSION } : {}),
   });
 
   // ONE verdict pass, two callers: 10-05's Worker is the other. Both lock
@@ -662,8 +655,8 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
   const districts = selectDistrictsForYear(db, season);
   const detailArtifacts: ComposedDistrict[] = [];
   const indexRows: DistrictsIndexInputRow[] = [];
-  // ONE award context per season: one prior-instance index, one table, one
-  // per-team derivation, shared by every district AND by the bake.
+  // ONE award context per season: one prior-instance index and one per-team
+  // derivation, shared by every district AND by the bake.
   const awardContext = buildSeasonAwardContext(db, season);
   let profiled = 0;
   let unprofiled = 0;
@@ -700,8 +693,6 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
       registrations,
       awards,
       teamMeta,
-      ...(awardContext.baseRates === undefined ? {} : { awardBaseRates: awardContext.baseRates }),
-      ...(awardContext.orderingTables === undefined ? {} : { awardOrderingTables: awardContext.orderingTables }),
       awardProfiles: awardProfiles.profiles,
     });
 
@@ -736,11 +727,11 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
     indexRows.push({ district, teamCount: rankings.length, eventCount: events.length });
   }
 
-  if (awardContext.baseRates !== undefined) {
+  if (awardContext.publishesProfiles) {
     // 10-08 quotes these numbers on the methodology page, and a number living
     // only in a transcript traces to nothing.
     console.log(
-      `publishDistricts: season ${season} award profiles — ${profiled} team(s) profiled, ${unprofiled} without one (no TBA rookie_year); source rungs: ${[...awardContext.sources.entries()].map(([cell, rung]) => `${cell}=${rung}`).join(", ")}`
+      `publishDistricts: season ${season} award profiles — ${profiled} team(s) profiled, ${unprofiled} without one (no TBA rookie_year); decoration count priorDecorationCount (quick task 261014-qje, Q-09)`
     );
   }
 
@@ -1015,79 +1006,50 @@ const WIRE_BUCKET: Readonly<Record<DecorationBucket, DistrictAwardBucket>> = {
   "three-or-more": "threeOrMore",
 };
 
-/** The dense point axis `DistrictPointPmfSchema` speaks, spanning 10-02's six-bin award support. */
-const AWARD_POINT_AXIS_LENGTH = AWARD_POINT_SUPPORT[AWARD_POINT_SUPPORT.length - 1]! + 1;
-
-/**
- * 10-02's six-BIN award pmf onto 10-03's dense POINT axis.
- *
- * The two are not the same shape and must not be confused: the module's array
- * is indexed by a position in `AWARD_POINT_SUPPORT` (`[0, 5, 8, 10, 13, 15]`),
- * while the wire's `p[i]` is the probability of exactly `o + i` POINTS. `o`
- * stays 0 — the schema refines on it, so the chance of NO award points is
- * addressable at index 0 — and trailing exact zeros are trimmed, which the
- * offset refinement permits and which costs a reader nothing.
- */
-function awardPmfOnPointAxis(binned: readonly number[]): { o: number; p: number[] } {
-  const dense = new Array<number>(AWARD_POINT_AXIS_LENGTH).fill(0);
-  for (let bin = 0; bin < AWARD_POINT_SUPPORT.length; bin++) {
-    dense[AWARD_POINT_SUPPORT[bin]!] = (dense[AWARD_POINT_SUPPORT[bin]!] ?? 0) + (binned[bin] ?? 0);
-  }
-  const rounded = roundPmf(dense);
-  let last = rounded.length - 1;
-  while (last > 0 && rounded[last] === 0) last--;
-  return { o: 0, p: rounded.slice(0, last + 1) };
-}
-
-/**
- * The last season whose observations could have fed `season`'s table.
- *
- * NOT `season - 1`. 2021 has no district season at all — the corpus carries
- * 2016-2020 and 2022-2026 — so a naive minus-one would publish a
- * `measuredThroughSeason` naming a season that contributed nothing. The answer
- * is the greatest REGISTERED district season strictly below the published one.
- */
-export function measuredThroughSeasonFor(season: number): number | undefined {
-  const prior = DISTRICT_REGISTERED_SEASONS.filter((s) => s < season);
-  return prior.length === 0 ? undefined : prior[prior.length - 1];
-}
-
 /** Everything one season's award publication needs, derived ONCE and shared by the wire and the bake. */
 export interface SeasonAwardContext {
   readonly season: number;
-  /** How many prior-season award instances the buckets rest on. Zero means `event_awards_all` is not ingested for any prior season. */
+  /** How many prior-season award instances the counts rest on. Zero means `event_awards_all` is not ingested for any prior season. */
   readonly priorInstanceCount: number;
-  /** The six-cell published table, or `undefined` for an unregistered season or an empty prior corpus. */
-  readonly baseRates: DistrictArtifact["awardBaseRates"];
-  /** The published ordering tables, or `undefined` whenever `baseRates` is — the two travel together or not at all. */
-  readonly orderingTables: DistrictArtifact["awardOrderingTables"];
-  /** Which fallback rung each published cell landed on, keyed `${wireBucket}|${rookie}`. */
-  readonly sources: ReadonlyMap<string, AwardBaseRateSource>;
+  /** How many award seasons (seasons with at least one award row) the corpus holds before this one. */
+  readonly priorAwardSeasons: number;
+  /**
+   * Whether this season publishes award profiles (quick task 261014-qje,
+   * Q-12): at least `MIN_PRIOR_DISTRICT_SEASONS` award seasons before it, so
+   * its earlier award rows are not empty either. 2019 on, the same set as
+   * before. No award base rate or ordering block is published any more.
+   */
+  readonly publishesProfiles: boolean;
   /** Derives (and memoizes) the profiles for a set of team keys. */
   profilesFor(teamKeys: readonly string[]): SeasonAwardProfiles;
 }
 
 /**
- * Builds one season's award context: the six-cell table and the per-team
- * profile derivation, from ONE prior-instance index.
+ * Builds one season's award context: the per-team profile derivation, from
+ * ONE prior-instance index.
  *
- * THE UNREGISTERED SEASON IS PRE-CHECKED, NEVER CAUGHT. `awardBaseRate` throws
- * `UnknownAwardBaseRateSeasonError` for a season with no table; control flow
- * through a typed error is not control flow, so the season is tested against
- * `DISTRICT_AWARD_BASE_RATE_SEASONS` first and the lookup is simply not called.
+ * THE DECORATION COUNT (quick task 261014-qje, Q-09). A team's published
+ * `priorJudgedAwards` is `priorDecorationCount`: distinct wins of the point
+ * paying team award types over EVERY award season before this one, the same
+ * helper the award slate's class lifts were measured with. `priorImpactWins`
+ * is `priorImpactWinCount`, likewise shared.
  *
- * THE EMPTY-PRIOR GUARD. `event_awards_all` is gitignored and a fresh checkout
- * has none (RESEARCH Assumption A5). With no prior award rows every team's
- * prior judged-award count is zero and every team lands in the `none` bucket —
- * a plausible-looking WRONG answer. The context then publishes NO table and NO
- * profile, and the bake skips the season for the same reason.
+ * THE SEASON RULE (Q-12). A season with fewer than `MIN_PRIOR_DISTRICT_SEASONS`
+ * award seasons before it in the corpus publishes NO profile: in 2016 every
+ * team would read none, a plausible-looking WRONG answer. That also covers the
+ * EMPTY-PRIOR GUARD: `event_awards_all` is gitignored and a fresh checkout has
+ * none, so no season publishes a profile there and the bake skips the season
+ * for the same reason.
  */
 export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAwardContext {
   const priorSeasons = selectCorpusSeasons(db).filter((s) => s < season);
   const instancesByTeam = new Map<string, AwardInstance[]>();
   let priorInstanceCount = 0;
+  let priorAwardSeasons = 0;
   for (const priorSeason of priorSeasons) {
-    for (const instance of loadAwardInstances(db, priorSeason)) {
+    const instances = loadAwardInstances(db, priorSeason);
+    if (instances.length > 0) priorAwardSeasons++;
+    for (const instance of instances) {
       priorInstanceCount++;
       if (instance.teamKey === null) continue;
       const list = instancesByTeam.get(instance.teamKey);
@@ -1099,119 +1061,26 @@ export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAward
   const rookieYears = loadRookieYears(db);
   const memo = new Map<string, DistrictAwardProfile>();
 
-  const registered = DISTRICT_AWARD_BASE_RATE_SEASONS.includes(season);
-  const measuredThroughSeason = measuredThroughSeasonFor(season);
-  const sources = new Map<string, AwardBaseRateSource>();
-  let baseRates: DistrictArtifact["awardBaseRates"];
-  if (!registered) {
+  const publishesProfiles = priorAwardSeasons >= MIN_PRIOR_DISTRICT_SEASONS;
+  if (priorInstanceCount === 0) {
     console.log(
-      `publishDistricts: season ${season} has no registered district award base-rate table (registered: ${DISTRICT_AWARD_BASE_RATE_SEASONS.join(", ")}) — publishing no award block and no team award profile`
+      `publishDistricts: season ${season} — the prior-season award corpus is EMPTY, so every team would land in the "none" bucket. Publishing no team award profile; run \`pnpm ingest:awards-all\` first (RESEARCH Assumption A5).`
     );
-  } else if (priorInstanceCount === 0) {
+  } else if (!publishesProfiles) {
     console.log(
-      `publishDistricts: season ${season} — the prior-season award corpus is EMPTY, so every team would land in the "none" bucket. Publishing no award block and no team award profile; run \`pnpm ingest:awards-all\` first (RESEARCH Assumption A5).`
-    );
-  } else if (measuredThroughSeason === undefined) {
-    console.log(`publishDistricts: season ${season} has no registered district season before it — publishing no award block`);
-  } else {
-    const rows: NonNullable<DistrictArtifact["awardBaseRates"]>["rows"] = [];
-    const cells: string[] = [];
-    for (const bucket of DECORATION_BUCKETS) {
-      for (const rookieState of ["rookie", "veteran"] as const) {
-        const rate = awardBaseRate(season, bucket, rookieState);
-        const wireBucket = WIRE_BUCKET[bucket];
-        sources.set(`${wireBucket}|${String(rookieState === "rookie")}`, rate.source);
-        rows.push({ bucket: wireBucket, rookie: rookieState === "rookie", n: rate.n, points: awardPmfOnPointAxis(rate.pmf) });
-        cells.push(`${wireBucket}/${rookieState}: n=${rate.n} source=${rate.source}`);
-      }
-    }
-    // An `unknown` cell the module registered is logged as MEASURED AND NOT
-    // PUBLISHED rather than dropped invisibly: 10-03's wire field is a boolean
-    // and Fact 4 measured that state as empty in the district population.
-    for (const bucket of DECORATION_BUCKETS) {
-      const unknownCell = awardBaseRate(season, bucket, "unknown");
-      if (unknownCell.source === "cell") {
-        console.log(
-          `publishDistricts: season ${season} — the module registers an "unknown" rookie-state cell for bucket "${bucket}" (n=${unknownCell.n}); it is measured and NOT published, because the wire field is a boolean`
-        );
-      }
-    }
-    baseRates = { season, measuredThroughSeason, script: MEASURED_COMMAND, rows };
-    console.log(
-      `publishDistricts: season ${season} award census — measured through ${measuredThroughSeason}, script "${MEASURED_COMMAND}"; cells: ${cells.join("; ")}`
+      `publishDistricts: season ${season} has ${priorAwardSeasons} award season(s) before it in the corpus, fewer than ${MIN_PRIOR_DISTRICT_SEASONS} — publishing no team award profile (quick task 261014-qje, Q-12)`
     );
   }
-
-  // THE ORDERING TABLES TRAVEL WITH THE BASE RATES OR NOT AT ALL. Publishing
-  // one without the other would leave a reader holding a residual it cannot
-  // fall back from, or an ordering it cannot subtract. The module registers
-  // exactly the same season set (`awardOrderingTables.test.ts` asserts that by
-  // equality), so this guard fires only if that ever stops being true.
-  let orderingTables: DistrictArtifact["awardOrderingTables"];
-  if (baseRates !== undefined && measuredThroughSeason !== undefined) {
-    if (!hasAwardOrderingTables(season)) {
-      console.log(
-        `publishDistricts: season ${season} has a base-rate table but NO ordering table (ordering seasons: ${AWARD_ORDERING_SEASONS.join(", ")}) — publishing the base rates alone, so the ledger keeps the base-rate path`
-      );
-    } else {
-      const tables = awardOrderingTables(season);
-      const impact: NonNullable<DistrictArtifact["awardOrderingTables"]>["impact"] = [];
-      for (let position = 1; position <= MAX_IMPACT_POSITION; position++) {
-        // A position the measurement could not score is ABSENT from the wire,
-        // exactly as it is `null` in the module. The reader's own fallback
-        // takes it to the tail, and shipping a zero would be a fabricated
-        // probability wearing a position's name.
-        if (tables.impact[position - 1] === null) continue;
-        const rate = impactOrderingProbability(season, position);
-        impact.push({ position, n: rate.n, p: rate.p });
-      }
-      const rookieAllStar: NonNullable<DistrictArtifact["awardOrderingTables"]>["rookieAllStar"] = [];
-      for (let position = 1; position <= MAX_ROOKIE_ALL_STAR_POSITION; position++) {
-        if (tables.rookieAllStar[position - 1] === null) continue;
-        const rate = rookieAllStarOrderingProbability(season, position);
-        rookieAllStar.push({ position, n: rate.n, p: rate.p });
-      }
-      const residual: NonNullable<DistrictArtifact["awardOrderingTables"]>["residual"] = [];
-      for (const bucket of DECORATION_BUCKETS) {
-        for (const rookieState of ["rookie", "veteran"] as const) {
-          const rate = awardResidualRate(season, bucket, rookieState);
-          residual.push({
-            bucket: WIRE_BUCKET[bucket],
-            rookie: rookieState === "rookie",
-            n: rate.n,
-            points: awardPmfOnPointAxis(rate.pmf),
-          });
-        }
-      }
-      orderingTables = {
-        season,
-        measuredThroughSeason,
-        script: ORDERING_MEASURED_COMMAND,
-        impact,
-        impactTail: tables.impactTail,
-        rookieAllStar,
-        rookieAllStarTail: tables.rookieAllStarTail,
-        residual,
-      };
-      console.log(
-        `publishDistricts: season ${season} award ordering — Impact position 1 ${(impact[0]?.p ?? 0).toFixed(4)} on n=${impact[0]?.n ?? 0}, tail ${tables.impactTail.p.toFixed(4)} on n=${tables.impactTail.n}; ` +
-          `Rookie All Star position 1 ${(rookieAllStar[0]?.p ?? 0).toFixed(4)} on n=${rookieAllStar[0]?.n ?? 0}; script "${ORDERING_MEASURED_COMMAND}"`
-      );
-    }
-  }
-
-  const publishAwards = baseRates !== undefined;
 
   return {
     season,
     priorInstanceCount,
-    baseRates,
-    orderingTables,
-    sources,
+    priorAwardSeasons,
+    publishesProfiles,
     profilesFor(teamKeys) {
       const profiles = new Map<string, DistrictAwardProfile>();
       const unknownRookieYear: string[] = [];
-      if (!publishAwards) return { profiles, unknownRookieYear: [], priorInstanceCount };
+      if (!publishesProfiles) return { profiles, unknownRookieYear: [], priorInstanceCount };
       for (const teamKey of new Set(teamKeys)) {
         const memoized = memo.get(teamKey);
         if (memoized !== undefined) {
@@ -1223,13 +1092,9 @@ export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAward
           unknownRookieYear.push(teamKey);
           continue;
         }
-        // ONE derivation of the count, shared by the bucket and by the
-        // ordering key. Deriving them separately is how a published bucket and
-        // a published ordering position come to describe different teams.
-        const priorJudgedAwards = priorJudgedAwardCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
-        // The Impact ordering's first key (260929-imp), counted by the SAME
-        // helper the measurement script built the Impact tables with: distinct
-        // (year, event) Impact wins, seasons strictly before this one.
+        // ONE derivation of each count, shared by the bucket and by the
+        // slate's class keys, from the SAME helpers the measurement used.
+        const priorJudgedAwards = priorDecorationCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
         const priorImpactWins = priorImpactWinCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
         const bucket = decorationBucket(priorJudgedAwards);
         const profile: DistrictAwardProfile = { bucket, rookieState, priorJudgedAwards, priorImpactWins };
@@ -1504,17 +1369,17 @@ function bakeSeason(
   // Refuse rather than publish it.
   const rosterTeamKeys = [...new Set(candidates.flatMap((candidate) => [...candidate.roster]))];
   const awardProfiles = options.awardProfilesFor?.(season, rosterTeamKeys) ?? year.awardContext.profilesFor(rosterTeamKeys);
-  if (year.awardContext.baseRates === undefined) {
+  if (!year.awardContext.publishesProfiles) {
     // NO PROFILES MEANS NO BAKE, and the reason has to be stated rather than
     // worked around: an event total is the SUM of four categories, so omitting
     // the award draw would publish a total that is wrong in a direction nobody
     // could see. The season's own omission was already logged by
-    // `buildSeasonAwardContext` with its cause — an unregistered season, or an
-    // empty prior award corpus (`pnpm ingest:awards-all`, RESEARCH A5).
+    // `buildSeasonAwardContext` with its cause: too few award seasons before
+    // it, or an empty prior award corpus (`pnpm ingest:awards-all`, RESEARCH A5).
     console.log(
-      `publishDistricts: season ${season} — no published award base-rate table, so no event can be priced; refusing to bake rather than publish an event total missing its award draw`
+      `publishDistricts: season ${season} — no published award profiles, so no event can be priced; refusing to bake rather than publish an event total missing its award draw`
     );
-    bump(census.skipped, "no-award-base-rates");
+    bump(census.skipped, "no-award-profiles");
     return { sidecars, bakedEventsByDistrict, census, replayMs: 0, bakeMs: 0, matchesReplayed: 0 };
   }
   const profilesByTeam = awardProfiles.profiles;
@@ -1582,30 +1447,44 @@ function bakeSeason(
       continue;
     }
 
-    // A DCMP tier candidate prices its awards from its DCMP award slate
-    // (quick task 261014-i8i), never from the district tier tables at 3x.
-    let dcmpAwardSlate: DcmpAwardSlateInput | undefined;
+    // EVERY CANDIDATE PRICES ITS AWARDS FROM THE ONE AWARD SLATE (quick tasks
+    // 261014-i8i and 261014-qje, Q-01): a district tier candidate from its
+    // district slate, a DCMP tier candidate from its DCMP slate. A season the
+    // slate is not measured for at the candidate's tier is a NAMED skip,
+    // checked rather than caught for the district tier: re measure first
+    // (`pnpm measure:award-slate`).
+    const composed = year.detailArtifacts.find((entry) => entry.district.districtKey === candidate.districtKey)!;
+    const districtTeamKeys = composed.artifact.teams.map((team) => team.teamKey);
+    const districtProfiles = (options.awardProfilesFor?.(season, districtTeamKeys) ?? year.awardContext.profilesFor(districtTeamKeys)).profiles;
+    const profileOf = (teamKey: string): DistrictAwardProfile => districtProfiles.get(teamKey) ?? profilesByTeam.get(teamKey) ?? ZERO_AWARD_PROFILE;
+    let awardSlate: AwardSlateInput;
     if (candidate.tier === "dcmp") {
-      const composed = year.detailArtifacts.find((entry) => entry.district.districtKey === candidate.districtKey)!;
-      const districtTeamKeys = composed.artifact.teams.map((team) => team.teamKey);
-      const districtProfiles = (options.awardProfilesFor?.(season, districtTeamKeys) ?? year.awardContext.profilesFor(districtTeamKeys)).profiles;
       try {
-        dcmpAwardSlate = dcmpBakeAwardSlate({
+        awardSlate = dcmpBakeAwardSlate({
           artifact: composed.artifact,
           events: composed.events,
           cmpSlots: composed.district.cmpSlots,
           eventKey: candidate.eventKey,
-          profileOf: (teamKey) => districtProfiles.get(teamKey) ?? profilesByTeam.get(teamKey) ?? ZERO_AWARD_PROFILE,
+          profileOf,
         });
       } catch (error) {
-        // A season the slate is not measured for is a NAMED skip, never a
-        // DCMP priced from the district tier tables: re measure first
-        // (`pnpm measure:dcmp-award-slate`).
         if (!(error instanceof UnknownDcmpAwardSlateSeasonError)) throw error;
         console.log(`${label}: ${error.message}`);
         bump(census.skipped, "no-dcmp-award-slate");
         continue;
       }
+    } else {
+      if (!hasAwardSlateTables(season, "district")) {
+        console.log(`${label}: season ${String(season)} has no district tier award slate table; re measure first (pnpm measure:award-slate)`);
+        bump(census.skipped, "no-district-award-slate");
+        continue;
+      }
+      awardSlate = districtBakeAwardSlate({
+        artifact: composed.artifact,
+        eventKey: candidate.eventKey,
+        roster: candidate.roster,
+        profileOf,
+      });
     }
 
     const outcome = bakeDistrictEvent({
@@ -1637,7 +1516,7 @@ function bakeSeason(
       algorithmVersion: pricing.algorithmVersion,
       matchesPerTeam: candidate.matchesPerTeam,
       predict,
-      ...(dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate }),
+      awardSlate,
     });
 
     if (outcome.status === "skipped") {
@@ -1695,11 +1574,11 @@ export function awardsPostedByEvent(artifact: DistrictArtifact): (eventKey: stri
  * THE DCMP AWARD SLATE a publisher bake of one DCMP tier event carries (quick
  * task 261014-i8i). Eligibility through the ONE core rule
  * (`dcmpAwardEligibility`) over the composed artifact's teams, awards final
- * where they are posted at the run's instant, entrants weighted by
- * `dcmpEntrantWeight` under the season's own champ cutoff setting: the same
- * reading the web's per event run and champ draws take. `profileOf` covers
- * every district team, so a non roster entrant at an open district event
- * weighs by its own profile, not the zero one.
+ * where they are posted at the run's instant, weights from the one award
+ * model (quick task 261014-qje, Q-11), counts from the season's own champ
+ * cutoff count mode: the same reading the web's per event run and champ draws
+ * take. `profileOf` covers every district team, so a non roster entrant at an
+ * open district event weighs by its own profile, not the zero one.
  */
 export function dcmpBakeAwardSlate(args: {
   readonly artifact: DistrictArtifact;
@@ -1712,9 +1591,10 @@ export function dcmpBakeAwardSlate(args: {
   const season = artifact.year;
   const setting = champCutoffTuning(season).setting;
   const eligibility = dcmpAwardEligibility({
+    season,
     teams: dcmpEligibilityTeamsFromArtifact(artifact, (team) => args.profileOf(team.teamKey)),
     awardFinal: awardsPostedByEvent(artifact),
-    weight: (team, awardType) => dcmpEntrantWeight(args.profileOf(team.teamKey), awardType, season, setting.weighting),
+    profileOf: args.profileOf,
   });
   const dcmpEventKeys = args.events
     .filter((event) => districtTierForEventType(event.eventType) === "dcmp")
@@ -1728,6 +1608,41 @@ export function dcmpBakeAwardSlate(args: {
     target: { eventKey: args.eventKey },
     eligibility,
     setting,
+  });
+}
+
+/**
+ * THE DISTRICT AWARD SLATE a publisher bake of one district tier event
+ * carries (quick task 261014-qje, Q-01 and Q-05), built like
+ * `dcmpBakeAwardSlate`: eligibility through the one core rule
+ * (`districtAwardEligibility`) over the composed artifact's teams and the
+ * event weeks it carries (`districtEventWeeksFromArtifact`), awards final
+ * where the publisher's own awards posted rule says so at the run's instant,
+ * weights from the one award model through `profileOf`. The award field is
+ * the bake roster; a roster team the district list does not carry reads
+ * chance 1. A team holding Impact from an earlier final district event gets
+ * Impact chance 0, so its baked pmf has no mass at 10.
+ */
+export function districtBakeAwardSlate(args: {
+  readonly artifact: DistrictArtifact;
+  readonly eventKey: string;
+  readonly roster: readonly string[];
+  readonly profileOf: (teamKey: string) => DistrictAwardProfile;
+}): AwardSlateInput {
+  const { artifact } = args;
+  const weeks = districtEventWeeksFromArtifact(artifact);
+  const eligibility = districtAwardEligibility({
+    season: artifact.year,
+    eventKey: args.eventKey,
+    teams: dcmpEligibilityTeamsFromArtifact(artifact, (team) => args.profileOf(team.teamKey)),
+    weekOf: (key) => weeks.get(key) ?? null,
+    awardFinal: awardsPostedByEvent(artifact),
+    profileOf: args.profileOf,
+  });
+  return buildDistrictAwardSlate({
+    season: artifact.year,
+    awardField: args.roster.map((teamKey) => ({ teamKey })),
+    eligibility,
   });
 }
 

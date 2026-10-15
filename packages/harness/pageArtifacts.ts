@@ -2117,11 +2117,13 @@ export const DistrictPointPmfSchema = z
 export type DistrictPointPmf = z.infer<typeof DistrictPointPmfSchema>;
 
 /**
- * The prior-judged-award decoration buckets, in the committed wire order —
- * CONTEXT's "none, one or two, three or more".
+ * The decoration buckets, in the committed wire order —
+ * CONTEXT's "none, one or two, three or more". Since award model 2.0.0 the
+ * bucket is `decorationBucket` of the decoration count (`priorJudgedAwards`
+ * below, quick task 261014-qje, Q-09).
  *
  * THIS IS THE WIRE VOCABULARY. `scripts/publishDistricts.ts` (10-06) must
- * emit exactly these three literals, and 10-02's measured table
+ * emit exactly these three literals, and the measurement vocabulary
  * (`packages/core/districts/awardBaseRates.ts`, whose own module keys are
  * `"none" | "one-or-two" | "three-or-more"`) must be MAPPED onto them at that
  * publish boundary. The two spellings are deliberate: the module's is a
@@ -2134,6 +2136,9 @@ export const DISTRICT_AWARD_BUCKETS = ["none", "oneOrTwo", "threeOrMore"] as con
 export type DistrictAwardBucket = (typeof DISTRICT_AWARD_BUCKETS)[number];
 
 /**
+ * RETIRED with the per team award model (quick task 261014-qje, Q-12): kept
+ * only so an artifact published before award model 2.0.0 still parses.
+ *
  * One row of the per-season award base-rate table: the distribution over
  * award points at a district event for one (decoration bucket, rookie) cell.
  *
@@ -2154,6 +2159,9 @@ const DistrictAwardBaseRateRowSchema = z.object({
 });
 
 /**
+ * RETIRED (quick task 261014-qje, Q-12): no publisher writes this block since
+ * award model 2.0.0; it stays so an older artifact still parses.
+ *
  * The per-season award base-rate table. TOP LEVEL, not per team: the table is
  * per season and a district artifact is one season, so one copy per artifact
  * is the only non-duplicating placement.
@@ -2189,34 +2197,40 @@ const DistrictAwardBaseRatesSchema = z
   });
 
 /**
- * One team's row selector into `awardBaseRates` — without it the published
- * table is unusable in a browser that has no corpus.
+ * One team's class inputs for the award slate
+ * (`packages/core/districts/awardSlate.ts`, quick task 261014-qje): the browser
+ * has no corpus, so these two counts are how it finds a team's class lift.
  *
- * `priorJudgedAwards` is the RAW count the bucket was derived from, and it is
- * additive rather than a replacement for the bucket: the bucket is what
- * `awardBaseRates` is keyed by, and the raw count is what
- * `awardOrderingTables`' ordering sorts a whole field on. A browser cannot
+ * `priorJudgedAwards` keeps its wire name but, since award model 2.0.0
+ * (`awardModelVersion` below), is the DECORATION COUNT of Q-09
+ * (`priorDecorationCount` in `scripts/measureAwardSlate.ts`): distinct
+ * `(season, event, type)` wins of the 18 point paying team award types
+ * (`DISTRICT_POINT_AWARD_VALUES`) at any event, over EVERY award season
+ * strictly before this artifact's own, with no window. Individual awards
+ * (Dean's List, Woodie Flowers, Volunteer, Wildcard, Impact Finalist) never
+ * count. `bucket` is `decorationBucket` of this same count. A browser cannot
  * recover the count from the bucket (three or more is one bucket and many
- * counts), so the ordering is impossible without it.
+ * counts), and the Impact class reads the count's bucket beside the Impact one.
  *
- * `priorImpactWins` is the Impact ordering's PRIMARY key since quick task
- * 260929-imp: `awardOrderingTables`' Impact table was measured under an
- * ordering that sorts on prior Impact wins first, then on `priorJudgedAwards`,
- * then on team number. Like the judged count it is walk-forward and a browser
- * cannot recover it from anything else on the artifact.
+ * `priorImpactWins` is distinct `(season, event)` Impact wins in seasons
+ * strictly before this artifact's own. It is the Impact class's FIRST key; the
+ * decoration bucket is its second.
  *
  * OPTIONAL, both of them, because every artifact published before a field
- * existed carries no count at all. The consumer's rule for that case is stated
- * once, in `ledgerSimulation.ts`: a field where ANY team is missing EITHER
- * count is priced from the base rate alone, never from a partial ordering and
- * never from the one-number ordering against tables measured under the other.
+ * existed carries no count at all. The consumer's rule for that case lives in
+ * `awardSlate.ts`: an award field in which ANY profile lacks EITHER count
+ * prices every team at lift 1 (the slot pooled rung). An artifact WITHOUT
+ * `awardModelVersion` carries the retired per team model's count (every award
+ * type but winner, finalist and Highest Rookie Seed, individual awards
+ * included), which the 2.0.0 tables were not measured on;
+ * the republish that stamps 2.0.0 rewrites every count.
  */
 const DistrictAwardProfileSchema = z.object({
   bucket: z.enum(DISTRICT_AWARD_BUCKETS),
   rookie: z.boolean(),
-  /** Judged awards won in seasons STRICTLY BEFORE this artifact's own. The Impact ordering's second key, the Rookie All Star ordering's key, and the count the bucket was derived from. */
+  /** The decoration count (award model 2.0.0, Q-09): distinct wins of the 18 point paying team award types at any event, every award season strictly before this artifact's own. The class key of every slot, and the count `bucket` was derived from. */
   priorJudgedAwards: z.number().int().nonnegative().optional(),
-  /** Impact wins in seasons STRICTLY BEFORE this artifact's own, distinct on `(year, event)`. The Impact ordering's first key. */
+  /** Impact wins in seasons STRICTLY BEFORE this artifact's own, distinct on `(year, event)`. The Impact class's first key. */
   priorImpactWins: z.number().int().nonnegative().optional(),
 });
 
@@ -2236,6 +2250,9 @@ const DistrictAwardOrderingTailSchema = z.object({
 });
 
 /**
+ * RETIRED (quick task 261014-qje, Q-12): no publisher writes this block since
+ * award model 2.0.0; it stays so an older artifact still parses.
+ *
  * The per-season Impact and Rookie All Star ORDERING tables, plus the RESIDUAL
  * award-point table the two are layered on.
  *
@@ -2309,7 +2326,7 @@ const DistrictTeamSchema = z.object({
   qualifyingAwards: z.array(DistrictQualifyingAwardSchema),
   districtLock: DistrictLockVerdictSchema,
   champLock: DistrictLockVerdictSchema,
-  /** Which `awardBaseRates` row applies to this team. Optional: absent on every artifact published before phase 10, and absent whenever the publisher could not determine rookie status. */
+  /** This team's award slate class inputs (award model 2.0.0, see `awardModelVersion`). Optional: absent on every artifact published before phase 10, and absent whenever the publisher could not determine rookie status. */
   awardProfile: DistrictAwardProfileSchema.optional(),
 });
 
@@ -2335,10 +2352,24 @@ export const DistrictArtifactSchema = PagePreambleSchema.extend({
   cmpSlots: z.number().int().nonnegative().nullable(),
   teams: z.array(DistrictTeamSchema),
   insights: DistrictInsightsSchema,
-  /** The season's award base-rate table, once per artifact. Optional — absent on every artifact published before phase 10, and absent for a season with no measured table. */
+  /**
+   * RETIRED (quick task 261014-qje, Q-12): the per team model's award base rate
+   * table. No publisher writes it since award model 2.0.0 and no reader prices
+   * from it; the field stays optional only so an artifact published before the
+   * 2.0.0 republish still parses.
+   */
   awardBaseRates: DistrictAwardBaseRatesSchema.optional(),
-  /** The season's Impact and Rookie All Star ordering tables and the residual they are layered on, once per artifact. Optional, and additive beside `awardBaseRates` rather than a replacement for it. */
+  /** RETIRED with `awardBaseRates` (261014-qje, Q-12): the per team model's Impact and Rookie All Star ordering tables and residual. Never written since 2.0.0; optional only so an older artifact still parses. */
   awardOrderingTables: DistrictAwardOrderingTablesSchema.optional(),
+  /**
+   * The award model the team `awardProfile` counts were derived for
+   * (`DISTRICT_AWARD_MODEL_VERSION` in `packages/core/districts/awardSlate.ts`,
+   * quick task 261014-qje, Q-13). The publisher writes it exactly when it
+   * writes any `awardProfile`. ABSENT means the artifact predates the award
+   * slate and carries the retired per team model's counts. Optional so every
+   * older artifact still parses.
+   */
+  awardModelVersion: z.string().min(1).optional(),
   /**
    * The exact event keys for which a `districtPreSimKey` sidecar was published
    * in THIS generation. The reader fetches a sidecar only for a key listed

@@ -1602,6 +1602,14 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema", () => {
     expect(Object.keys(fixture)).not.toContain("bakedEvents");
     expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
   });
+
+  it("awardModelVersion (quick task 261014-qje, Q-13) is optional, round-trips verbatim, and refuses an empty string", () => {
+    const fixture = validDistrictFixture();
+    expect(Object.keys(fixture)).not.toContain("awardModelVersion");
+    expect(DistrictArtifactSchema.parse(fixture).awardModelVersion).toBeUndefined();
+    expect(DistrictArtifactSchema.parse({ ...fixture, awardModelVersion: "2.0.0" }).awardModelVersion).toBe("2.0.0");
+    expect(() => DistrictArtifactSchema.parse({ ...fixture, awardModelVersion: "" })).toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------

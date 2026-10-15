@@ -14,21 +14,10 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openCorpusReadOnly, selectCorpusSeasons, type Corpus, type CorpusDistrict, type CorpusDistrictRanking, type CorpusEventAward } from "../packages/corpus/db.js";
-import { loadAwardInstances, priorJudgedAwardCount } from "./measureDistrictAwardBaseRates.js";
-import { priorImpactWinCount } from "./measureAwardOrderingTables.js";
+import { loadAwardInstances, priorDecorationCount, priorImpactWinCount } from "./measureAwardSlate.js";
 import { applyDistrictEventState, recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
-import {
-  awardBaseRate,
-  DECORATION_BUCKETS,
-  decorationBucket,
-  UnknownAwardBaseRateSeasonError,
-} from "../packages/core/districts/awardBaseRates.js";
-import {
-  awardResidualRate,
-  impactOrderingProbability,
-  rookieAllStarOrderingProbability,
-} from "../packages/core/districts/awardOrderingTables.js";
-import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND } from "./measureAwardOrderingTables.js";
+import { DECORATION_BUCKETS, decorationBucket } from "../packages/core/districts/awardBaseRates.js";
+import { DISTRICT_AWARD_MODEL_VERSION } from "../packages/core/districts/awardSlate.js";
 import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
 import { eventAwardOutcomeOdds, type DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
 import { DISTRICT_AWARD_BUCKETS, DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
@@ -43,10 +32,10 @@ import {
   composeYear,
   dcmpBakeAwardSlate,
   dcmpFieldPendingAsOf,
+  districtBakeAwardSlate,
   deriveDistrictEventState,
   dividedDcmpParentKeys,
   localOutFileName,
-  measuredThroughSeasonFor,
   parseOptions,
   parseYearsSpec,
   remainingEventKeysAsOf,
@@ -1491,7 +1480,8 @@ describe("the corpus-guarded state population (SC-5's offline half, on real data
 });
 
 // ---------------------------------------------------------------------------
-// 10-06 Task 3 — the award base-rate table and the per-team award profile
+// 10-06 Task 3 — the per-team award profile (the award base-rate and ordering
+// blocks are no longer published since quick task 261014-qje, Q-12)
 // ---------------------------------------------------------------------------
 
 /** An in-memory corpus carrying only the tables `buildSeasonAwardContext` reads. */
@@ -1521,7 +1511,12 @@ function awardFixture(rows: {
 function populatedAwardFixture(
   season: number,
   teams: Array<{ team_key: string; team_number: number; rookie_year: number | null }>,
-  /** Extra judged awards, each at its OWN event so `priorJudgedAwardCount`'s DISTINCT `(year, eventKey, awardType)` rule counts them separately. */
+  /**
+   * Extra awards, each at its OWN event so `priorDecorationCount`'s DISTINCT
+   * `(year, eventKey, awardType)` rule counts them separately. The default type
+   * is 20 (Creativity), a point paying team award, so it is a decoration
+   * (quick task 261014-qje, Q-09).
+   */
   extraAwards: Array<{ year: number; teamKey: string; awardType?: number }> = []
 ) {
   const seasons = DISTRICT_REGISTERED_SEASONS.filter((s) => s <= season).map((s) => ({ eventKey: `${s}e1`, year: s }));
@@ -1529,12 +1524,12 @@ function populatedAwardFixture(
   const awardsAll = prior.map((s, i) => ({ event_key: `${s}e1`, award_type: 5, award_index: i, recipient_index: 0, team_key: "frcSeed", year: s }));
   for (const [i, extra] of extraAwards.entries()) {
     seasons.push({ eventKey: `${extra.year}x${i}`, year: extra.year });
-    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: extra.awardType ?? 5, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
+    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: extra.awardType ?? 20, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
   }
   return awardFixture({ seasons, awardsAll, teams });
 }
 
-describe("the award base-rate table on the wire", () => {
+describe("the award profile on the wire (no award base rate or ordering block since quick task 261014-qje)", () => {
   it("maps 10-02's module vocabulary onto 10-03's wire vocabulary totally and injectively", () => {
     const mapped = DECORATION_BUCKETS.map((bucket) => toWireAwardProfile({ bucket, rookieState: "veteran" }).bucket);
     // Set equality against BOTH sides' own exported literals, never a list
@@ -1546,27 +1541,12 @@ describe("the award base-rate table on the wire", () => {
     expect(toWireAwardProfile({ bucket: "three-or-more", rookieState: "veteran" })).toEqual({ bucket: "threeOrMore", rookie: false });
   });
 
-  it("derives measuredThroughSeason from the registered district seasons, never season minus one", () => {
-    // 2021 has no district season at all, so a naive minus-one would publish a
-    // measuredThroughSeason naming a season that contributed nothing.
-    expect(measuredThroughSeasonFor(2022)).toBe(2020);
-    expect(measuredThroughSeasonFor(2023)).toBe(2022);
-    expect(measuredThroughSeasonFor(2016)).toBeUndefined();
-  });
-
-  it("emits exactly six rows that satisfy every refinement the schema declares", () => {
+  it("publishes profiles and NO award base rate or ordering block (quick task 261014-qje, Q-12)", () => {
     const db = populatedAwardFixture(2026, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
     try {
       const context = buildSeasonAwardContext(db, 2026);
-      expect(context.baseRates).toBeDefined();
-      const table = context.baseRates!;
-      expect(table.rows).toHaveLength(6);
-      expect(table.measuredThroughSeason).toBeLessThan(table.season);
-      expect(new Set(table.rows.map((row) => `${row.bucket}|${String(row.rookie)}`)).size).toBe(6);
-      for (const row of table.rows) {
-        expect(row.points.o).toBe(0);
-        expect(row.n).toBeGreaterThan(0);
-      }
+      expect(context.publishesProfiles).toBe(true);
+      expect(Object.keys(context).sort()).toEqual(["priorAwardSeasons", "priorInstanceCount", "profilesFor", "publishesProfiles", "season"]);
       const artifact = buildDistrictArtifact({
         season: 2026,
         generation: GENERATION,
@@ -1577,105 +1557,54 @@ describe("the award base-rate table on the wire", () => {
         registrations: new Map(),
         awards: new Map(),
         teamMeta: new Map(),
-        awardBaseRates: table,
         awardProfiles: context.profilesFor(["frc1"]).profiles,
       });
-      expect(artifact.awardBaseRates).toEqual(table);
+      expect(artifact.awardBaseRates).toBeUndefined();
+      expect(artifact.awardOrderingTables).toBeUndefined();
+      expect(artifact.teams[0]!.awardProfile).toEqual({ bucket: "none", rookie: false, priorJudgedAwards: 0, priorImpactWins: 0 });
+      // Q-13: the stamp rides with the profiles.
+      expect(artifact.awardModelVersion).toBe(DISTRICT_AWARD_MODEL_VERSION);
+      expect(DISTRICT_AWARD_MODEL_VERSION).toBe("2.0.0");
     } finally {
       db.close();
     }
   });
 
-  it("emits the ordering tables beside the base rates, matching the module's own lookups exactly", () => {
-    const db = populatedAwardFixture(2026, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
-    try {
-      const context = buildSeasonAwardContext(db, 2026);
-      const tables = context.orderingTables;
-      expect(tables).toBeDefined();
-      expect(tables!.season).toBe(2026);
-      expect(tables!.measuredThroughSeason).toBe(2025);
-      expect(tables!.script).toBe(ORDERING_MEASURED_COMMAND);
-
-      // Every published position is the module's own lookup, to the bit. A
-      // second rounding at the publish boundary is how a published probability
-      // and the measured one come to differ in the last digit.
-      for (const row of tables!.impact) {
-        const looked = impactOrderingProbability(2026, row.position);
-        expect(looked.source, `impact ${row.position}`).toBe("position");
-        expect(row.p).toBe(looked.p);
-        expect(row.n).toBe(looked.n);
-      }
-      for (const row of tables!.rookieAllStar) {
-        const looked = rookieAllStarOrderingProbability(2026, row.position);
-        expect(row.p).toBe(looked.p);
-        expect(row.n).toBe(looked.n);
-      }
-      expect(tables!.impact.map((r) => r.position)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-      expect(tables!.rookieAllStar.map((r) => r.position)).toEqual([1, 2, 3]);
-
-      // The residual travels on the DENSE POINT AXIS the schema speaks, not on
-      // the module's six-BIN axis — the same mapping the base-rate rows take.
-      expect(tables!.residual).toHaveLength(6);
-      for (const row of tables!.residual) {
-        expect(row.points.o).toBe(0);
-        expect(row.n).toBeGreaterThan(0);
-      }
-      const decorated = tables!.residual.find((row) => row.bucket === "threeOrMore" && !row.rookie)!;
-      const moduleRate = awardResidualRate(2026, "three-or-more", "veteran");
-      expect(decorated.n).toBe(moduleRate.n);
-      // Index 5 of the dense axis is five points, which is bin 1 of the
-      // module's support. The tolerance is `roundPmf`'s own five-decimal
-      // rounding, the same boundary the base-rate rows already cross — the
-      // POSITION probabilities above are compared exactly because they do not
-      // pass through it.
-      expect(decorated.points.p[5]).toBeCloseTo(moduleRate.pmf[1]!, 4);
-
-      const artifact = buildDistrictArtifact({
-        season: 2026,
-        generation: GENERATION,
-        computedAt: COMPUTED_AT,
-        district: district(),
-        rankings: [ranking({ teamKey: "frc1", rank: 1 })],
-        events: [districtEvent({ eventKey: "2026e1" })],
-        registrations: new Map(),
-        awards: new Map(),
-        teamMeta: new Map(),
-        awardBaseRates: context.baseRates!,
-        awardOrderingTables: tables,
-        awardProfiles: context.profilesFor(["frc1"]).profiles,
-      });
-      expect(artifact.awardOrderingTables).toEqual(tables);
-      // BOTH blocks ship. The unreduced base rate is the fallback for a field
-      // that cannot be ordered, so dropping it would silently under-price
-      // every award cell on such an event.
-      expect(artifact.awardBaseRates).toBeDefined();
-    } finally {
-      db.close();
-    }
+  it("writes awardModelVersion exactly when any team carries an awardProfile (quick task 261014-qje, Q-13)", () => {
+    const base = {
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district(),
+      rankings: [ranking({ teamKey: "frc1", rank: 1 }), ranking({ teamKey: "frc2", rank: 2 })],
+      events: [districtEvent({ eventKey: "2026e1" })],
+      registrations: new Map(),
+      awards: new Map(),
+      teamMeta: new Map(),
+    };
+    expect(buildDistrictArtifact(base).awardModelVersion).toBeUndefined();
+    expect(buildDistrictArtifact({ ...base, awardProfiles: new Map() }).awardModelVersion).toBeUndefined();
+    const one = buildDistrictArtifact({ ...base, awardProfiles: new Map([["frc2", { bucket: "none", rookieState: "veteran", priorJudgedAwards: 0, priorImpactWins: 0 }]]) });
+    expect(one.teams.filter((team) => team.awardProfile !== undefined).map((team) => team.teamKey)).toEqual(["frc2"]);
+    expect(one.awardModelVersion).toBe(DISTRICT_AWARD_MODEL_VERSION);
   });
 
-  it("publishes NO ordering table for a season with no base-rate table — the two travel together or not at all", () => {
-    const db = populatedAwardFixture(2016, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
-    try {
-      const context = buildSeasonAwardContext(db, 2016);
-      expect(context.baseRates).toBeUndefined();
-      expect(context.orderingTables).toBeUndefined();
-    } finally {
-      db.close();
-    }
-  });
-
-  it("pre-checks an unregistered season instead of catching the typed error — control flow through an error is not control flow", () => {
-    const db = populatedAwardFixture(2016, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
-    try {
-      // The lookup itself DOES throw for 2016, which is what proves the
-      // pre-check (not a catch) is what kept the context from calling it.
-      expect(() => awardBaseRate(2016, "none", "veteran")).toThrow(UnknownAwardBaseRateSeasonError);
-      const context = buildSeasonAwardContext(db, 2016);
-      expect(context.baseRates).toBeUndefined();
-      expect(context.profilesFor(["frc1"]).profiles.size).toBe(0);
-    } finally {
-      db.close();
+  it("publishes profiles only for a season with at least three award seasons before it in the corpus: 2019 on (Q-12)", () => {
+    for (const [season, publishes] of [
+      [2016, false],
+      [2017, false],
+      [2018, false],
+      [2019, true],
+      [2026, true],
+    ] as const) {
+      const db = populatedAwardFixture(season, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
+      try {
+        const context = buildSeasonAwardContext(db, season);
+        expect(context.publishesProfiles, String(season)).toBe(publishes);
+        expect(context.profilesFor(["frc1"]).profiles.size, String(season)).toBe(publishes ? 1 : 0);
+      } finally {
+        db.close();
+      }
     }
   });
 
@@ -1691,7 +1620,7 @@ describe("the award base-rate table on the wire", () => {
     try {
       const context = buildSeasonAwardContext(db, 2026);
       expect(context.priorInstanceCount).toBe(0);
-      expect(context.baseRates).toBeUndefined();
+      expect(context.publishesProfiles).toBe(false);
       expect(context.profilesFor(["frc1"]).profiles.size).toBe(0);
     } finally {
       db.close();
@@ -1727,7 +1656,6 @@ describe("the award base-rate table on the wire", () => {
         registrations: new Map(),
         awards: new Map(),
         teamMeta: new Map([["frc1", { teamNumber: 1, nickname: null }]]),
-        awardBaseRates: context.baseRates!,
         awardProfiles: profiles.profiles,
       });
       expect(artifact.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "none", rookie: false, priorJudgedAwards: 0, priorImpactWins: 0 });
@@ -1749,7 +1677,7 @@ describe("the award base-rate table on the wire", () => {
     try {
       const context = buildSeasonAwardContext(db, 2026);
       const forTheBake = context.profilesFor(["frcDecorated"]).profiles.get("frcDecorated")!;
-      // Four distinct prior judged awards puts this team in `three-or-more`,
+      // Four distinct prior decorations puts this team in `three-or-more`,
       // so the mapping is exercised on a non-default bucket.
       expect(forTheBake).toEqual({ bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 4, priorImpactWins: 0 });
       const artifact = buildDistrictArtifact({
@@ -1762,7 +1690,6 @@ describe("the award base-rate table on the wire", () => {
         registrations: new Map(),
         awards: new Map(),
         teamMeta: new Map(),
-        awardBaseRates: context.baseRates!,
         awardProfiles: context.profilesFor(["frcDecorated"]).profiles,
       });
       // Two derivations of one fact is how a published award cell and a
@@ -1807,7 +1734,8 @@ describe("the award base-rate table on the wire", () => {
 
   it("publishes priorImpactWins WALK-FORWARD with the measurement's own counting rule (260929-imp)", () => {
     // Two prior Impact wins at two events, one 2026 Impact win (the published
-    // season itself, so it must not count) and one prior non-Impact award.
+    // season itself, so it must not count) and one prior non-Impact point
+    // paying award (20, Creativity): three decorations, two Impact wins.
     const db = populatedAwardFixture(
       2026,
       [{ team_key: "frcImpact", team_number: 11, rookie_year: 2005 }],
@@ -1815,18 +1743,44 @@ describe("the award base-rate table on the wire", () => {
         { year: 2024, teamKey: "frcImpact", awardType: 0 },
         { year: 2025, teamKey: "frcImpact", awardType: 0 },
         { year: 2026, teamKey: "frcImpact", awardType: 0 },
-        { year: 2025, teamKey: "frcImpact", awardType: 5 },
+        { year: 2025, teamKey: "frcImpact", awardType: 20 },
       ]
     );
     try {
       const context = buildSeasonAwardContext(db, 2026);
       const profile = context.profilesFor(["frcImpact"]).profiles.get("frcImpact")!;
       expect(profile).toEqual({ bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 3, priorImpactWins: 2 });
-      // The same helper the measurement script builds the Impact tables with,
+      // The same helper the measurement script measures the Impact lifts with,
       // over the same instances, gives the same answer.
       const instances = [2024, 2025, 2026].flatMap((season) => loadAwardInstances(db, season));
       expect(priorImpactWinCount(instances, "frcImpact", 2026)).toBe(2);
       expect(toWireAwardProfile(profile)).toEqual({ bucket: "threeOrMore", rookie: false, priorJudgedAwards: 3, priorImpactWins: 2 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("publishes priorJudgedAwards as the decoration count, with the measurement's own helper (quick task 261014-qje, Q-09)", () => {
+    // Dean's List (4), Woodie Flowers (3), Volunteer (5), Wildcard (68) and
+    // Impact Finalist (69) never count; a 2019 Safety (18) counts for 2026,
+    // with no window.
+    const db = populatedAwardFixture(
+      2026,
+      [{ team_key: "frcQ9", team_number: 12, rookie_year: 2005 }],
+      [
+        { year: 2025, teamKey: "frcQ9", awardType: 4 },
+        { year: 2025, teamKey: "frcQ9", awardType: 3 },
+        { year: 2025, teamKey: "frcQ9", awardType: 5 },
+        { year: 2025, teamKey: "frcQ9", awardType: 68 },
+        { year: 2025, teamKey: "frcQ9", awardType: 69 },
+        { year: 2019, teamKey: "frcQ9", awardType: 18 },
+      ]
+    );
+    try {
+      const profile = buildSeasonAwardContext(db, 2026).profilesFor(["frcQ9"]).profiles.get("frcQ9")!;
+      expect(profile.priorJudgedAwards).toBe(1);
+      const instances = [2019, 2025].flatMap((season) => loadAwardInstances(db, season));
+      expect(priorDecorationCount(instances, "frcQ9", 2026)).toBe(1);
     } finally {
       db.close();
     }
@@ -1864,7 +1818,7 @@ describe("the corpus-guarded award derivation (SC-6, on real data)", () => {
       const changed: string[] = [];
       for (const [teamKey, profile] of honest) {
         const instances = instancesByTeam.get(teamKey) ?? [];
-        const leakedBucket = decorationBucket(priorJudgedAwardCount(instances, teamKey, 2027));
+        const leakedBucket = decorationBucket(priorDecorationCount(instances, teamKey, 2027));
         if (leakedBucket !== profile.bucket) changed.push(`${teamKey} ${profile.bucket} -> ${leakedBucket}`);
       }
       console.log(
@@ -3298,10 +3252,37 @@ describe("dcmpBakeAwardSlate — a DCMP tier bake candidate's award slate (quick
       tier: "dcmp",
       awardField: ["frc1", "frc2", "frc3", "frc4"].map((teamKey) => ({ teamKey })),
       awardProfiles: new Map(["frc1", "frc2", "frc3", "frc4"].map((teamKey) => [teamKey, veteran] as const)),
-      dcmpAwardSlate: slate,
+      awardSlate: slate,
     });
     expect(odds.get("frc4")!.p10).toBe(0);
     expect(odds.get("frc4")!.p8).toBe(0);
     expect(odds.get("frc1")!.p10).toBeGreaterThan(0);
+  });
+
+  it("a district tier candidate carries a district slate: a team holding Impact from an earlier final district event is priced at exactly 0 there (quick task 261014-qje, Q-05)", () => {
+    // 2026e1 (week 1, awards posted) is earlier than 2026e2 (week 2). frc1
+    // and frc2 are put on 2026e2's bake roster beside frc3 and frc4.
+    const roster = ["frc1", "frc2", "frc3", "frc4"];
+    const slate = districtBakeAwardSlate({ artifact, eventKey: "2026e2", roster, profileOf: () => veteran });
+    expect(slate.role).toBe("district");
+    expect(slate.eligibility).toEqual([
+      { teamKey: "frc1", impact: 0, engineeringInspiration: 1, rookieAllStar: 1 },
+      { teamKey: "frc2", impact: 1, engineeringInspiration: 0, rookieAllStar: 1 },
+      { teamKey: "frc3", impact: 1, engineeringInspiration: 1, rookieAllStar: 1 },
+      { teamKey: "frc4", impact: 1, engineeringInspiration: 1, rookieAllStar: 1 },
+    ]);
+    const odds = eventAwardOutcomeOdds({
+      eventKey: "2026e2",
+      season: 2026,
+      tier: "district",
+      awardField: roster.map((teamKey) => ({ teamKey })),
+      awardProfiles: new Map(roster.map((teamKey) => [teamKey, veteran] as const)),
+      awardSlate: slate,
+    });
+    expect(odds.get("frc1")!.p10).toBe(0);
+    expect(odds.get("frc3")!.p10).toBeGreaterThan(0);
+    // The earlier event itself sees no earlier event: everyone is open there.
+    const atEarlier = districtBakeAwardSlate({ artifact, eventKey: "2026e1", roster, profileOf: () => veteran });
+    expect(atEarlier.eligibility.every((entry) => entry.impact === 1 && entry.engineeringInspiration === 1)).toBe(true);
   });
 });
