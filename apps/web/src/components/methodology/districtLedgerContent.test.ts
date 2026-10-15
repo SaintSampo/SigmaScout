@@ -165,14 +165,15 @@ const REQUIRED_FIGURES = [
   // 261014-hx6, on the as-of path at spr@11.0.0+baseline; the 2026-10-07
   // stored odds run read 1.15 against 1.77 and 181 of 203, retired because it
   // priced open events with odds from after the stop). Its All positions
-  // line: simulated MAE 1.2 and midpoint rule MAE 2.4 against the settled
-  // cutoff (gate line 1: 1.25 < 2.43, n = 205, PASS), n = 205 positions over
-  // 48 district seasons; gate line 2 reads 183 of 205 (89.3%), FAIL against
-  // the 72% to 88% band, overall NO-GO, range shown with coverage quoted.
+  // line: simulated MAE 1.2 and midpoint rule MAE 1.9 against the settled
+  // cutoff (gate line 1: 1.20 < 1.93, n = 205, PASS), n = 205 positions over
+  // 48 district seasons; gate line 2 reads 179 of 205 (87.3%), PASS inside
+  // the 72% to 88% band. Re-measured after the weighted pick draft
+  // (261014-ol6) and the joint event draws (261014-qv2).
   "48 district seasons",
   "1.2 points on average over 205 positions",
-  "2.4 for the midpoint rule",
-  "183 of those 205 positions, 89%",
+  "1.9 for the midpoint rule",
+  "179 of those 205 positions, 87%",
 ];
 
 /**
@@ -426,6 +427,28 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     );
     // The superseded milestone wording is gone from the page.
     expect(paragraphs.join(" ")).not.toMatch(/the milestone the bracket has actually reached|top four before the playoffs/);
+  });
+});
+
+describe("districtLedgerContent: the weighted draft (261014-ol7)", () => {
+  it("says each pick is drawn from the pick table and names the Predicting alliance picks page, directly after the captain rule", () => {
+    const section = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "the-alliance-selection-model")!;
+    expect(section.paragraphs[0]).toBe(
+      "The captain at each alliance's turn is the highest ranked team not yet on an alliance. The draft runs alliance 1 through alliance 8 and then alliance 8 back down to alliance 1.",
+    );
+    expect(section.paragraphs[1]).toBe(
+      "Each pick is drawn from a table of where real picks sat in the line of teams still available, sorted by rating. That table and how it scores are on the Predicting alliance picks page.",
+    );
+    const pageText = allStrings()
+      .map((entry) => entry.text)
+      .join(" ");
+    expect(pageText).not.toMatch(/taken in rating order/);
+  });
+
+  it("keeps the agreement table, which measures the rating order list itself", () => {
+    const section = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "the-alliance-selection-model")!;
+    expect(section.table?.caption).toBe("Measured against the real draft");
+    expect(section.table?.rows.map((row) => row[0])).toContain("Pick order, exact agreement, 2,256 turns in 2026");
   });
 });
 
