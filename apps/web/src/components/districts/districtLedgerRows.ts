@@ -139,6 +139,7 @@
 import {
   convolveDistrictGrandTotal,
   type DistrictAwardProfile,
+  type DistrictCaptainFacts,
   type DistrictEventTotalByRun,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
@@ -354,6 +355,14 @@ export interface DistrictSelectionRouteView {
    * at zero. A fixed ranking alone is NOT enough: the picks are drawn.
    */
   readonly draftFixed: boolean;
+  /**
+   * A STRUCTURAL captain fact about this team at a fixed ranking whose picks
+   * are drawn (quick task 261015-3oo): `allianceOne` for the rank 1 team, which
+   * captains alliance 1 in every draft, and `never` for a team ranked too low
+   * to captain any alliance. Absent for every other team and wherever the draft
+   * is a fact already (`draftFixed`) or the ranking is still open.
+   */
+  readonly captainFact?: "allianceOne" | "never";
 }
 
 /**
@@ -371,7 +380,10 @@ export function selectionRouteViewFor(
 ): DistrictSelectionRouteView | undefined {
   const routes = eventDistributions?.selectionRoutesByTeam?.get(teamKey);
   if (routes === undefined || eventDistributions?.draftFixed === undefined) return undefined;
-  return { routes, denominator, draftFixed: eventDistributions.draftFixed };
+  const facts = eventDistributions.captainFacts;
+  const captainFact =
+    facts === undefined ? undefined : facts.allianceOneCaptain === teamKey ? "allianceOne" : facts.neverCaptain.includes(teamKey) ? "never" : undefined;
+  return { routes, denominator, draftFixed: eventDistributions.draftFixed, ...(captainFact !== undefined ? { captainFact } : {}) };
 }
 
 /**
@@ -1487,6 +1499,13 @@ export interface DistrictEventDistributions {
    */
   readonly draftFixed?: boolean;
   /**
+   * The structural captain facts of a fixed ranking with a drawn draft (quick
+   * task 261015-3oo), forwarded from the core's `captainFacts` untouched:
+   * rank 1 captains alliance 1, and a team ranked 2k or lower never captains.
+   * Absent wherever the core reports none.
+   */
+  readonly captainFacts?: DistrictCaptainFacts;
+  /**
    * THE DCMP'S BRACKET FACTS for the Champ Locks joint lock proof (quick task
    * 261009-2tr): the published alliances and the played playoff rows at the
    * position, built from the run's OWN INPUT (`dcmpBracketFactsFor`), never
@@ -1766,6 +1785,7 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
     // 261014-ol6): a fixed ranking is a fixed draft only when the picks were
     // not drawn.
     draftFixed: result.rankingFixed && result.randomDraft !== true,
+    ...(result.captainFacts !== undefined ? { captainFacts: result.captainFacts } : {}),
     ...(result.awardOnlyTeams !== undefined && result.awardOnlyTeams.length > 0
       ? { awardOnlyTeams: new Set(result.awardOnlyTeams) }
       : {}),

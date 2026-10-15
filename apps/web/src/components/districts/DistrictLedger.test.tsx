@@ -2735,11 +2735,21 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     }
   });
 
-  it("prints CHANCES, never a settled route, at Quals done with no announced alliances, because the draft is drawn (261014-ol6)", async () => {
+  it("prints CHANCES at Quals done with no announced alliances, because the draft is drawn (261014-ol6), except the rank 1 team's certain captaincy (261015-3oo)", async () => {
     await renderWide(12, WIDE_QUALS_DONE);
     const texts = selectionTexts();
-    expect(texts.filter((text) => SETTLED_ROUTE.test(text)), `settled lines among ${JSON.stringify(texts)}`).toEqual([]);
+    // Rank 1 captains alliance 1 in every draft: the one settled line a fixed
+    // ranking supports while the picks are drawn.
+    expect(texts.filter((text) => SETTLED_ROUTE.test(text)), `settled lines among ${JSON.stringify(texts)}`).toEqual(["~16captain, alliance 1"]);
     expect(texts.some((text) => DRAWN_PICK_CHANCE.test(text)), `a drawn pick chance among ${JSON.stringify(texts)}`).toBe(true);
+  });
+
+  it("lists only the captain row in the rank 1 team's drawer at Quals done, since no other route is possible (261015-3oo)", async () => {
+    await renderWide(12, WIDE_QUALS_DONE);
+    clickSelectionCellMatching(/captain, alliance 1/);
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    const rows = within(list).getAllByTestId("district-ledger-outcome-row");
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain"]);
   });
 
   it("keeps all four routes in the drawer of a drawn pick at Quals done, none omitted as impossible (261014-ol6)", async () => {

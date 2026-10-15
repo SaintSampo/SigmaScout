@@ -369,7 +369,10 @@ export interface DistrictSelectionSettledRoute {
 
 export function districtSelectionSettledRoute(view: DistrictSelectionRouteView): DistrictSelectionSettledRoute | undefined {
   assertRouteDenominator("districtSelectionSettledRoute", view);
-  if (!view.draftFixed) return undefined;
+  // A STRUCTURAL FACT SETTLES ONE ROUTE WHILE THE PICKS ARE STILL DRAWN (quick
+  // task 261015-3oo): at a fixed ranking the rank 1 team captains alliance 1 in
+  // every draft, so its route is a statement, not a prediction.
+  if (!view.draftFixed) return view.captainFact === "allianceOne" ? { id: "captain", allianceNumber: 1 } : undefined;
   for (const entry of SELECTION_ROUTE_SLOTS) {
     const observation = view.routes.bySlot[entry.slot];
     if (observation === undefined || observation.draws !== view.denominator) continue;
@@ -397,9 +400,16 @@ export function districtSelectionSettledRoute(view: DistrictSelectionRouteView):
 export function districtSelectionOutcomes(view: DistrictSelectionRouteView): readonly DistrictSelectionOutcomeRow[] {
   assertRouteDenominator("districtSelectionOutcomes", view);
   const rows: DistrictSelectionOutcomeRow[] = [];
+  // THE STRUCTURAL CAPTAIN FACTS (quick task 261015-3oo) rule routes out on the
+  // ranking alone, while the picks are still drawn: the rank 1 team can take no
+  // route but captain, and a team ranked too low to captain can never take the
+  // captain route. Every other row stays as the draws left it.
+  const onlyCaptain = !view.draftFixed && view.captainFact === "allianceOne";
   for (const entry of SELECTION_ROUTE_SLOTS) {
     const observation = view.routes.bySlot[entry.slot];
     if (observation === undefined) continue;
+    if (onlyCaptain && entry.id !== "captain") continue;
+    if (!view.draftFixed && view.captainFact === "never" && entry.id === "captain") continue;
     // A BACKUP ROBOT IS A STRUCTURAL OMISSION, on the same terms as a veteran's
     // Rookie All Star row: the draft this site models fills three slots per
     // alliance and never a fourth, so a backup is not an outcome the runs can
@@ -415,7 +425,7 @@ export function districtSelectionOutcomes(view: DistrictSelectionRouteView): rea
       maxPoints: observation.maxPoints ?? observation.possibleMaxPoints,
     });
   }
-  if (!view.draftFixed || view.routes.notSelectedDraws > 0) {
+  if (!onlyCaptain && (!view.draftFixed || view.routes.notSelectedDraws > 0)) {
     rows.push({ id: "notSelected", chance: view.routes.notSelectedDraws / view.denominator, minPoints: 0, maxPoints: 0 });
   }
   return rows;

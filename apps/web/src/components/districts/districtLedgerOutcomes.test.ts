@@ -430,6 +430,43 @@ describe("the alliance selection route helpers", () => {
     });
   });
 
+  describe("structural captain facts at a fixed ranking with drawn picks (quick task 261015-3oo)", () => {
+    const rankOne = (): DistrictSelectionRouteView => ({
+      ...viewOf(1000, false, [{ draws: 1000, minPoints: 16, maxPoints: 16, allianceNumber: 1 }, {}, {}, {}], 0),
+      captainFact: "allianceOne",
+    });
+    const tooLow = (): DistrictSelectionRouteView => ({
+      ...viewOf(1000, false, [{}, { draws: 40, minPoints: 9, maxPoints: 12 }, { draws: 210, minPoints: 1, maxPoints: 8 }, {}], 750),
+      captainFact: "never",
+    });
+
+    it("settles the rank 1 team as captain of alliance 1 although the draft is drawn", () => {
+      expect(districtSelectionSettledRoute(rankOne())).toEqual({ id: "captain", allianceNumber: 1 });
+    });
+
+    it("settles nothing else while the draft is drawn, even a route every run took", () => {
+      const { captainFact: _dropped, ...unmarked } = rankOne();
+      expect(districtSelectionSettledRoute(unmarked)).toBeUndefined();
+      expect(districtSelectionSettledRoute(tooLow())).toBeUndefined();
+    });
+
+    it("lists only the captain row for the rank 1 team", () => {
+      expect(districtSelectionOutcomes(rankOne()).map((row) => row.id)).toEqual(["captain"]);
+    });
+
+    it("drops only the captain row for a team ranked too low to captain, keeping zero rows and Not selected", () => {
+      const rows = districtSelectionOutcomes(tooLow());
+      expect(rows.map((row) => row.id)).toEqual(["firstPick", "secondPick", "notSelected"]);
+      expect(districtSelectionUnaccountedMass(tooLow(), rows)).toBeCloseTo(0, 12);
+    });
+
+    it("changes nothing once the alliances are announced, where the draft itself is the fact", () => {
+      const announced: DistrictSelectionRouteView = { ...viewOf(1000, true, [{}, { draws: 1000, minPoints: 10, maxPoints: 10, allianceNumber: 7 }, {}, {}], 0), captainFact: "never" };
+      expect(districtSelectionOutcomes(announced).map((row) => row.id)).toEqual(["firstPick"]);
+      expect(districtSelectionSettledRoute(announced)).toEqual({ id: "firstPick", allianceNumber: 7 });
+    });
+  });
+
   describe("districtSelectionSettledRoute", () => {
     it("names the one route every run took, at its one alliance number, once the DRAFT IS A FACT (the alliances are announced)", () => {
       const settled = districtSelectionSettledRoute(

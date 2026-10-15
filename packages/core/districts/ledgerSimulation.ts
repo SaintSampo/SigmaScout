@@ -803,6 +803,25 @@ export interface DistrictLedgerResult {
    */
   readonly randomDraft?: true;
   /**
+   * THE STRUCTURAL CAPTAIN FACTS of a fixed ranking (quick task 261015-3oo),
+   * PRESENT ONLY when the ranking is fixed AND the picks were drawn
+   * (`randomDraft`), the one state in which a route the runs agreed on is
+   * otherwise a chance. Under the progressive captain rule alliance n's captain
+   * ranks at most 2n minus 1 (before its turn at most n minus 1 captains and
+   * n minus 1 first picks are allied, and a decline allies nobody), so:
+   *
+   *   - `allianceOneCaptain`: the rank 1 team, which captains alliance 1 in
+   *     every draft;
+   *   - `neverCaptain`: every team ranked 2k or lower, k the drafted alliance
+   *     count (`draftedAllianceCount`), which can captain no alliance.
+   *
+   * Read from the fixed finishing order, never from the draws: a captain count
+   * of zero over the runs is not evidence, since ranks k plus 1 to 2k minus 1
+   * captain only rarely. Absent otherwise, so every other result stays deep
+   * equal to the one before this field existed.
+   */
+  readonly captainFacts?: DistrictCaptainFacts;
+  /**
    * The input's `awardOnlyTeams`, in their given order, present ONLY when that
    * list was non-empty. These keys appear in `awardPoints`, `eventTotal` and
    * `awardSources` and nowhere else, and their `eventTotal` equals their award
@@ -835,6 +854,12 @@ export interface DistrictLedgerResult {
  * Every field is a plain number or `undefined`, so the whole object is
  * structured cloneable and crosses the Worker boundary unreshaped.
  */
+/** See `DistrictLedgerResult.captainFacts` (quick task 261015-3oo). */
+export interface DistrictCaptainFacts {
+  readonly allianceOneCaptain: string;
+  readonly neverCaptain: readonly string[];
+}
+
 export interface DistrictSelectionRoutes {
   /** One entry per pick slot, length `MAX_PICK_SLOTS`, indexed by TBA's own slot. */
   readonly bySlot: readonly DistrictSelectionRouteObservation[];
@@ -1754,7 +1779,14 @@ export function simulateDistrictEvent(
 
   let drawIndex = 0;
 
+  // THE FIXED FINISHING ORDER for `captainFacts` (quick task 261015-3oo):
+  // captured once, from the first draw, only when the ranking is fixed and the
+  // picks are drawn. Every draw ranks identically then, so one copy is the
+  // order; nothing here consumes randomness.
+  const wantsCaptainFacts = randomDraft && input.remainingMatches.length === 0;
+  let fixedOrder: number[] | undefined;
   simulateRanks(input.remainingMatches, baselines, draws, rankRng, (order) => {
+    if (wantsCaptainFacts && fixedOrder === undefined) fixedOrder = Array.from({ length: teamCount }, (_, rank) => order[rank]!);
     // THE DRAW BODY. The order below is pinned because it DEFINES the ledger
     // stream: the draft (no randomness), then the bracket, then the awards.
     // Changing it silently changes every seeded output.
@@ -2040,6 +2072,15 @@ export function simulateDistrictEvent(
     // Present ONLY when the picks were actually drawn (quick task 261014-ol6),
     // so a run without the option is deep equal to the greedy draft's result.
     ...(randomDraft ? { randomDraft: true as const } : {}),
+    // Present ONLY at a fixed ranking with a drawn draft (quick task 261015-3oo).
+    ...(fixedOrder !== undefined && fixedOrder.length > 0 && draftedCount > 0
+      ? {
+          captainFacts: {
+            allianceOneCaptain: baselines[fixedOrder[0]!]!.teamKey,
+            neverCaptain: fixedOrder.slice(2 * draftedCount - 1).map((index) => baselines[index]!.teamKey),
+          },
+        }
+      : {}),
     // Present ONLY for a non-empty list, so a run without one is deep equal to
     // the shipped result.
     ...(awardOnlyKeys.length > 0 ? { awardOnlyTeams: [...awardOnlyKeys] } : {}),
