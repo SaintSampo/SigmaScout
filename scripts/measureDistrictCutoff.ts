@@ -109,6 +109,26 @@
  * fallback (2024chs) were not scored, 0 no call. 1,197 bakes at a mean of
  * 191 ms. Published on the District Locks methodology page, source 9.
  *
+ * MEASURED WITH THE JOINT DRAW (quick task 261014-qv2, run 2026-10-14 at
+ * spr@11.0.0+baseline, 1,000 draws, seed 20260830, 48 result files per arm,
+ * on top of quick task 261014-ol6's weighted pick draft). INDEPENDENT ARM
+ * (`--independent-draws`, the shipped draw): 205 scored positions, simulated
+ * MAE 1.19 against the midpoint rule's 1.93, the range holding the settled
+ * cutoff at 194 of 205 (94.6%), reproducing 261014-ol6's after run position
+ * for position; gate 1 PASS, gate 2 FAIL. JOINT ARM (the default: each event
+ * with per run data drawn once per advancement run, shared by its teams): 205
+ * scored positions, simulated MAE 1.20 against 1.93, the range holding at 179
+ * of 205 (87.3%), the mean printed range 3.9 points wide against 4.9; gate 1
+ * PASS, gate 2 PASS, GO. Per week the joint range held 37 of 48 at season
+ * start (77.1%), then 36 of 42, 36 of 40, 38 of 41, 29 of 31, 2 of 2 and 1 of
+ * 1. Against the independent arm it lost 15 positions and gained none; the
+ * simulated line moved at 16. Chance calibration, report only: Brier 0.1134 on
+ * both arms over 28,236 printed chances. The largest joint chance request was
+ * 4,244,000 cells (one byte each), 2026fim at season start. All seven leak
+ * checks passed at 205 of 205 on both arms; 1,194 GENERATED events and 0 REAL
+ * at scored positions, the same 48 settled positions and 1 excluded team
+ * fallback (2024chs) unscored.
+ *
  * THE GATE, registered before the first full run:
  *
  *   1. The simulated line's MAE against the settled cutoff is below the
@@ -118,7 +138,8 @@
  *
  * Both are read over every scored position pooled; the per week split is
  * reported and not gated. Both bars were re-registered unchanged on
- * 2026-10-14, before the first as-of run.
+ * 2026-10-14, before the first as-of run, and again unchanged in quick task
+ * 261014-qv2's plan, before any joint draw number existed.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

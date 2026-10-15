@@ -59,6 +59,17 @@
  * side ran the simulated DCMP bake. Against the retired path (82.6% and
  * 85.0%) the as-of numbers are lower on both tabs, as expected: that path
  * priced open events with odds that already knew the weeks after the stop.
+ *
+ * MEASURED WITH THE JOINT DRAW (quick task 261014-qv2, run 2026-10-14 at
+ * spr@11.0.0+baseline, 48 result files per arm, report only, never
+ * published, on top of quick task 261014-ol6's weighted pick draft).
+ * INDEPENDENT ARM: district tab 75.6% (2,364 of 3,129), champ tab 66.2% (579
+ * of 874), reproducing 261014-ol6's after run. JOINT ARM: district tab 75.7%
+ * (2,359 of 3,116) In range at season start ended locked, points only 64.9%
+ * (2,023), 34 ties at the line, 723 not locked; champ tab 66.0% (577 of 874),
+ * points only 50.2% (439), 3 ties at the line, 294 not locked; no
+ * prequalified on either tab. The champ run itself draws independently on
+ * both arms; only its field chances read the joint district run.
  */
 import { pathToFileURL } from "node:url";
 import type { DistrictArtifact } from "../packages/harness/pageArtifacts.js";
