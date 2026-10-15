@@ -13,6 +13,7 @@ import {
   INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME,
   INVALID_DISTRICT_REQUEST_ERROR_NAME,
   MAX_DISTRICT_CHANCE_AWARD_COUNT_WEIGHTS,
+  MAX_DISTRICT_CHANCE_JOINT_CELLS,
   MAX_DISTRICT_CHANCE_AWARD_DRAWS,
   MAX_DISTRICT_CHANCE_PENDING_EVENTS,
   MAX_DISTRICT_CHANCE_POINTS,
@@ -604,5 +605,107 @@ describe("MAX_DISTRICT_SIMULATION_EVENTS covers the largest real district", () =
     const FIM_DISTRICT_EVENTS = 27;
     const FIM_CHAMPIONSHIP_EVENTS = 5;
     expect(MAX_DISTRICT_SIMULATION_EVENTS).toBeGreaterThanOrEqual(FIM_DISTRICT_EVENTS + FIM_CHAMPIONSHIP_EVENTS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The joint draw at the Worker boundary (quick task 261014-qv2)
+// ---------------------------------------------------------------------------
+
+describe("the per run record and the joint events at the Worker boundary (quick task 261014-qv2)", () => {
+  function withFlag(flag: unknown): unknown {
+    return { ...requestFor([eventRequest("2026waone")]), events: [{ eventKey: "2026waone", input: { ...inputFor("2026waone"), recordEventTotalByRun: flag } }] };
+  }
+
+  it("an event request with the flag absent or true passes, and true returns the record", () => {
+    expect(isDistrictSimulationRequest(requestFor([eventRequest("2026waone")]))).toBe(true);
+    const request = requestFor([eventRequest("2026waone", { recordEventTotalByRun: true })]);
+    expect(isDistrictSimulationRequest(request)).toBe(true);
+    const entry = resultOf(collect(request)).events[0]!;
+    if (entry.status !== "ok") throw new Error("expected an ok entry");
+    expect(entry.result.eventTotalByRun?.runs).toBe(DRAWS);
+  });
+
+  for (const flag of [false, 1, "true", null]) {
+    it(`refuses recordEventTotalByRun ${JSON.stringify(flag)}`, () => {
+      expect(isDistrictSimulationRequest(withFlag(flag))).toBe(false);
+      expect(collect(withFlag(flag))[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_REQUEST_ERROR_NAME });
+    });
+  }
+
+  const JOINT = { eventKey: "2026wax", teamKeys: ["frc1", "frc2"], runs: 3, totals: Uint8Array.from([1, 2, 3, 4, 5, 6]) };
+  const jointTeams = [
+    { ...chanceMass("frc1", 0), jointEventKeys: ["2026wax"] },
+    { ...chanceMass("frc2", 0), jointEventKeys: ["2026wax"] },
+    chanceMass("frc3", 4),
+  ];
+  function jointRequest(jointEvents: unknown, teams: readonly unknown[] = jointTeams): unknown {
+    const base = chanceRequest(CHANCE_TEAMS, 1);
+    return { ...base, inputs: { ...base.inputs, teams, jointEvents } };
+  }
+
+  it("a bounded request passes, survives a structured clone, and the job equals a direct core call", () => {
+    const request = jointRequest([JOINT]) as DistrictAdvancementChanceRequest;
+    expect(isDistrictAdvancementChanceRequest(request)).toBe(true);
+    const cloned = structuredClone(request);
+    expect(isDistrictAdvancementChanceRequest(cloned)).toBe(true);
+    expect(Object.prototype.toString.call(cloned.inputs.jointEvents![0]!.totals)).toBe("[object Uint8Array]");
+    const emitted = collectChance(cloned);
+    const message = emitted[0];
+    if (message?.type !== "chance-result") throw new Error("expected a chance result");
+    expect(message.chanceByTeam).toEqual(advancementChances(request.inputs, DRAWS, SEED).chanceByTeam);
+  });
+
+  it("accepts a Uint16Array of totals", () => {
+    expect(isDistrictAdvancementChanceRequest(jointRequest([{ ...JOINT, totals: Uint16Array.from([1, 2, 3, 4, 5, 6]) }]))).toBe(true);
+  });
+
+  const tooManyTeams = Array.from({ length: MAX_DISTRICT_SIMULATION_ROSTER + 1 }, (_unused, i) => `frc${String(i)}`);
+  const bigRuns = MAX_SIMULATION_DRAWS;
+  const bigTeams = Array.from({ length: MAX_DISTRICT_SIMULATION_ROSTER }, (_unused, i) => `frc${String(i)}`);
+  const eventsOverCellCap = Math.floor(MAX_DISTRICT_CHANCE_JOINT_CELLS / (bigRuns * bigTeams.length)) + 1;
+  const malformed: ReadonlyArray<readonly [string, unknown]> = [
+    ["totals that are a plain array", jointRequest([{ ...JOINT, totals: [1, 2, 3, 4, 5, 6] }])],
+    ["totals that are a Float64Array", jointRequest([{ ...JOINT, totals: Float64Array.from([1, 2, 3, 4, 5, 6]) }])],
+    ["a totals length mismatch", jointRequest([{ ...JOINT, totals: new Uint8Array(5) }])],
+    ["runs above MAX_SIMULATION_DRAWS", jointRequest([{ ...JOINT, runs: MAX_SIMULATION_DRAWS + 1, totals: new Uint8Array((MAX_SIMULATION_DRAWS + 1) * 2) }])],
+    ["runs of zero", jointRequest([{ ...JOINT, runs: 0, totals: new Uint8Array(0) }])],
+    ["an empty event key", jointRequest([{ ...JOINT, eventKey: "" }])],
+    ["an empty team list", jointRequest([{ ...JOINT, teamKeys: [], totals: new Uint8Array(0) }])],
+    ["teamKeys above the roster bound", jointRequest([{ ...JOINT, teamKeys: tooManyTeams, runs: 1, totals: new Uint8Array(tooManyTeams.length) }])],
+    [
+      "more events than MAX_DISTRICT_SIMULATION_EVENTS",
+      jointRequest(Array.from({ length: MAX_DISTRICT_SIMULATION_EVENTS + 1 }, (_unused, i) => ({ ...JOINT, eventKey: `2026e${String(i)}` }))),
+    ],
+    [
+      "total cells above MAX_DISTRICT_CHANCE_JOINT_CELLS",
+      jointRequest(
+        Array.from({ length: eventsOverCellCap }, (_unused, i) => ({
+          eventKey: `2026big${String(i)}`,
+          teamKeys: bigTeams,
+          runs: bigRuns,
+          totals: new Uint8Array(bigRuns * bigTeams.length),
+        }))
+      ),
+    ],
+    ["jointEvents that is not an array", jointRequest({ 0: JOINT })],
+    ["a team jointEventKeys that is not an array", jointRequest([JOINT], [{ ...chanceMass("frc1", 0), jointEventKeys: "2026wax" }])],
+    ["a team jointEventKeys with a non string", jointRequest([JOINT], [{ ...chanceMass("frc1", 0), jointEventKeys: [7] }])],
+    [
+      "a team jointEventKeys above the event bound",
+      jointRequest([JOINT], [{ ...chanceMass("frc1", 0), jointEventKeys: Array.from({ length: MAX_DISTRICT_SIMULATION_EVENTS + 1 }, () => "2026wax") }]),
+    ],
+  ];
+  for (const [label, payload] of malformed) {
+    it(`refuses ${label} under the chance request's error name`, () => {
+      expect(isDistrictAdvancementChanceRequest(payload)).toBe(false);
+      expect(collectChance(payload)[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME });
+    });
+  }
+
+  it("a shape valid request the core refuses (an unknown joint event) is a terminal core error, not a shape refusal", () => {
+    const payload = jointRequest([JOINT], [{ ...chanceMass("frc1", 0), jointEventKeys: ["2026zz"] }]);
+    expect(isDistrictAdvancementChanceRequest(payload)).toBe(true);
+    expect(collectChance(payload)[0]).toMatchObject({ type: "error", name: "AdvancementChanceInputError" });
   });
 });

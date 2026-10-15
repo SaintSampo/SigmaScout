@@ -97,7 +97,17 @@ export const runAsOfEvent: DistrictAsOfRunner = (event, draws, seed) => {
     predict,
     // A generated DCMP prices its awards from the request's slate (quick task 261014-i8i).
     ...(event.input.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: event.input.dcmpAwardSlate }),
+    // The per run record for the joint advancement draw (quick task
+    // 261014-qv2), forwarded only when the request asked for it.
+    ...(event.input.recordEventTotalByRun === true ? { recordEventTotalByRun: true as const } : {}),
   });
   if (outcome.status === "skipped") throw new AsOfBakeSkippedError(event.eventKey, outcome.reason, outcome.detail);
-  return { status: "baked", eventKey: event.eventKey, roster: outcome.roster, rows: outcome.rows, draws: outcome.draws };
+  return {
+    status: "baked",
+    eventKey: event.eventKey,
+    roster: outcome.roster,
+    rows: outcome.rows,
+    draws: outcome.draws,
+    ...(outcome.eventTotalByRun === undefined ? {} : { eventTotalByRun: outcome.eventTotalByRun }),
+  };
 };

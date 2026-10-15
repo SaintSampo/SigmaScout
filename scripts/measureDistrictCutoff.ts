@@ -811,7 +811,8 @@ export async function districtTabAtPosition(ctx: DistrictTabContext, positionInd
   const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
 
   // Lines 449 to 461: the chance run, on the landed run's signature.
-  const chanceRun = buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature: priced.runSignature, positionId });
+  // The SAME map the rows were built from (quick task 261014-qv2).
+  const chanceRun = buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature: priced.runSignature, positionId, distributions: priced.distributions });
   const chance = chanceRun === undefined ? undefined : advancementChances(chanceRun.inputs, sources.draws, sources.seed);
 
   // Lines 474 to 536: the boundary rule's kind and the one range state.

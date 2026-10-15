@@ -28,6 +28,7 @@ import {
 } from "../../../../packages/core/districts/advancementChance.js";
 import {
   simulateDistrictEvent,
+  type DistrictEventTotalByRun,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
 } from "../../../../packages/core/districts/ledgerSimulation.js";
@@ -104,6 +105,17 @@ export const MAX_DISTRICT_CHANCE_TEAMS = 1024;
 export const MAX_DISTRICT_CHANCE_POINTS = 4096;
 
 /**
+ * Upper bound on the per run cells one chance request's `jointEvents` carry in
+ * total (quick task 261014-qv2): a DoS ceiling on the visitor's own memory and
+ * CPU, never a modelling limit. The worst real stop is a large district at
+ * season start with every event baked: 2026 Michigan, about 27 district events
+ * x 4,000 runs x about 40 teams, roughly 4.3 million cells (one byte each).
+ * 2 ** 24 is about four times that. Measured by the district cutoff backtest,
+ * which prints the largest request it posted.
+ */
+export const MAX_DISTRICT_CHANCE_JOINT_CELLS = 2 ** 24;
+
+/**
  * The `name` an unavailable entry carries when the core threw something that
  * is not an `Error` at all. Named rather than inlined so a test can assert the
  * non-`Error` path without retyping the string.
@@ -165,11 +177,15 @@ export interface DistrictSimulationEventRequest {
  * own side of the boundary.
  *
  * THE SAME SEED IS USED FOR EVERY EVENT, and the shared stream is safe here
- * because the grand total is an EXACT CONVOLUTION of the per-event marginals,
- * never a per-draw cross-event sum. Draw 7 of event A is never added to draw 7
- * of event B, so a shared stream cannot carry correlation into any rendered or
- * published quantity. Nothing downstream may start summing per-draw across
- * events without revisiting this choice.
+ * because the grand total is an EXACT CONVOLUTION of the per-event marginals.
+ * Per run values ARE summed across events in one place, the advancement run's
+ * joint draw (quick task 261014-qv2, `advancementChance.ts`), but always
+ * through run indices drawn INDEPENDENTLY per event, never the same index:
+ * draw 7 of event A is never added to draw 7 of event B by construction, so
+ * the shared stream still carries no correlation into any rendered or
+ * published quantity. `advancementChance.joint.test.ts`'s independence test
+ * (one team at two events, the line takes the middle value about half the
+ * time) is the pin. Any other per run sum across events must revisit this.
  */
 export interface DistrictSimulationRequest {
   readonly type: "run";
@@ -239,6 +255,8 @@ export interface DistrictSimulationEventBaked {
   readonly roster: readonly string[];
   readonly rows: readonly DistrictBakeRow[];
   readonly draws: number;
+  /** The bake's pooled per run record, present only when the request asked for it (quick task 261014-qv2). */
+  readonly eventTotalByRun?: DistrictEventTotalByRun;
 }
 
 export type DistrictSimulationEventEntry = DistrictSimulationEventSuccess | DistrictSimulationEventUnavailable | DistrictSimulationEventBaked;
@@ -364,6 +382,9 @@ function isEventRequest(value: unknown): boolean {
   // `simulateDistrictEvent`'s own `InvalidPickPositionPmfError`, a per event
   // unavailable entry through the existing catch.
   if (eventInput.pickPositionPmf !== undefined && !isPickPositionPmf(eventInput.pickPositionPmf)) return false;
+  // THE PER RUN RECORD (quick task 261014-qv2): absent or exactly `true`. Its
+  // cost is bounded by the draw and roster ceilings above.
+  if (eventInput.recordEventTotalByRun !== undefined && eventInput.recordEventTotalByRun !== true) return false;
   if (candidate.asOf !== undefined && !isAsOfBlock(candidate.asOf)) return false;
   return true;
 }
@@ -593,7 +614,37 @@ function isChanceTeam(value: unknown): boolean {
     if (typeof dcmpLength !== "number" || !Number.isInteger(dcmpLength)) return false;
     if (dcmpLength < 1 || dcmpLength > MAX_DISTRICT_CHANCE_POINTS) return false;
   }
+  // THE JOINT EVENT KEYS (quick task 261014-qv2): a bounded string array. An
+  // unknown or repeated key is the core's own refusal.
+  if (candidate.jointEventKeys !== undefined) {
+    if (!isStringArray(candidate.jointEventKeys)) return false;
+    if ((candidate.jointEventKeys as readonly string[]).length > MAX_DISTRICT_SIMULATION_EVENTS) return false;
+  }
   return true;
+}
+
+/**
+ * One joint event's shape and cost (quick task 261014-qv2): a key, a bounded
+ * team list, a bounded run count, and a one or two byte typed array of exactly
+ * runs x teams cells. Repeated keys and the rest are the core's refusals.
+ */
+function jointEventCells(value: unknown): number | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const event = value as Record<string, unknown>;
+  if (typeof event.eventKey !== "string" || event.eventKey.length === 0) return undefined;
+  if (!isStringArray(event.teamKeys)) return undefined;
+  const teamCount = (event.teamKeys as readonly string[]).length;
+  if (teamCount < 1 || teamCount > MAX_DISTRICT_SIMULATION_ROSTER) return undefined;
+  const runs = event.runs;
+  if (typeof runs !== "number" || !Number.isInteger(runs) || runs < 1 || runs > MAX_SIMULATION_DRAWS) return undefined;
+  // THE TYPED ARRAY TAG, not `instanceof`: a structured clone can arrive from
+  // another realm (the test environment's clone does), where `instanceof`
+  // against this realm's constructor is false for a perfectly good array.
+  const tag = Object.prototype.toString.call(event.totals);
+  if (tag !== "[object Uint8Array]" && tag !== "[object Uint16Array]") return undefined;
+  const length = (event.totals as Uint8Array | Uint16Array).length;
+  if (length !== runs * teamCount) return undefined;
+  return length;
 }
 
 /** Upper bound on a chance request's `awardDraws.length`: the DCMP draws three judged awards. */
@@ -667,6 +718,18 @@ export function isDistrictAdvancementChanceRequest(value: unknown): value is Dis
     if (chanceInputs.awardDraws.length > MAX_DISTRICT_CHANCE_AWARD_DRAWS) return false;
     for (const draw of chanceInputs.awardDraws) {
       if (!isAwardDraw(draw)) return false;
+    }
+  }
+  // THE JOINT EVENTS (quick task 261014-qv2): bounded per event and in total.
+  if (chanceInputs.jointEvents !== undefined) {
+    if (!Array.isArray(chanceInputs.jointEvents)) return false;
+    if (chanceInputs.jointEvents.length > MAX_DISTRICT_SIMULATION_EVENTS) return false;
+    let cells = 0;
+    for (const event of chanceInputs.jointEvents) {
+      const eventCells = jointEventCells(event);
+      if (eventCells === undefined) return false;
+      cells += eventCells;
+      if (cells > MAX_DISTRICT_CHANCE_JOINT_CELLS) return false;
     }
   }
   return true;

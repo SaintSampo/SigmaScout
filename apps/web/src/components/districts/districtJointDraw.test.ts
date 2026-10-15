@@ -27,8 +27,18 @@ import {
   type DistrictSimulationOutboundMessage,
 } from "../../workers/districtSimulationProtocol.js";
 import { assembleLiveDistrictEvents } from "./districtRunAssembly.js";
+import { rpRuleModuleForSeason } from "../../../../../packages/core/rankingPoints/rules.js";
+import { spr } from "../../../../../packages/core/algorithms/spr.js";
+import type { AsOfTeamTuple } from "../../../../../packages/harness/asOfState.js";
+import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import type { DcmpAwardSlateInput } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
+import type { DistrictAsOfBlock } from "../../workers/districtSimulationProtocol.js";
+import type { UpcomingMatch } from "../../../../../packages/core/algorithms/types.js";
+import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import {
+  buildDistrictEventSimulationInput,
   buildDistrictLedgerRows,
+  distributionsFromPreSim,
   distributionsFromResult,
   type DistrictCellKind,
   type DistrictEventDistributions,
@@ -314,5 +324,130 @@ describe("the joint draw end to end: a Live in progress event (quick task 261014
     const base = { artifact, teams: rows.teams, statuses, runSignature: "sig", positionId: "now" };
     expect(buildAdvancementChanceRun(base)).toBeUndefined();
     expect(buildAdvancementChanceRun({ ...base, distributions })).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The as of rewind: GENERATED bakes and REAL runs (fixtures from
+// `districtPickDraftPaths.test.ts`)
+// ---------------------------------------------------------------------------
+
+const VARS = rpRuleModuleForSeason(SEASON).thresholdVariables.map((v) => v.name);
+
+function league(): number[] {
+  const init = spr.initState([]);
+  const out = [init.logTau, init.scale, 40_000, 360_000, 800];
+  for (const _name of VARS) out.push(800, 20, 800 * 36);
+  for (const _name of VARS) out.push(0, 0);
+  return out;
+}
+
+function tuple(n: number): AsOfTeamTuple {
+  return [[20 + (n % 9), 40, 0, 5], [6, 0, 6, 400, 20 + (n % 9)], null];
+}
+
+function asOfBlock(mode: "real" | "generated"): DistrictAsOfBlock {
+  const common = {
+    cutId: `${EVENT}@1772000000#3`,
+    mode,
+    season: SEASON,
+    vars: VARS,
+    league: league(),
+    teams: ROSTER.map((teamKey, n) => [teamKey, tuple(n)] as const),
+  };
+  if (mode === "generated") {
+    return { ...common, bake: { districtKey: "2026pnw", eventType: 1, week: 1, matchesPerTeam: 12, algorithmId: "spr", algorithmVersion: "9.0.0+rolling" } };
+  }
+  const rows = Array.from({ length: 8 }, (_unused, n): UpcomingMatch => ({
+    matchKey: `${EVENT}_qm${String(n + 5)}`,
+    eventKey: EVENT,
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: n + 5,
+    redTeams: [ROSTER[(n * 6) % 24]!, ROSTER[(n * 6 + 1) % 24]!, ROSTER[(n * 6 + 2) % 24]!],
+    blueTeams: [ROSTER[(n * 6 + 3) % 24]!, ROSTER[(n * 6 + 4) % 24]!, ROSTER[(n * 6 + 5) % 24]!],
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: 1,
+    week: 1,
+  }));
+  return { ...common, rows };
+}
+
+/** A GENERATED request's input, as `generatedRequest` builds one at the district tier. */
+function generatedInput(tier: "district" | "dcmp"): DistrictLedgerEventInput {
+  const slate: DcmpAwardSlateInput = {
+    role: "single",
+    expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+    sources: { counts: "previousSeason", judged: "role" },
+    eligibility: [],
+  };
+  return {
+    eventKey: EVENT,
+    season: SEASON,
+    tier,
+    fieldSize: 24,
+    allianceCount: 8,
+    remainingMatches: [],
+    baselines: ROSTER.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
+    ratings: new Map(),
+    awardProfiles: new Map(ROSTER.map((teamKey) => [teamKey, { bucket: "none", rookieState: "veteran" }] as const)),
+    ...(tier === "dcmp" ? { dcmpAwardSlate: slate } : { recordEventTotalByRun: true as const }),
+  };
+}
+
+describe("the joint draw on the as of rewind (quick task 261014-qv2)", () => {
+  it("a GENERATED district tier bake carries the pooled record through the decoder into the chance run", () => {
+    const entry = runAsOfEvent({ eventKey: EVENT, input: generatedInput("district"), asOf: asOfBlock("generated") }, 40, 7);
+    if (entry.status !== "baked") throw new Error(`expected a bake, got ${entry.status}`);
+    const record = entry.eventTotalByRun!;
+    expect(record.teamKeys).toEqual(entry.roster);
+    expect(record.runs).toBe(entry.draws);
+    const decoded = distributionsFromPreSim(entry);
+    expect(decoded.eventTotalByRun).toBe(record);
+
+    // The stop: every team's event is still to come, priced by this bake.
+    const artifact = DistrictArtifactSchema.parse({
+      ...districtArtifact(),
+      teams: ROSTER.map((teamKey, i) =>
+        team(teamKey, {
+          pointTotal: 10 + i,
+          eventPoints: [played("2026wa0", 10 + i)],
+          remainingEvents: [ahead(EVENT, UNSTARTED)],
+          maxRemainingDistrict: EVENT_MAX,
+        })
+      ),
+    });
+    const distributions = new Map([[EVENT, decoded]]);
+    const rows = buildDistrictLedgerRows({ artifact, distributions });
+    const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+    const run = buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature: "sig", positionId: "stop", distributions })!;
+    expect(run.inputs.jointEvents?.map((event) => event.eventKey)).toEqual([EVENT]);
+    expect(run.inputs.jointEvents![0]!.runs).toBe(entry.draws);
+    expect(run.independentEventKeys).toEqual([]);
+  }, 60_000);
+
+  it("the simulated DCMP bake (dcmp tier) records nothing", () => {
+    const entry = runAsOfEvent({ eventKey: EVENT, input: generatedInput("dcmp"), asOf: asOfBlock("generated") }, 40, 7);
+    if (entry.status !== "baked") throw new Error(`expected a bake, got ${entry.status}`);
+    expect("eventTotalByRun" in entry).toBe(false);
+  }, 60_000);
+
+  it("a REAL district tier event's ok entry carries the record", () => {
+    const built = buildDistrictEventSimulationInput({
+      eventKey: EVENT,
+      season: SEASON,
+      eventArtifact: eventArtifact(),
+      districtArtifact: districtArtifact(),
+      stage: { qual: false, alliance: false, elim: false, award: false },
+      startMatchKey: null,
+      asOfBaselines: ROSTER.map((teamKey, i) => ({ teamKey, earnedRpSum: 24 - i, matchesPlayed: 4 })),
+    });
+    if (!built.ok) throw new Error("expected an input");
+    expect(built.input.recordEventTotalByRun).toBe(true);
+    const entry = runAsOfEvent({ eventKey: EVENT, input: built.input, asOf: asOfBlock("real") }, 40, 7);
+    if (entry.status !== "ok") throw new Error(`expected an ok entry, got ${entry.status}`);
+    expect(entry.result.eventTotalByRun?.runs).toBe(40);
+    expect(distributionsFromResult(entry.result).eventTotalByRun).toBe(entry.result.eventTotalByRun);
   });
 });

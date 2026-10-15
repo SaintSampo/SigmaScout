@@ -283,7 +283,12 @@ describe("the tier option on the assembled per-event input", () => {
   it("changes nothing else about the input when the tier changes", () => {
     const district = inputAt("district");
     const dcmp = inputAt("dcmp");
-    expect({ ...dcmp, tier: "district" }).toEqual(district);
+    // The district tier alone asks for the per run record, for the joint
+    // advancement draw (quick task 261014-qv2); the dcmp tier never does.
+    const { recordEventTotalByRun, ...districtRest } = district;
+    expect(recordEventTotalByRun).toBe(true);
+    expect("recordEventTotalByRun" in dcmp).toBe(false);
+    expect({ ...dcmp, tier: "district" }).toEqual(districtRest);
   });
 });
 

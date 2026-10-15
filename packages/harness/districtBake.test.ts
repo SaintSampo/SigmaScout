@@ -469,3 +469,52 @@ describe("bakeDistrictEvent — a DCMP tier bake prices its awards from its slat
     expect(() => bakeDistrictEvent(params({ dcmpAwardSlate: SLATE }))).toThrow(DcmpAwardSlateOnDistrictTierError);
   });
 });
+
+describe("bakeDistrictEvent: the pooled per run record (quick task 261014-qv2)", () => {
+  /** A pmf decoded to a dense array over point values. */
+  function dense(pmf: DistrictPointPmf, length: number): Float64Array {
+    const out = new Float64Array(length);
+    pmf.p.forEach((value, i) => {
+      out[pmf.o + i] = value;
+    });
+    return out;
+  }
+
+  it("without the flag the outcome carries no record; with it every other field deep equals the flagless bake", () => {
+    const plain = bakeDistrictEvent(params({ scheduleCount: 3, drawsPerSchedule: 40 }));
+    const recorded = bakeDistrictEvent(params({ scheduleCount: 3, drawsPerSchedule: 40, recordEventTotalByRun: true }));
+    expect(plain.status).toBe("baked");
+    expect(recorded.status).toBe("baked");
+    if (plain.status !== "baked" || recorded.status !== "baked") return;
+    expect("eventTotalByRun" in plain).toBe(false);
+    const { eventTotalByRun, ...rest } = recorded;
+    expect(rest).toEqual(plain);
+
+    const record = eventTotalByRun!;
+    expect(record.teamKeys).toEqual(recorded.roster);
+    expect(record.runs).toBe(3 * 40);
+    expect(record.totals).toBeInstanceOf(Uint8Array);
+    expect(record.totals.length).toBe(record.runs * recorded.roster.length);
+
+    // Each column, as a pmf over runs, is its row's decoded total within the rounding.
+    const ceilings = maxEventPoints(SEASON, "district");
+    const length = ceilings.qual + ceilings.alliance + ceilings.elim + ceilings.award + 1;
+    const n = record.teamKeys.length;
+    recorded.rows.forEach((row) => {
+      const column = new Float64Array(length);
+      for (let run = 0; run < record.runs; run++) column[record.totals[run * n + row.t]!]! += 1 / record.runs;
+      const decoded = dense(row.total, length);
+      for (let value = 0; value < length; value++) expect(Math.abs(column[value]! - decoded[value]!)).toBeLessThan(1e-4);
+    });
+  });
+
+  it("schedule k occupies runs k x drawsPerSchedule onward: a one schedule bake is the first block of a three schedule bake", () => {
+    const one = bakeDistrictEvent(params({ scheduleCount: 1, drawsPerSchedule: 30, recordEventTotalByRun: true }));
+    const three = bakeDistrictEvent(params({ scheduleCount: 3, drawsPerSchedule: 30, recordEventTotalByRun: true }));
+    if (one.status !== "baked" || three.status !== "baked") throw new Error("expected two bakes");
+    const block = one.eventTotalByRun!.totals.length;
+    expect(Array.from(three.eventTotalByRun!.totals.subarray(0, block))).toEqual(Array.from(one.eventTotalByRun!.totals));
+    // The later blocks are other schedules' runs, not copies of the first.
+    expect(Array.from(three.eventTotalByRun!.totals.subarray(block, 2 * block))).not.toEqual(Array.from(one.eventTotalByRun!.totals));
+  });
+});

@@ -402,7 +402,8 @@ function runAtPosition(
   // The district pass, its verdicts and its chance run.
   const districtRows = buildDistrictLedgerRows({ artifact, distributions, stageByEvent, tier: "district" });
   const districtStatuses = computeDistrictLedgerStatuses({ artifact, teams: districtRows.teams });
-  const districtRun = buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature: "", positionId });
+  // The SAME map the district rows were built from (quick task 261014-qv2).
+  const districtRun = buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature: "", positionId, distributions });
   const districtTierSettled = !districtRows.teams.some((team) => team.hasOpenCategory);
   const raw = districtRun === undefined ? undefined : advancementChances(districtRun.inputs, draws, seed).chanceByTeam;
   const fieldChanceByTeam = champFieldChances(districtStatuses, raw, districtTierSettled);

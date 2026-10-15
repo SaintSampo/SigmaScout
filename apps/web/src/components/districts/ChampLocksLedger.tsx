@@ -666,8 +666,19 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     asOf?.status === "loading" ? null : data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
 
   const districtChanceRun = useMemo(
-    () => buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature, positionId }),
-    [artifact, districtRows.teams, districtStatuses, runSignature, positionId]
+    () =>
+      buildAdvancementChanceRun({
+        artifact,
+        teams: districtRows.teams,
+        statuses: districtStatuses,
+        runSignature,
+        positionId,
+        // THE SAME map the district rows were built from (quick task
+        // 261014-qv2): the field chances read the joint district run. The
+        // champ run itself keeps its independent draws.
+        distributions: data.distributions,
+      }),
+    [artifact, districtRows.teams, districtStatuses, runSignature, positionId, data.distributions]
   );
   const districtChanceState = useDistrictAdvancementChance(districtChanceRun);
 

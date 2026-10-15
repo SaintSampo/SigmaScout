@@ -365,6 +365,10 @@ function generatedRequest(params: {
     ratings: new Map(),
     awardProfiles,
     ...(tier === "dcmp" && params.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: params.dcmpAwardSlate } : {}),
+    // THE PER RUN RECORD (quick task 261014-qv2), at the district tier only:
+    // the bake pools every schedule's runs for the joint advancement draw. The
+    // simulated DCMP bake (dcmp tier) never records.
+    ...(tier === "district" ? { recordEventTotalByRun: true as const } : {}),
   };
   return {
     eventKey,

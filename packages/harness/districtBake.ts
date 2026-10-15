@@ -15,6 +15,12 @@
  * (`pickPositionTables.ts`), so the purity contract above still holds: a
  * republish of the same corpus is still byte identical.
  *
+ * THE PER RUN RECORD (quick task 261014-qv2). With `recordEventTotalByRun`,
+ * every schedule's run records each team's event total per run and the bake
+ * pools all of them, in schedule order, into `eventTotalByRun` for the
+ * browser's joint advancement draw; the rows are unchanged. The publisher
+ * never passes the flag, so its output stays byte identical.
+ *
  * THIS MODULE HOLDS NO PRICING MATH AND NO POINT FORMULA. It calls the
  * caller's bound `predict` (already bound to the right walk-forward state) and
  * `packages/core/districts/ledgerSimulation.ts`'s `simulateDistrictEvent`, and
@@ -44,10 +50,12 @@
  * five values this module produces are all EVENT-level.
  */
 import {
+  allocateEventTotalByRun,
   simulateDistrictEvent,
   encodeDistrictPointPmf,
   insufficientRosterReason,
   type DistrictAwardProfile,
+  type DistrictEventTotalByRun,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
   ZERO_AWARD_PROFILE,
@@ -132,6 +140,12 @@ export interface DistrictBakeBaked {
   readonly awardSources: ReadonlyMap<string, AwardBaseRateSource>;
   /** Roster teams that carried no award profile and were priced with `ZERO_AWARD_PROFILE`, ascending. Empty for a fully profiled roster. */
   readonly zeroProfileTeams: readonly string[];
+  /**
+   * PRESENT ONLY with `recordEventTotalByRun` (quick task 261014-qv2): every
+   * schedule's runs pooled in schedule order, schedule `k` at runs
+   * `k * drawsPerSchedule` onward, columns in `roster` order. Never published.
+   */
+  readonly eventTotalByRun?: DistrictEventTotalByRun;
 }
 
 /** A refused event: the reason and EVERY offender, never the first. */
@@ -190,6 +204,12 @@ export interface DistrictBakeParams {
    * (`DcmpAwardSlateOnDistrictTierError`).
    */
   readonly dcmpAwardSlate?: DcmpAwardSlateInput;
+  /**
+   * Record and pool every schedule's per run event totals (quick task
+   * 261014-qv2) for the browser's joint advancement draw. The publisher never
+   * sets it; absent, the outcome is exactly the shipped one.
+   */
+  readonly recordEventTotalByRun?: true;
 }
 
 /**
@@ -384,6 +404,10 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
   let awardSources: ReadonlyMap<string, AwardBaseRateSource> = new Map();
   // The season's weighted pick draft (quick task 261014-ol6), read once.
   const pickPositionPmf = pickPositionPmfForSeason(season);
+  // THE POOLED PER RUN RECORD (quick task 261014-qv2), allocated once and only
+  // with the flag, by the simulation's own allocation rule.
+  const record = params.recordEventTotalByRun === true;
+  const pooledByRun = record ? allocateEventTotalByRun(scheduleCount * drawsPerSchedule, sortedRoster.length, totalCeiling) : undefined;
 
   for (let k = 0; k < scheduleCount; k++) {
     const input: DistrictLedgerEventInput = {
@@ -398,6 +422,7 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       awardProfiles,
       ...(params.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: params.dcmpAwardSlate }),
       ...(pickPositionPmf === undefined ? {} : { pickPositionPmf }),
+      ...(record ? { recordEventTotalByRun: true as const } : {}),
     };
     // This schedule's own published seed XORed with the district salt: the
     // district draw stream can never alias the shuffle stream or the presim
@@ -405,6 +430,13 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
     const seed = (priced.schedules[k]!.seed ^ DISTRICT_BAKE_DRAW_SALT) >>> 0;
     const result: DistrictLedgerResult = simulateDistrictEvent(input, drawsPerSchedule, seed);
     if (k === 0) awardSources = result.awardSources;
+    if (pooledByRun !== undefined) {
+      const byRun = result.eventTotalByRun;
+      if (byRun === undefined || byRun.teamKeys.length !== sortedRoster.length || byRun.teamKeys.some((key, j) => key !== sortedRoster[j])) {
+        throw new DistrictBakeError(`event ${eventKey}: schedule ${String(k)}'s per run record does not follow the sorted roster`);
+      }
+      pooledByRun.set(byRun.totals, k * drawsPerSchedule * sortedRoster.length);
+    }
     for (let t = 0; t < sortedRoster.length; t++) {
       const teamKey = sortedRoster[t]!;
       accumulate(pooled.qual[t]!, result.qualPoints.get(teamKey)!, eventKey, "qual");
@@ -426,5 +458,14 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
     total: encodeAndRound(pooled.total[t]!, draws),
   }));
 
-  return { status: "baked", eventKey, roster: sortedRoster, draws, rows, awardSources, zeroProfileTeams: unprofiled };
+  return {
+    status: "baked",
+    eventKey,
+    roster: sortedRoster,
+    draws,
+    rows,
+    awardSources,
+    zeroProfileTeams: unprofiled,
+    ...(pooledByRun === undefined ? {} : { eventTotalByRun: { teamKeys: sortedRoster, runs: draws, totals: pooledByRun } }),
+  };
 }

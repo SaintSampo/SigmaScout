@@ -264,7 +264,8 @@ export async function champTabAtPosition(ctx: ChampTabContext, positionIndex: nu
   for (const [teamKey, result] of districtStatuses.byTeam) if (result.status === "lockedOut") districtLockedOut.add(teamKey);
   // Lines 662 to 690: the district chance run and the field chance.
   const runSignature = priced.runSignature;
-  const districtChanceRun = buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature, positionId });
+  // The SAME map the district rows were built from (quick task 261014-qv2).
+  const districtChanceRun = buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature, positionId, distributions: priced.distributions });
   const districtChance: AdvancementChanceResult | undefined = districtChanceRun === undefined ? undefined : advancementChances(districtChanceRun.inputs, sources.draws, sources.seed);
   const districtTierSettled = !districtRows.teams.some((team) => team.hasOpenCategory);
   const fieldChanceByTeam = champFieldChances(districtStatuses, districtChance?.chanceByTeam, districtTierSettled && districtChanceRun === undefined);
