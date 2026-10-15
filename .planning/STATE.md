@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-15T06:15:49.327Z"
+last_updated: "2026-10-15T07:08:25.297Z"
 last_activity: 2026-10-15
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -773,6 +773,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 337 | Joint event draws: every team at one event reads its points from the same simulated run in the advancement run; cutoff range holds 179 of 205 (87%), inside the 72 to 88% band | 2026-10-15 | 789bd6e6 | [261014-qv2-draw-each-event-s-points-jointly-in-the-](./quick/261014-qv2-draw-each-event-s-points-jointly-in-the-/) |
 | 338 | Predicting alliance picks methodology page with the interactive pick table and said versus happened chart; district points copy updated for the weighted and joint draws | 2026-10-15 | 0ec696eb | [261014-ol7-weighted-pick-draft-methodology-page](./quick/261014-ol7-weighted-pick-draft-methodology-page/) |
 | 339 | One award model for district events and DCMPs: per event award slots shared among teams who can win; Champ draws on the same model; version 2.0.0 | 2026-10-15 | d9af2dc1 | [261014-qje-one-award-model-for-district-events-and-](./quick/261014-qje-one-award-model-for-district-events-and-/) |
+| 340 | At Quals done the rank 1 team reads captain, alliance 1 again and a team ranked too low to captain loses the Captain row, from structural captain facts of a fixed ranking | 2026-10-15 | db550587 | [261015-3oo-rank-1-keeps-its-settled-captain-caption](./quick/261015-3oo-rank-1-keeps-its-settled-captain-caption/) |
 
 ### Roadmap Evolution
 
