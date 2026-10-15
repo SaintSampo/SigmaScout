@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-15T19:43:42.712Z"
+last_updated: "2026-10-15T19:51:13.636Z"
 last_activity: 2026-10-15
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -779,6 +779,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 343 | Locks tabs are a full width segmented switch with each tier's slot count (prototype 01 of the 2026-10-15 Locks tab sketch) | 2026-10-15 | 7d8f430d | [261015-s1t-locks-tabs-segmented-switch-with-slot-counts](./quick/261015-s1t-locks-tabs-segmented-switch-with-slot-counts/) |
 | 344 | Locks Playoffs cell prints its chance beside the best guess finish; the small line is the pays line alone, so the column narrows (fast task) | 2026-10-15 | 4f010db7 | — |
 | 345 | Fast: a rewound Locks stop keeps an event's alliance selection open at another event's stop until one of that event's playoff rows is at or before the stop; it was read as final from the last qualification instant, future knowledge | 2026-10-15 | 7c393251 | — |
+| 346 | Locks tab counts follow the table: the mounted ledger reports its Locked chip count, the other tab applies the field rule at Live (follow up to 261015-s1t) | 2026-10-15 | fdc3f12d | [261015-s1t-locks-tabs-segmented-switch-with-slot-counts](./quick/261015-s1t-locks-tabs-segmented-switch-with-slot-counts/) |
 
 ### Roadmap Evolution
 
