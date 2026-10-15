@@ -149,26 +149,33 @@ const REQUIRED_FIGURES = [
   // WALK-FORWARD TUNED LINES block: simulated MAE 17.6 (gate line 2: 17.58)
   // and same position naive MAE 39.0 (gate line 3: 39.03), n = 69 with no
   // season skipped; printed range coverage reads 48 of 69 (69.6%). The run
-  // before it read 17.8, 40.5 and 49 of 69 (71.0%).
+  // before it read 17.62, 39.03 and 48 of 69 (261014-qje's before run); the
+  // figures published from 2026-10-07 until 261014-qje were 17.8, 40.5 and
+  // 49 of 69 (71.0%). Quick task 261015-3g4 reproduced 17.58, 39.03 and 48
+  // of 69 exactly on a fresh compose stamped awardModelVersion 2.0.0, with
+  // no --check-history drift.
   "17.6 points",
   "39.0 for the midpoint rule",
   "69 district seasons",
   "48 of 69 seasons, 70%",
 
   // --- `pnpm measure:district-cutoff` -------------------------------------
-  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-14 (quick task
-  // 261014-hx6, on the as-of path at spr@11.0.0+baseline; the 2026-10-07
-  // stored odds run read 1.15 against 1.77 and 181 of 203, retired because it
-  // priced open events with odds from after the stop). Its All positions
-  // line: simulated MAE 1.2 and midpoint rule MAE 1.9 against the settled
-  // cutoff (gate line 1: 1.20 < 1.93, n = 205, PASS), n = 205 positions over
-  // 48 district seasons; gate line 2 reads 179 of 205 (87.3%), PASS inside
-  // the 72% to 88% band. Re-measured after the weighted pick draft
-  // (261014-ol6) and the joint event draws (261014-qv2).
+  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-15 by quick task
+  // 261015-3g4 (joint arm, on the as-of path at spr@11.0.0+baseline, on a
+  // fresh compose carrying award model 2.0.0; saved as
+  // `261015-3g4-after-district-cutoff-report.txt`). Its All positions line:
+  // simulated MAE 1.2 and midpoint rule MAE 2.2 against the settled cutoff
+  // (gate line 1: 1.21 < 2.16, n = 205, PASS), n = 205 positions over 48
+  // district seasons; gate line 2 reads 184 of 205 (89.8%), FAIL above the
+  // 72% to 88% band, NO-GO, published as measured. The run before it,
+  // 261014-qv2 under the retired per team award model, read 1.20 < 1.93
+  // and 179 of 205 (87.3%, PASS). The 2026-10-07 stored odds run read 1.15
+  // against 1.77 and 181 of 203, retired because it priced open events with
+  // odds from after the stop.
   "48 district seasons",
   "1.2 points on average over 205 positions",
-  "1.9 for the midpoint rule",
-  "179 of those 205 positions, 87%",
+  "2.2 for the midpoint rule",
+  "184 of those 205 positions, 90%",
 ];
 
 /**

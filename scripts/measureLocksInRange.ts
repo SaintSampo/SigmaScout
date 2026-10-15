@@ -70,6 +70,19 @@
  * points only 50.2% (439), 3 ties at the line, 294 not locked; no
  * prequalified on either tab. The champ run itself draws independently on
  * both arms; only its field chances read the joint district run.
+ *
+ * MEASURED UNDER AWARD MODEL 2.0.0 (quick task 261015-3g4, run 2026-10-15
+ * at HEAD fae9f14a, joint arm, spr@11.0.0+baseline, 48 result files, report
+ * only, never published, on a fresh offline compose of the district
+ * artifacts stamped awardModelVersion 2.0.0, the one award model of quick
+ * task 261014-qje). Pooled from summed counts: district tab 75.7% (2,346 of
+ * 3,098) In range at season start ended locked, points only 65.0% (2,013),
+ * 34 ties at the line, 718 not locked; champ tab 65.5% (591 of 902), points
+ * only 50.2% (453), 3 ties at the line, 308 not locked; no prequalified on
+ * either tab. Every district season simulated on both tabs, no origin cache
+ * miss. Against the joint arm under the retired per team award model
+ * (261014-qv2: 2,359 of 3,116 and 577 of 874) the district share held at
+ * 75.7% and the champ share moved from 66.0% to 65.5%.
  */
 import { pathToFileURL } from "node:url";
 import type { DistrictArtifact } from "../packages/harness/pageArtifacts.js";

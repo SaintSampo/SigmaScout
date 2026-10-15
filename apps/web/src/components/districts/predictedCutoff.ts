@@ -157,20 +157,28 @@ export type ChampNoCallReason =
  * 261007-jvz's finality cascade reproduced 18.2 against 40.4 and 48 of 69,
  * 69.6%; the same day's rail tie break (district before dcmp within one week)
  * let 2022isr score, reading 17.8 against 40.5 and 49 of 69, 71.0%, over all
- * 69 seasons. The range runs a little narrow and is shown with that
- * coverage quoted on the Methodology page (`districtLedgerContent.ts`); a
- * later calibration round that changes the coverage must update that sentence.
+ * 69 seasons. Quick task 261014-qje (one award model) read 17.58 against
+ * 39.03 and 48 of 69, 69.6%, and quick task 261015-3g4 reproduced those
+ * figures exactly on a fresh compose stamped award model 2.0.0. The range
+ * runs a little narrow and is shown with that coverage quoted on the
+ * Methodology page (`districtLedgerContent.ts`); a later calibration round
+ * that changes the coverage must update that sentence.
  * The District Locks tab's likely range comes from the same estimator
  * (`simulatedLine`), is always shown, and does not read this flag. Its own
- * backtest (`scripts/measureDistrictCutoff.ts`, quick task 261014-hx6, run
- * 2026-10-14 on the as-of path, pricing each position from the state at its
- * stop) measured the range holding the tab's settled cutoff at 183 of 205
- * season start and week end positions over 48 district seasons, 2023 to 2026,
- * 89.3%, ABOVE the same 72% to 88% band, with the line's MAE 1.25 against the
- * midpoint rule's 2.43. History: the retired stored odds run of 2026-10-07
- * read 181 of 203 (89.2%) and 1.15 against 1.77, and priced open events with
- * odds from after the stop. It runs a little wide where the champ range runs
- * a little narrow; both are quoted on the Methodology page.
+ * backtest (`scripts/measureDistrictCutoff.ts`, rerun 2026-10-15 by quick
+ * task 261015-3g4 on the joint arm under award model 2.0.0, on the as-of
+ * path, pricing each position from the state at its stop) measured the
+ * range holding the tab's settled cutoff at 184 of 205 season start and
+ * week end positions over 48 district seasons, 2023 to 2026, 89.8%, ABOVE
+ * the same 72% to 88% band, with the line's MAE 1.21 against the midpoint
+ * rule's 2.16. History: under the retired per team award model the joint
+ * draw run (261014-qv2) read 179 of 205 (87.3%, inside the band) and 1.20
+ * against 1.93; the fixed draft with independent draws (261014-hx6) read
+ * 183 of 205 (89.3%) and 1.25 against 2.43; the retired stored odds run of
+ * 2026-10-07 read 181 of 203 (89.2%) and 1.15 against 1.77, and priced open
+ * events with odds from after the stop. The district range runs a little
+ * wide (89.8%) where the champ range runs a little narrow (69.6%); both are
+ * quoted on the Methodology page.
  */
 export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = true;
 

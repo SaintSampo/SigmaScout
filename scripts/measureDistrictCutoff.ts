@@ -129,6 +129,31 @@
  * at scored positions, the same 48 settled positions and 1 excluded team
  * fallback (2024chs) unscored.
  *
+ * MEASURED UNDER AWARD MODEL 2.0.0 (quick task 261015-3g4, run 2026-10-15
+ * at HEAD fae9f14a, joint arm, spr@11.0.0+baseline, 1,000 draws, seed
+ * 20260830, 48 result files, on a fresh offline compose of the district
+ * artifacts stamped awardModelVersion 2.0.0, the one award model of quick
+ * task 261014-qje). 205 scored positions over 48 district seasons, 2023 to
+ * 2026. Simulated MAE 1.21 against the midpoint rule's 2.16 (bias 0.01 and
+ * -1.48); the range held the settled cutoff at 184 of 205 (89.8%), the mean
+ * printed range 3.9 points wide (3.87). Gate 1 PASS, gate 2 FAIL (above the
+ * band: the settled cutoff sat above the range at 11 positions and below it
+ * at 10), overall NO-GO; published as measured, with the coverage quoted.
+ * Per week the range held 41 of 48 at season start (85.4%), then 38 of 42,
+ * 35 of 40, 38 of 41, 29 of 31, 2 of 2 and 1 of 1. Chance calibration,
+ * report only: Brier 0.1132 over 28,236 printed chances. The largest joint
+ * chance request was 4,244,000 cells (one byte each), 2026fim at season
+ * start. All seven leak checks passed at 205 of 205. 1,194 GENERATED events
+ * and 0 REAL at scored positions, none unavailable, no season skipped, no
+ * origin cache miss. 48 settled positions and 1 excluded team fallback
+ * (2024chs) unscored, 0 no call. The dry run projected 1,198 GENERATED
+ * bakes; the run made 1,197 at a mean of 241 ms (on a loaded machine).
+ * Against the joint arm under the retired per team award model (261014-qv2:
+ * 1.20 against 1.93, 179 of 205) the line held its accuracy, the midpoint
+ * rule moved from 1.93 to 2.16, and the range held a net 5 more positions,
+ * which took it over the band's ceiling of 180. Published on the District
+ * Locks methodology page, source 9.
+ *
  * THE GATE, registered before the first full run:
  *
  *   1. The simulated line's MAE against the settled cutoff is below the
