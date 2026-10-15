@@ -12,6 +12,12 @@
  * entries whose tier is `district`: the same set the web's
  * `tierEvents(team, "district")` yields. A DCMP tier entry is never one of
  * them, so a DCMP tier award never makes a team eligible.
+ *
+ * `districtEventWeeksFromArtifact` (quick task 261014-qje, Q-05) is the week
+ * lookup the district event eligibility reads: a team that won Impact,
+ * Engineering Inspiration or Rookie All Star at an EARLIER week's district
+ * event cannot win it again. One conversion for the browser and the publisher,
+ * as above.
  */
 import type { DcmpEligibilityTeam } from "../core/districts/dcmpAwardEligibility.js";
 import type { DistrictAwardProfile } from "../core/districts/ledgerSimulation.js";
@@ -35,4 +41,19 @@ export function dcmpEligibilityTeamsFromArtifact(
       districtEventKeys: [...districtEventKeys],
     };
   });
+}
+
+/**
+ * Each event's TBA competition week, from the artifact's played and remaining
+ * rows (both tiers), the first row met in team order. A `null` week stays
+ * `null`: the district eligibility reads a null week as never earlier.
+ */
+export function districtEventWeeksFromArtifact(artifact: DistrictArtifact): Map<string, number | null> {
+  const weeks = new Map<string, number | null>();
+  for (const team of artifact.teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (!weeks.has(row.eventKey)) weeks.set(row.eventKey, row.week);
+    }
+  }
+  return weeks;
 }

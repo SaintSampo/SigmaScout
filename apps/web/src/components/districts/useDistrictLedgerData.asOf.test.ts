@@ -15,7 +15,8 @@ import type { DistrictArtifact, EventArtifact } from "../../../../../packages/ha
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import { MAX_DISTRICT_SIMULATION_ROSTER, type DistrictSimulationEventEntry, type DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
-import { assembleSimulatedDcmpBake, simulatedDcmpBakeView } from "./districtRunAssembly.js";
+import { assembleSimulatedDcmpBake, awardSlateMember, simulatedDcmpBakeView } from "./districtRunAssembly.js";
+import type { AwardSlateInput } from "../../../../../packages/core/districts/awardSlate.js";
 import { loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import {
   ARTIFACTS,
@@ -71,6 +72,20 @@ function frozenFoldPlayedElims(matches: DistrictLedgerEventInput["playedElimMatc
     .join(",");
 }
 
+/**
+ * Q-01 (quick task 261014-qje): every request carries an award slate, so the
+ * frozen copy folds it exactly as the shipped signature does, a copy of
+ * `foldAwardSlate`. Nothing else in the frozen copy moved.
+ */
+function frozenFoldAwardSlate(slate: AwardSlateInput): string {
+  const { expected } = slate;
+  const eligibility = [...slate.eligibility]
+    .map((entry) => `${entry.teamKey}=${String(entry.impact)}/${String(entry.engineeringInspiration)}/${String(entry.rookieAllStar)}`)
+    .sort()
+    .join(",");
+  return `awardSlate=${slate.role}:${String(expected.impact)}/${String(expected.engineeringInspiration)}/${String(expected.rookieAllStar)}/${String(expected.judgedRookie)}/${String(expected.judged)}:${eligibility}`;
+}
+
 function frozenRunSignature(events: readonly DistrictSimulationEventRequest[]): string {
   return events
     .map((event) => {
@@ -86,6 +101,8 @@ function frozenRunSignature(events: readonly DistrictSimulationEventRequest[]): 
         frozenFoldKnownPoints(input.knownAwardPoints),
         frozenFoldPlayedElims(input.playedElimMatches),
         ...(input.awardOnlyTeams === undefined ? [] : [`awardOnly=${input.awardOnlyTeams.join(",")}`]),
+        // Q-01: the request's award slate, wherever it carries one.
+        ...(input.awardSlate === undefined ? [] : [frozenFoldAwardSlate(input.awardSlate)]),
       ].join("|");
     })
     .join(";");
@@ -125,6 +142,8 @@ function frozenLiveAssembly(
       startMatchKey,
       conditionOnPlayedElims: startMatchKeyByEvent === undefined,
       tier: tierByEvent?.get(eventKey) ?? "district",
+      // Q-01 (quick task 261014-qje): every request carries its award slate at the position.
+      ...awardSlateMember(artifact, stageByEvent, tierByEvent?.get(eventKey) ?? "district", { eventKey }),
     });
     if (!built.ok) continue;
     if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);

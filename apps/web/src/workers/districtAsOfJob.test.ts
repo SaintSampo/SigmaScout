@@ -8,6 +8,7 @@ import { rpRuleModuleForSeason } from "../../../../packages/core/rankingPoints/r
 import { asOfLeagueLength, type AsOfTeamTuple } from "../../../../packages/harness/asOfState.js";
 import { buildAsOfPricer, priceRowsForSimulation } from "../../../../packages/harness/asOfPricing.js";
 import { simulateDistrictEvent, type DistrictLedgerEventInput } from "../../../../packages/core/districts/ledgerSimulation.js";
+import { buildDistrictAwardSlate } from "../../../../packages/core/districts/awardSlate.js";
 import type { UpcomingMatch } from "../../../../packages/core/algorithms/types.js";
 import { spr } from "../../../../packages/core/algorithms/spr.js";
 import {
@@ -80,6 +81,8 @@ function input(): DistrictLedgerEventInput {
     baselines: ROSTER.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
     ratings: new Map(),
     awardProfiles: new Map(ROSTER.map((teamKey) => [teamKey, { bucket: "none", rookieState: "veteran" }] as const)),
+    // Q-01 (quick task 261014-qje): every request carries an award slate.
+    awardSlate: buildDistrictAwardSlate({ season: SEASON, awardField: ROSTER.map((teamKey) => ({ teamKey })), eligibility: [] }),
   };
 }
 

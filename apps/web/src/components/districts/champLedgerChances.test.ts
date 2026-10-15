@@ -27,8 +27,10 @@ import { CHAMP_CUTOFF_TUNING_GRID } from "../../../../../packages/core/districts
 import type { DistrictLedgerStatusModel, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import type { DistrictEventDistributions, DistrictPointDistribution, DistrictStageFinality } from "./districtLedgerRows.js";
 
-import { awardBaseRate, awardPointsBucketIndex } from "../../../../../packages/core/districts/awardBaseRates.js";
-import { dcmpAwardEligibility, dcmpEntrantWeight } from "../../../../../packages/core/districts/dcmpAwardEligibility.js";
+import { dcmpAwardEligibility } from "../../../../../packages/core/districts/dcmpAwardEligibility.js";
+import { slateAssignments, slateEntrantWeight } from "../../../../../packages/core/districts/awardSlate.js";
+import { mulberry32 } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
+import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
   DCMP_DRAWN_AWARD_TYPES,
   champCutoffTuning,
@@ -38,7 +40,7 @@ import {
 } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { dcmpEligibilityTeamsFromArtifact } from "../../../../../packages/harness/districtDcmpAwardInputs.js";
 import { dcmpEventKeysFor } from "./champLedgerRows.js";
-import { dcmpAwardFinalAt, dcmpEligibilityAt } from "./dcmpAwardInputs.js";
+import { dcmpAwardFinalAt, dcmpAwardSlateAt, dcmpEligibilityAt } from "./dcmpAwardInputs.js";
 import { awardProfileOrZero, deriveStageFromState, tierEvents } from "./districtLedgerRows.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -556,26 +558,132 @@ describe("buildChampAwardDraws", () => {
       }),
     ]);
     expect(unprofiled.teams.every((entry) => entry.awardProfile === undefined)).toBe(true);
-    const uniform = buildChampAwardDraws({ artifact: unprofiled, setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
-    // Never a Rookie All Star entrant; weight 1 for Impact and EI under uniform.
-    expect(uniform[2]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc5", weight: 0 }]);
-    expect(uniform[1]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc5", weight: 1 }]);
-    expect(uniform[0]!.candidates).toEqual([{ teamKey: "frc4", weight: 1 }]);
-    // Under decoration it weighs as the none bucket veteran, which is below
-    // the three or more bucket veteran the base rate table ranks highest.
-    const decoration = CHAMP_CUTOFF_TUNING_GRID.find((setting) => setting.weighting === "decoration")!;
-    const none = buildChampAwardDraws({ artifact: unprofiled, setting: decoration })[0]!.candidates[0]!.weight;
-    const decorated = buildChampAwardDraws({ artifact: awardArtifact(false), setting: decoration })[0]!.candidates[0]!.weight;
-    expect(none).toBeGreaterThan(0);
-    expect(none).toBeLessThan(decorated);
+    const draws = buildChampAwardDraws({ artifact: unprofiled, setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    // Never a Rookie All Star entrant. For Impact and Engineering Inspiration
+    // it weighs as the zero profile's own class, the one award model's lift
+    // (quick task 261014-qje, Q-11): the DCMP tier lift as a held candidate,
+    // the district tier lift as an open event's entrant.
+    expect(draws[2]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc5", weight: 0 }]);
+    expect(draws[1]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc5", weight: slateEntrantWeight(SEASON, "district", 9, ZERO_AWARD_PROFILE) }]);
+    expect(draws[0]!.candidates).toEqual([{ teamKey: "frc4", weight: slateEntrantWeight(SEASON, "dcmp", 0, ZERO_AWARD_PROFILE) }]);
+    expect(draws[0]!.candidates[0]!.weight).toBeGreaterThan(0);
+  });
+});
+
+describe("buildChampAwardDraws on the one award model (quick task 261014-qje, Q-11)", () => {
+  const OPEN_STATE = state({ awardsPosted: false, playoffsDone: false, alliancesPicked: false, qualMatchesPlayed: 0 });
+  interface WireProfile {
+    readonly bucket: "none" | "threeOrMore";
+    readonly rookie: boolean;
+    readonly priorJudgedAwards: number;
+    readonly priorImpactWins: number;
+  }
+  const decorated: WireProfile = { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 9, priorImpactWins: 2 };
+  const plain: WireProfile = { bucket: "none", rookie: false, priorJudgedAwards: 0, priorImpactWins: 0 };
+  const profileOf = (wire: WireProfile): DistrictAwardProfile => ({
+    bucket: wire.bucket === "threeOrMore" ? "three-or-more" : "none",
+    rookieState: wire.rookie ? "rookie" : "veteran",
+    priorJudgedAwards: wire.priorJudgedAwards,
+    priorImpactWins: wire.priorImpactWins,
+  });
+  /** frc1 (decorated) holds Impact at a final district event AND is entered at an open one; frc2 (plain) and frc3 (decorated) are entered at the open one. */
+  function weightArtifact(overrides: Partial<DistrictArtifact> = {}): DistrictArtifact {
+    return artifactOf(
+      [
+        team({
+          teamKey: "frc1",
+          awardProfile: decorated,
+          eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })],
+          remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE }],
+          qualifyingAwards: [{ eventKey: "2026wabon", awardType: 0, label: "Impact", awardOnly: false }],
+        }),
+        team({ teamKey: "frc2", awardProfile: plain, remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE }] }),
+        team({ teamKey: "frc3", awardProfile: decorated, remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE }] }),
+      ],
+      overrides
+    );
+  }
+
+  it("a held candidate weighs its DCMP tier class lift, an open district event's entrant its district tier class lift", () => {
+    const [impact] = buildChampAwardDraws({ artifact: weightArtifact(), setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    expect(impact!.candidates).toEqual([{ teamKey: "frc1", weight: slateEntrantWeight(SEASON, "dcmp", 0, profileOf(decorated)) }]);
+    const entrants = new Map(impact!.pendingEvents[0]!.entrants.map((entrant) => [entrant.teamKey, entrant.weight] as const));
+    expect(entrants.get("frc2")).toBe(slateEntrantWeight(SEASON, "district", 0, profileOf(plain)));
+    expect(entrants.get("frc3")).toBe(slateEntrantWeight(SEASON, "district", 0, profileOf(decorated)));
+    expect(entrants.get("frc3")).toBeGreaterThan(entrants.get("frc2")!);
   });
 
-  it("weights by the award base rate under decoration", () => {
-    const decoration = CHAMP_CUTOFF_TUNING_GRID.find((setting) => setting.weighting === "decoration")!;
-    const draws = buildChampAwardDraws({ artifact: awardArtifact(false), setting: decoration });
-    const weight = draws[0]!.candidates[0]!.weight;
-    expect(weight).toBeGreaterThan(0);
-    expect(weight).toBeLessThan(1);
+  it("an entrant already holding that award at a final district event weighs 0 at the open event; its other awards stay open", () => {
+    const [impact, engineeringInspiration] = buildChampAwardDraws({ artifact: weightArtifact(), setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    expect(impact!.pendingEvents[0]!.entrants.find((entrant) => entrant.teamKey === "frc1")!.weight).toBe(0);
+    expect(engineeringInspiration!.pendingEvents[0]!.entrants.find((entrant) => entrant.teamKey === "frc1")!.weight).toBe(
+      slateEntrantWeight(SEASON, "district", 9, profileOf(decorated))
+    );
+  });
+
+  it("a season with no slate tables weighs the audience: 1 inside it, 0 outside it", () => {
+    const [impact, engineeringInspiration, rookieAllStar] = buildChampAwardDraws({ artifact: weightArtifact({ year: 2019, districtKey: "2019pnw" }), setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    expect(impact!.candidates).toEqual([{ teamKey: "frc1", weight: 1 }]);
+    expect(impact!.pendingEvents[0]!.entrants).toEqual([
+      { teamKey: "frc1", weight: 0 },
+      { teamKey: "frc2", weight: 1 },
+      { teamKey: "frc3", weight: 1 },
+    ]);
+    expect(engineeringInspiration!.pendingEvents[0]!.entrants.map((entrant) => entrant.weight)).toEqual([1, 1, 1]);
+    expect(rookieAllStar!.pendingEvents[0]!.entrants.map((entrant) => entrant.weight)).toEqual([0, 0, 0]);
+  });
+
+  it("with one award to give and every candidate held, the champ draws' win frequencies equal the DCMP slate's chances within 4 standard errors", () => {
+    // Five Impact holders at final district events, of three classes; no open event.
+    const holders: { teamKey: string; wire: WireProfile }[] = [
+      { teamKey: "frc11", wire: { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 12, priorImpactWins: 3 } },
+      { teamKey: "frc12", wire: { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 5, priorImpactWins: 0 } },
+      { teamKey: "frc13", wire: { bucket: "none", rookie: false, priorJudgedAwards: 0, priorImpactWins: 0 } },
+      { teamKey: "frc14", wire: { bucket: "none", rookie: false, priorJudgedAwards: 0, priorImpactWins: 0 } },
+      { teamKey: "frc15", wire: { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 4, priorImpactWins: 1 } },
+    ];
+    const artifact = artifactOf(
+      holders.map((holder, i) =>
+        team({
+          teamKey: holder.teamKey,
+          awardProfile: holder.wire,
+          eventPoints: [eventPoints({ eventKey: `2026wae${String(i)}`, week: 1 }), eventPoints({ eventKey: "2026pncmp", week: 5, tier: "dcmp", state: OPEN_STATE })],
+          qualifyingAwards: [{ eventKey: `2026wae${String(i)}`, awardType: 0, label: "Impact", awardOnly: false }],
+        })
+      )
+    );
+    const [impact] = buildChampAwardDraws({ artifact, setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    expect(impact!.pendingEvents).toEqual([]);
+    expect(impact!.candidates.map((candidate) => candidate.teamKey)).toEqual(holders.map((holder) => holder.teamKey));
+    // One award to give: the count weights all on 1, for the draws and the slate alike.
+    const slate = dcmpAwardSlateAt(artifact, undefined, "wholeChampionship");
+    expect(slate.role).toBe("wholeChampionship");
+    const oneAward = { ...slate, expected: { ...slate.expected, impact: 1 } };
+    const field = holders.map((holder) => ({ teamKey: holder.teamKey }));
+    const profiles = new Map(holders.map((holder) => [holder.teamKey, profileOf(holder.wire)] as const));
+    const chances = new Map(slateAssignments(SEASON, field, profiles, oneAward).map((assignment) => [assignment.teamKey, assignment.impact] as const));
+    // The champ draw's own pick: one winner by weight among the held candidates.
+    const total = impact!.candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+    const rng = mulberry32(20261014);
+    const runs = 20_000;
+    const wins = new Map<string, number>();
+    for (let run = 0; run < runs; run++) {
+      const target = rng() * total;
+      let cumulative = 0;
+      for (const candidate of impact!.candidates) {
+        cumulative += candidate.weight;
+        if (cumulative > target) {
+          wins.set(candidate.teamKey, (wins.get(candidate.teamKey) ?? 0) + 1);
+          break;
+        }
+      }
+    }
+    for (const holder of holders) {
+      const p = chances.get(holder.teamKey)!;
+      expect(p).toBeCloseTo(impact!.candidates.find((candidate) => candidate.teamKey === holder.teamKey)!.weight / total, 12);
+      const se = Math.sqrt((p * (1 - p)) / runs);
+      expect(Math.abs((wins.get(holder.teamKey) ?? 0) / runs - p), holder.teamKey).toBeLessThanOrEqual(4 * se);
+    }
   });
 });
 
@@ -827,18 +935,14 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
     setting?: ChampCutoffSetting;
     fieldProven?: boolean;
   }) {
-    const DECORATION_POINTS: Readonly<Record<DcmpDrawnAwardType, number>> = { 0: 10, 9: 8, 10: 8 };
-    function awardWeight(entry: DistrictTeam, awardType: DcmpDrawnAwardType, season: number, setting: ChampCutoffSetting): number {
+    // Q-11 (quick task 261014-qje): the weighting knob is gone, so the copy
+    // keeps its UNIFORM branch only, the branch every currently uniform season
+    // ran; the decoration branch read the deleted base rate tables.
+    function awardWeight(entry: DistrictTeam, awardType: DcmpDrawnAwardType, _season: number, _setting: ChampCutoffSetting): number {
       const profile = awardProfileOrZero(entry);
       if (awardType === 10 && profile.rookieState !== "rookie") return 0;
       if (awardType === 9 && profile.rookieState === "rookie") return 0;
-      if (setting.weighting === "uniform") return 1;
-      try {
-        const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
-        return rate.pmf[awardPointsBucketIndex(DECORATION_POINTS[awardType])!] ?? 0;
-      } catch {
-        return 1;
-      }
+      return 1;
     }
     const { artifact, stageByEvent } = options;
     const season = artifact.year;
@@ -880,7 +984,16 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
   }
 
   const OPEN_STATE = state({ awardsPosted: false, playoffsDone: false, alliancesPicked: false, qualMatchesPlayed: 0 });
-  function eligibilityArtifact(dcmpAwardsPosted: boolean): DistrictArtifact {
+  /**
+   * `heldEntrant` keeps frc1, who holds Impact and Engineering Inspiration at
+   * a final district event, entered at the open 2026wasno, and frc2, who
+   * holds Rookie All Star there, entered at the open 2026waaaa: the case Q-11
+   * weighs 0. `season` 2019 has no slate tables at either tier, so the
+   * weights are the audience: the old uniform branch.
+   */
+  function eligibilityArtifact(dcmpAwardsPosted: boolean, options: { readonly heldEntrant?: boolean; readonly season?: number } = {}): DistrictArtifact {
+    const season = options.season ?? SEASON;
+    const heldEntrant = options.heldEntrant ?? true;
     return artifactOf([
       team({
         teamKey: "frc1",
@@ -889,7 +1002,7 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
           eventPoints({ eventKey: "2026wabon", week: 0 }),
           eventPoints({ eventKey: "2026pncmp", week: 5, tier: "dcmp", state: state({ awardsPosted: dcmpAwardsPosted }) }),
         ],
-        remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE }],
+        remainingEvents: heldEntrant ? [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN_STATE }] : [],
         qualifyingAwards: [
           { eventKey: "2026wabon", awardType: 0, label: "Impact", awardOnly: false },
           { eventKey: "2026wabon", awardType: 9, label: "EI", awardOnly: false },
@@ -900,7 +1013,7 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
         teamKey: "frc2",
         awardProfile: { bucket: "none", rookie: true },
         eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })],
-        remainingEvents: [{ eventKey: "2026waaaa", eventName: "Aaa", week: 3, tier: "district", maxPoints: 83, state: OPEN_STATE }],
+        remainingEvents: heldEntrant ? [{ eventKey: "2026waaaa", eventName: "Aaa", week: 3, tier: "district", maxPoints: 83, state: OPEN_STATE }] : [],
         qualifyingAwards: [{ eventKey: "2026wabon", awardType: 10, label: "RAS", awardOnly: true }],
       }),
       team({
@@ -915,7 +1028,7 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
         teamKey: "frc4",
         remainingEvents: [{ eventKey: "2026waaaa", eventName: "Aaa", week: 3, tier: "district", maxPoints: 83, state: OPEN_STATE }],
       }),
-    ]);
+    ], season === SEASON ? {} : { year: season, districtKey: `${String(season)}pnw` });
   }
 
   const settings: readonly (ChampCutoffSetting | undefined)[] = [undefined, ...CHAMP_CUTOFF_TUNING_GRID];
@@ -928,8 +1041,11 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
     ]),
   ];
 
-  it("returns deep equal output to the pre refactor body on every fixture, setting and stage", () => {
-    const artifacts = [eligibilityArtifact(false), eligibilityArtifact(true)];
+  it("returns deep equal output to the pre refactor uniform body for a season with no slate tables and no held entrant, on every fixture, setting and stage", () => {
+    // Q-11 (quick task 261014-qje): the one award model's weights equal the
+    // old uniform weights exactly where the season has no slate tables and no
+    // entrant already holds the award; elsewhere they are the class lifts.
+    const artifacts = [eligibilityArtifact(false, { season: 2019, heldEntrant: false }), eligibilityArtifact(true, { season: 2019, heldEntrant: false })];
     let compared = 0;
     for (const artifact of artifacts) {
       for (const setting of settings) {
@@ -956,11 +1072,12 @@ describe("buildChampAwardDraws over the core eligibility helper (quick task 2610
     for (const setting of CHAMP_CUTOFF_TUNING_GRID) {
       for (const stageByEvent of stages) {
         const core = dcmpAwardEligibility({
+          season: artifact.year,
           teams: dcmpEligibilityTeamsFromArtifact(artifact, awardProfileOrZero),
           awardFinal: dcmpAwardFinalAt(artifact, stageByEvent),
-          weight: (entry, awardType) => dcmpEntrantWeight(awardProfileOrZero(byKey.get(entry.teamKey)), awardType, artifact.year, setting.weighting),
+          profileOf: (teamKey) => awardProfileOrZero(byKey.get(teamKey)),
         });
-        expect(dcmpEligibilityAt(artifact, stageByEvent, setting)).toEqual(core);
+        expect(dcmpEligibilityAt(artifact, stageByEvent)).toEqual(core);
         const draws = buildChampAwardDraws({ artifact, ...(stageByEvent === undefined ? {} : { stageByEvent }), setting });
         expect(draws.map((draw) => ({ awardType: draw.awardType, candidates: draw.candidates, pendingEvents: draw.pendingEvents }))).toEqual(core);
       }

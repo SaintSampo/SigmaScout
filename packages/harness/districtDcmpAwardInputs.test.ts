@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "../core/districts/ledgerSimulation.js";
-import { dcmpEligibilityTeamsFromArtifact } from "./districtDcmpAwardInputs.js";
+import { dcmpEligibilityTeamsFromArtifact, districtEventWeeksFromArtifact } from "./districtDcmpAwardInputs.js";
 import { DistrictArtifactSchema, type DistrictArtifact } from "./pageArtifacts.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -98,5 +98,31 @@ describe("dcmpEligibilityTeamsFromArtifact", () => {
       },
       { teamKey: "frc2", rookie: true, heldAwards: [], districtEventKeys: ["2026wabon"] },
     ]);
+  });
+});
+
+describe("districtEventWeeksFromArtifact (quick task 261014-qje, Q-05)", () => {
+  const artifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      eventPoints: [played("2026wabon"), { ...played("2026pncmp", "dcmp"), week: 5 }],
+      remainingEvents: [
+        { eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: OPEN },
+        { eventKey: "2026wanul", eventName: "Null week", week: null, tier: "district", maxPoints: 83, state: OPEN },
+      ],
+    }),
+    // A later team's different week for an event already met never overrides the first row.
+    team({ teamKey: "frc2", eventPoints: [{ ...played("2026wabon"), week: 4 }] }),
+  ]);
+
+  it("maps every played and remaining event to its week, both tiers, null kept as null, the first row met winning", () => {
+    expect(districtEventWeeksFromArtifact(artifact)).toEqual(
+      new Map<string, number | null>([
+        ["2026wabon", 1],
+        ["2026pncmp", 5],
+        ["2026wasno", 2],
+        ["2026wanul", null],
+      ])
+    );
   });
 });

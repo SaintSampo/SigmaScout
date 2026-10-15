@@ -166,7 +166,7 @@ import {
 } from "../../../../../packages/core/districts/bracket.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import { pickPositionPmfForSeason } from "../../../../../packages/core/districts/pickDraft.js";
-import type { DcmpAwardSlateInput } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
+import { districtEligibilityForField, type AwardSlateInput } from "../../../../../packages/core/districts/awardSlate.js";
 import { securedPlayoffPoints, type PlayoffWinRow } from "../../../../../packages/core/districts/securedPlayoffPoints.js";
 import { allianceRatingsFromMetrics, type AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
@@ -812,13 +812,9 @@ export type DistrictEventInputResult =
  *
  * `priorJudgedAwards` and `priorImpactWins` are forwarded UNCHANGED and each
  * stays absent when the artifact carries none. Defaulting either to 0 here
- * would sort that team to the bottom of its field and price it at the
- * ordering's tail; `awardOrderingAssignments` instead takes the whole event
- * back to the base rate, which is the price the artifact was published at
- * before the ordering existed. That includes an artifact published with the
- * judged count but before the Impact count (260929-imp): the committed Impact
- * tables were measured under the Impact-first ordering, and the one-number
- * ordering against them would misprice position 1.
+ * would put that team in the undecorated class; the award slate instead
+ * prices a field with any missing count at lift 1 for every team (all or
+ * nothing per field, quick task 261014-qje), never from a fabricated class.
  */
 export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | undefined {
   const profile = team.awardProfile;
@@ -1273,12 +1269,16 @@ export interface BuildDistrictEventInputOptions {
    */
   readonly asOfBaselines?: readonly SimTeamBaseline[];
   /**
-   * THE DCMP AWARD SLATE (quick task 261014-i8i), built by the caller with
-   * `dcmpAwardSlateAt` at the same position. Placed on the input ONLY when
-   * `tier` is `"dcmp"`: a district tier input never carries one, so every
-   * district tier input is byte for byte what it was.
+   * THE ONE AWARD SLATE (quick task 261014-qje, Q-01; the DCMP slate of
+   * 261014-i8i before it), built by the caller at the same position:
+   * `districtAwardSlateAt` at the district tier, `dcmpAwardSlateAt` at the
+   * dcmp tier. A district role slate is fitted to this event's actual award
+   * field (`districtEligibilityForField`: the roster plus the award only
+   * teams, a guest the district list does not carry reading chance 1).
+   * Absent, an event whose awards are not posted reads unavailable
+   * (`MissingAwardSlateError`).
    */
-  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
+  readonly awardSlate?: AwardSlateInput;
 }
 
 /**
@@ -1423,7 +1423,14 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(knownAwardPoints !== undefined ? { knownAwardPoints } : {}),
     ...(playedElims.matches.length > 0 ? { playedElimMatches: playedElims.matches } : {}),
     ...(awardOnlyTeams.length > 0 ? { awardOnlyTeams } : {}),
-    ...(tier === "dcmp" && options.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: options.dcmpAwardSlate } : {}),
+    ...(options.awardSlate === undefined
+      ? {}
+      : {
+          awardSlate:
+            options.awardSlate.role === "district"
+              ? { ...options.awardSlate, eligibility: districtEligibilityForField(options.awardSlate.eligibility, [...rosterKeys, ...awardOnlyTeams].map((teamKey) => ({ teamKey }))) }
+              : options.awardSlate,
+        }),
     ...(pickPositionPmf !== undefined ? { pickPositionPmf } : {}),
     // THE PER RUN RECORD (quick task 261014-qv2), at the district tier only:
     // the District Locks advancement run reads every team at this event from

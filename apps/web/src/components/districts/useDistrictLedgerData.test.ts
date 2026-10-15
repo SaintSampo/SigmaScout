@@ -1199,7 +1199,7 @@ describe("every DCMP tier request carries a DCMP award slate (quick task 261014-
 
   /** Holds the slate to the fixture's facts: the two winners in, the ineligible team out. */
   function expectFixtureSlate(input: DistrictLedgerEventInput, role: string): void {
-    const slate = input.dcmpAwardSlate;
+    const slate = input.awardSlate;
     expect(slate).toBeDefined();
     expect(slate!.role).toBe(role);
     const byTeam = new Map(slate!.eligibility.map((entry) => [entry.teamKey, entry] as const));
@@ -1213,14 +1213,17 @@ describe("every DCMP tier request carries a DCMP award slate (quick task 261014-
     const assembled = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [DCMP], eventArtifacts, stageByEvent, tierByEvent });
     expect(assembled.events).toHaveLength(1);
     expectFixtureSlate(assembled.events[0]!.input, "single");
-    expect(assembled.signature).toContain("|dcmpSlate=single:");
+    expect(assembled.signature).toContain("|awardSlate=single:");
   });
 
-  it("a district tier request from the same assembly carries none", () => {
+  it("a district tier request from the same assembly carries a district slate (quick task 261014-qje, Q-01)", () => {
     const assembled = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [DCMP], eventArtifacts, stageByEvent });
     expect(assembled.events).toHaveLength(1);
-    expect("dcmpAwardSlate" in assembled.events[0]!.input).toBe(false);
-    expect(assembled.signature).not.toContain("dcmpSlate=");
+    const slate = assembled.events[0]!.input.awardSlate!;
+    expect(slate.role).toBe("district");
+    // Fitted to the event's award field: every roster team listed.
+    expect(slate.eligibility.map((entry) => entry.teamKey)).toEqual([...roster].sort());
+    expect(assembled.signature).toContain("|awardSlate=district:");
   });
 
   const planned = (plan: Record<string, unknown>): AsOfRewindResult =>
@@ -1259,7 +1262,7 @@ describe("every DCMP tier request carries a DCMP award slate (quick task 261014-
       [DCMP, QUAL_DONE],
     ]);
     const rewound = assembleAsOfDistrictEvents({ artifact: districtArtifact, result: realPlan, algorithmVersion: "7.0.0+rolling", eventArtifacts, stageByEvent: open, tierByEvent, candidateKeys: [DCMP] });
-    const slate = rewound.events[0]!.input.dcmpAwardSlate!;
+    const slate = rewound.events[0]!.input.awardSlate!;
     expect(slate.eligibility).toHaveLength(roster.length);
     for (const entry of slate.eligibility) expect(entry.impact, entry.teamKey).toBeCloseTo(1 / roster.length, 12);
     // ... and the stage change moves the signature, so the event re-runs.
@@ -1271,7 +1274,7 @@ describe("every DCMP tier request carries a DCMP award slate (quick task 261014-
     const assembled = assembleSimulatedDcmpBake({ artifact: districtArtifact, result: generatedPlan, algorithmVersion: "7.0.0+rolling", eventKey: DCMP, roster, stageByEvent });
     if (assembled.status !== "ready") throw new Error(`expected a ready bake, got ${assembled.status}`);
     expectFixtureSlate(assembled.request.input, "wholeChampionship");
-    expect(assembled.signature).toContain("|dcmpSlate=wholeChampionship:");
+    expect(assembled.signature).toContain("|awardSlate=wholeChampionship:");
   });
 
   it("the Worker protocol accepts a slate as plain data and refuses a malformed one", () => {
@@ -1279,13 +1282,61 @@ describe("every DCMP tier request carries a DCMP award slate (quick task 261014-
     const message = (events: readonly DistrictSimulationEventRequest[]) => ({ type: "run", events, draws: 10, seed: 1 });
     expect(isDistrictSimulationRequest(structuredClone(message(assembled.events)))).toBe(true);
     const event = assembled.events[0]!;
-    const slate = event.input.dcmpAwardSlate!;
+    const slate = event.input.awardSlate!;
+    // Every one of the five roles is accepted (quick task 261014-qje).
+    for (const role of ["district", "single", "division", "finals", "wholeChampionship"]) {
+      expect(isDistrictSimulationRequest(message([{ ...event, input: { ...event.input, awardSlate: { ...slate, role } as never } }]))).toBe(true);
+    }
+    const { judgedRookie: _dropped, ...fourCounts } = slate.expected;
     const broken = [
-      { ...slate, role: "district" },
+      { ...slate, role: "region" },
+      { ...slate, expected: fourCounts },
+      { ...slate, expected: { ...slate.expected, judgedRookie: Number.NaN } },
       { ...slate, expected: { ...slate.expected, judged: -1 } },
       { ...slate, eligibility: [{ teamKey: "", impact: 1, engineeringInspiration: 0, rookieAllStar: 0 }] },
       { ...slate, eligibility: "everyone" },
     ];
-    for (const bad of broken) expect(isDistrictSimulationRequest(message([{ ...event, input: { ...event.input, dcmpAwardSlate: bad as never } }]))).toBe(false);
+    for (const bad of broken) expect(isDistrictSimulationRequest(message([{ ...event, input: { ...event.input, awardSlate: bad as never } }]))).toBe(false);
+  });
+
+  it("a later district event's slate reads the earlier event's award finality at the stop, and the signature moves with it (quick task 261014-qje, Q-05)", () => {
+    // Every roster team is also entered at LATE, a week 4 district event,
+    // after DIST (week 2), where frc500 won Impact.
+    const LATE = "2026walate";
+    const withLate: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...districtArtifact,
+      teams: districtArtifact.teams.map((team) => ({
+        ...team,
+        remainingEvents: [{ eventKey: LATE, eventName: "Late", week: 4, tier: "district", maxPoints: 83 }, ...team.remainingEvents],
+      })),
+    });
+    const latePlan = planned({ mode: "generated", eventKey: LATE, tier: "district", roster, bake: { districtKey: "2026pnw", eventType: 1, week: 4, matchesPerTeam: 12 } });
+    const lateResult = { ...latePlan, events: new Map([[LATE, (latePlan as unknown as { events: Map<string, unknown> }).events.get(DCMP)]]) } as unknown as AsOfRewindResult;
+    const lateTiers = new Map<string, "district" | "dcmp">([...tierByEvent, [LATE, "district"]]);
+    const at = (dist: DistrictStageFinality) =>
+      assembleAsOfDistrictEvents({
+        artifact: withLate,
+        result: lateResult,
+        algorithmVersion: "7.0.0+rolling",
+        eventArtifacts,
+        stageByEvent: new Map<string, DistrictStageFinality>([
+          [DIST, dist],
+          [LATE, QUAL_DONE],
+        ]),
+        tierByEvent: lateTiers,
+        candidateKeys: [LATE],
+      });
+    const final = at(ALL_FINAL);
+    const open = at(QUAL_DONE);
+    const finalSlate = new Map(final.events[0]!.input.awardSlate!.eligibility.map((entry) => [entry.teamKey, entry] as const));
+    const openSlate = new Map(open.events[0]!.input.awardSlate!.eligibility.map((entry) => [entry.teamKey, entry] as const));
+    expect(final.events[0]!.input.awardSlate!.role).toBe("district");
+    // Final: the Impact winner cannot win Impact again; the EI winner cannot win EI again; cross awards stay open.
+    expect(finalSlate.get(IMPACT_WINNER)).toEqual({ teamKey: IMPACT_WINNER, impact: 0, engineeringInspiration: 1, rookieAllStar: 1 });
+    expect(finalSlate.get(EI_WINNER)).toEqual({ teamKey: EI_WINNER, impact: 1, engineeringInspiration: 0, rookieAllStar: 1 });
+    expect(finalSlate.get(INELIGIBLE)).toEqual({ teamKey: INELIGIBLE, impact: 1, engineeringInspiration: 1, rookieAllStar: 1 });
+    // Open: nobody holds DIST's Impact yet; each of the 24 entrants is its winner with chance 1 in 24.
+    expect(openSlate.get(IMPACT_WINNER)!.impact).toBeCloseTo(1 - 1 / roster.length, 12);
+    expect(final.signature).not.toBe(open.signature);
   });
 });

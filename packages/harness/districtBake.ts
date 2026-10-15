@@ -63,7 +63,7 @@ import {
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { pickPositionPmfForSeason } from "../core/districts/pickDraft.js";
 import type { AwardBaseRateSource } from "../core/districts/awardBaseRates.js";
-import type { DcmpAwardSlateInput } from "../core/districts/dcmpAwardSlate.js";
+import { districtEligibilityForField, type AwardSlateInput } from "../core/districts/awardSlate.js";
 import type { AllianceMemberRating } from "../core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../core/algorithms/simulation/rankSimulation.js";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
@@ -197,13 +197,16 @@ export interface DistrictBakeParams {
   /** Already bound to the right walk-forward state by the caller; pure, so calling it is side-effect-free. */
   readonly predict: (match: UpcomingMatch) => Prediction;
   /**
-   * A DCMP tier event's award slate (quick task 261014-i8i), handed to every
-   * schedule's simulation input unchanged. Required at the dcmp tier: without
-   * one the simulation throws `MissingDcmpAwardSlateError`, which propagates
-   * like any other simulation refusal. Refused at the district tier
-   * (`DcmpAwardSlateOnDistrictTierError`).
+   * THE EVENT'S AWARD SLATE (quick task 261014-i8i for the DCMP tier, quick
+   * task 261014-qje for the district tier, Q-01), handed to every schedule's
+   * simulation input. A district role slate is fitted to the roster, the bake's
+   * award field (`districtEligibilityForField`). Required at either tier:
+   * without one the simulation throws `MissingAwardSlateError`, which
+   * propagates like any other simulation refusal. A role that does not match
+   * the tier is refused (`DcmpAwardSlateOnDistrictTierError`,
+   * `DistrictAwardSlateOnDcmpTierError`).
    */
-  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
+  readonly awardSlate?: AwardSlateInput;
   /**
    * Record and pool every schedule's per run event totals (quick task
    * 261014-qv2) for the browser's joint advancement draw. The publisher never
@@ -409,6 +412,14 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
   const record = params.recordEventTotalByRun === true;
   const pooledByRun = record ? allocateEventTotalByRun(scheduleCount * drawsPerSchedule, sortedRoster.length, totalCeiling) : undefined;
 
+  // The slate, fitted to the bake's award field (the roster) once.
+  const awardSlate: AwardSlateInput | undefined =
+    params.awardSlate === undefined
+      ? undefined
+      : params.awardSlate.role === "district"
+        ? { ...params.awardSlate, eligibility: districtEligibilityForField(params.awardSlate.eligibility, sortedRoster.map((teamKey) => ({ teamKey }))) }
+        : params.awardSlate;
+
   for (let k = 0; k < scheduleCount; k++) {
     const input: DistrictLedgerEventInput = {
       eventKey,
@@ -420,7 +431,7 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       baselines,
       ratings: params.ratings,
       awardProfiles,
-      ...(params.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: params.dcmpAwardSlate }),
+      ...(awardSlate === undefined ? {} : { awardSlate }),
       ...(pickPositionPmf === undefined ? {} : { pickPositionPmf }),
       ...(record ? { recordEventTotalByRun: true as const } : {}),
     };

@@ -93,6 +93,7 @@ import {
   type BracketSourceEvent,
   type DistrictStageFinality,
 } from "../apps/web/src/components/districts/districtLedgerRows.js";
+import { awardSlateMember } from "../apps/web/src/components/districts/districtRunAssembly.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORPUS_ABSOLUTE = join(REPO_ROOT, "data", "corpus.sqlite");
@@ -854,6 +855,8 @@ describe("an open Playoffs cell never reads at least more than its own run draws
           conditionOnPlayedElims: false,
           asOfPlayedElimMatchKeys: playedKeys,
           tier: "district",
+          // The award slate the tab's assembly attaches at the stop (quick task 261014-qje, Q-01).
+          ...awardSlateMember(district, stageByEvent, "district", { eventKey }),
         });
         if (!built.ok) throw new Error(`${eventKey} round ${String(round)}: the tab's input builder refused (${built.reason})`);
         stops += 1;

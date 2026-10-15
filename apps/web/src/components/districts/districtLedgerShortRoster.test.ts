@@ -26,6 +26,7 @@ import {
   distributionsFromResult,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
+import { awardSlateMember } from "./districtRunAssembly.js";
 
 const SEASON = 2026;
 const EVENT_KEY = "2026meshort";
@@ -222,6 +223,8 @@ describe("a 20-team district event with two demo alliances prices at every stage
         stage: position.stage,
         startMatchKey: position.startMatchKey,
         conditionOnPlayedElims: position.conditionOnPlayedElims,
+        // The award slate the Live assembly attaches (quick task 261014-qje, Q-01).
+        ...awardSlateMember(districtArtifact, undefined, "district", { eventKey: EVENT_KEY }),
       });
       expect(built.ok).toBe(true);
       if (!built.ok) throw new Error("unreachable");

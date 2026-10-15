@@ -372,11 +372,11 @@ function isEventRequest(value: unknown): boolean {
     if (!Array.isArray(eventInput.awardOnlyTeams)) return false;
     if (eventInput.baselines.length + eventInput.awardOnlyTeams.length > MAX_DISTRICT_SIMULATION_ROSTER) return false;
   }
-  // THE DCMP AWARD SLATE (quick task 261014-i8i): plain data, shape and cost
-  // only. A slate on a district tier input, or a missing one at the dcmp tier,
-  // is `simulateDistrictEvent`'s own typed refusal, a per event unavailable
-  // entry through the existing catch.
-  if (eventInput.dcmpAwardSlate !== undefined && !isDcmpAwardSlate(eventInput.dcmpAwardSlate)) return false;
+  // THE AWARD SLATE (quick tasks 261014-i8i and 261014-qje): plain data,
+  // shape and cost only. A role that does not match the tier, or a missing
+  // slate where awards are not posted, is `simulateDistrictEvent`'s own typed
+  // refusal, a per event unavailable entry through the existing catch.
+  if (eventInput.awardSlate !== undefined && !isAwardSlate(eventInput.awardSlate)) return false;
   // THE WEIGHTED PICK DRAFT (quick task 261014-ol6): shape and cost only. A
   // round with no positive weight, a negative or a non finite entry is
   // `simulateDistrictEvent`'s own `InvalidPickPositionPmfError`, a per event
@@ -406,22 +406,28 @@ function isPickPositionPmf(value: unknown): boolean {
   return isPickPositionRound(candidate.firstPick) && isPickPositionRound(candidate.secondPick);
 }
 
-/** Upper bound on a DCMP award slate's eligibility entries: a whole district's teams, with room to spare. */
+/** Upper bound on an award slate's eligibility entries: a whole district's teams, with room to spare. */
 export const MAX_DCMP_SLATE_ELIGIBILITY = 2048;
+
+/** The five roles a slate can carry: the district tier's own and the four DCMP tier roles (quick task 261014-qje). */
+const AWARD_SLATE_ROLES: ReadonlySet<unknown> = new Set(["district", "single", "division", "finals", "wholeChampionship"]);
+
+/** The five slot counts a slate carries (quick task 261014-qje, Q-02). */
+const AWARD_SLATE_COUNT_KEYS = ["impact", "engineeringInspiration", "rookieAllStar", "judgedRookie", "judged"] as const;
 
 function isFiniteChance(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-/** A DCMP award slate's shape: a role, four finite non negative expected counts, and a bounded list of per team chances. */
-function isDcmpAwardSlate(value: unknown): boolean {
+/** An award slate's shape: one of the five roles, five finite non negative expected counts, and a bounded list of per team chances. */
+function isAwardSlate(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const slate = value as Record<string, unknown>;
-  if (slate.role !== "single" && slate.role !== "division" && slate.role !== "finals" && slate.role !== "wholeChampionship") return false;
+  if (!AWARD_SLATE_ROLES.has(slate.role)) return false;
   const expected = slate.expected;
   if (typeof expected !== "object" || expected === null) return false;
   const counts = expected as Record<string, unknown>;
-  if (!["impact", "engineeringInspiration", "rookieAllStar", "judged"].every((key) => isFiniteChance(counts[key]))) return false;
+  if (!AWARD_SLATE_COUNT_KEYS.every((key) => isFiniteChance(counts[key]))) return false;
   if (!Array.isArray(slate.eligibility) || slate.eligibility.length > MAX_DCMP_SLATE_ELIGIBILITY) return false;
   return slate.eligibility.every((entry: unknown) => {
     if (typeof entry !== "object" || entry === null) return false;

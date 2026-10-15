@@ -465,8 +465,17 @@ export function champDcmpAwardsFinal(dcmpEventKeys: readonly string[], stageByEv
  *
  * THE RULE ITSELF LIVES IN CORE since quick task 261014-i8i:
  * `packages/core/districts/dcmpAwardEligibility.ts` decides the candidates and
- * the pending events, and `dcmpEntrantWeight` there is the weight. The per
- * event DCMP award slate reads the same helper, so the two cannot disagree.
+ * the pending events. The per event DCMP award slate reads the same helper, so
+ * the two cannot disagree.
+ *
+ * THE DRAWS PICK WINNERS WITH THE SLATE'S OWN CLASS WEIGHTS (quick task
+ * 261014-qje, Q-11): a held candidate weighs its DCMP tier class lift, an open
+ * district event's entrant its district tier class lift, and an entrant
+ * already holding that award at a final district event weighs 0 there. No
+ * separate champ weighting exists. The DCMP slate turns the same weights into
+ * per team chances with its capped water fill; these draws draw a count from
+ * the same count model (`setting.countMode`) and pick that many winners,
+ * because qualification is a joint event.
  */
 export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): AdvancementChanceAwardDraw[] {
   const { artifact, stageByEvent } = options;
@@ -483,7 +492,7 @@ export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): Adva
   if (options.fieldProven !== false && dcmpEventKeys.length > 0 && dcmpEventKeys.every(awardFinal)) return [];
 
   const countWeights = dcmpAwardCountDistribution(season, artifact.districtKey, artifact.cmpSlots ?? 0, setting.countMode);
-  return dcmpEligibilityAt(artifact, stageByEvent, setting).map((entry) => ({
+  return dcmpEligibilityAt(artifact, stageByEvent).map((entry) => ({
     awardType: entry.awardType,
     countWeights: [...countWeights[entry.awardType]],
     candidates: entry.candidates.map((candidate): AdvancementChanceWeightedTeam => ({ teamKey: candidate.teamKey, weight: candidate.weight })),

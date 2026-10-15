@@ -36,6 +36,7 @@ import {
 } from "../../../../packages/harness/districtBake.js";
 import type { DistrictLedgerEventInput } from "../../../../packages/core/districts/ledgerSimulation.js";
 import type { DcmpAwardSlateInput } from "../../../../packages/core/districts/dcmpAwardSlate.js";
+import { buildDistrictAwardSlate } from "../../../../packages/core/districts/awardSlate.js";
 import { pickPositionPmfForSeason } from "../../../../packages/core/districts/pickDraft.js";
 import type { UpcomingMatch } from "../../../../packages/core/algorithms/types.js";
 import { spr } from "../../../../packages/core/algorithms/spr.js";
@@ -107,13 +108,19 @@ function bareInput(): DistrictLedgerEventInput {
     baselines: ROSTER.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
     ratings: new Map(),
     awardProfiles: new Map(ROSTER.map((teamKey) => [teamKey, { bucket: "none", rookieState: "veteran" }] as const)),
+    // Every request carries an award slate since quick task 261014-qje (Q-01).
+    awardSlate: DISTRICT_SLATE,
   };
 }
+
+/** The district slate a district tier request carries (quick task 261014-qje, Q-01): the season's counts, everyone eligible. */
+const DISTRICT_SLATE = buildDistrictAwardSlate({ season: SEASON, awardField: ROSTER.map((teamKey) => ({ teamKey })), eligibility: [] });
 
 /** A dcmp slate with no eligible team, the shape `ledgerSimulation.test.ts`'s NO_ELIGIBLE_DCMP_SLATE uses. */
 const NO_ELIGIBLE_DCMP_SLATE: DcmpAwardSlateInput = {
   role: "single",
-  expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+  // Five slot counts since quick task 261014-qje (Q-08).
+  expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judgedRookie: 0, judged: 12 },
   sources: { counts: "previousSeason", judged: "role" },
   eligibility: [],
 };
@@ -197,6 +204,8 @@ function builtInput(asOfBaselines?: DistrictLedgerEventInput["baselines"]): Dist
     stage: { qual: true, alliance: false, elim: false, award: false },
     startMatchKey: null,
     ...(asOfBaselines === undefined ? {} : { asOfBaselines }),
+    // Every request carries an award slate since quick task 261014-qje (Q-01).
+    awardSlate: DISTRICT_SLATE,
   });
   if (!built.ok) throw new Error("expected an input");
   return built.input;
@@ -249,7 +258,7 @@ describe("every Locks run path draws the season's weighted picks (quick task 261
   }, 60_000);
 
   it("the Champ Locks simulated DCMP bake: the same at tier dcmp with a DCMP award slate", () => {
-    const dcmp: DistrictLedgerEventInput = { ...bareInput(), tier: "dcmp", dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE };
+    const dcmp: DistrictLedgerEventInput = { ...bareInput(), tier: "dcmp", awardSlate: NO_ELIGIBLE_DCMP_SLATE };
     const entry = runAsOfEvent({ eventKey: "2026wax", input: dcmp, asOf: block("generated") }, 40, 7);
     expect(entry.status).toBe("baked");
     for (const input of recorded.inputs) expect((input as DistrictLedgerEventInput).tier).toBe("dcmp");
@@ -273,6 +282,7 @@ describe("every Locks run path draws the season's weighted picks (quick task 261
       fieldSize: ROSTER.length,
       ratings: pricer.ratingsFor(ROSTER),
       awardProfiles: bareInput().awardProfiles,
+      awardSlate: DISTRICT_SLATE,
       algorithmId: "spr",
       algorithmVersion: "9.0.0+rolling",
       matchesPerTeam: 12,

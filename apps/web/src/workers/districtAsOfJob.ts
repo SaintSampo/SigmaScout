@@ -95,8 +95,8 @@ export const runAsOfEvent: DistrictAsOfRunner = (event, draws, seed) => {
     algorithmVersion: bake.algorithmVersion,
     matchesPerTeam: bake.matchesPerTeam,
     predict,
-    // A generated DCMP prices its awards from the request's slate (quick task 261014-i8i).
-    ...(event.input.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: event.input.dcmpAwardSlate }),
+    // A generated event prices its awards from the request's slate, either tier (quick tasks 261014-i8i and 261014-qje).
+    ...(event.input.awardSlate === undefined ? {} : { awardSlate: event.input.awardSlate }),
     // The per run record for the joint advancement draw (quick task
     // 261014-qv2), forwarded only when the request asked for it.
     ...(event.input.recordEventTotalByRun === true ? { recordEventTotalByRun: true as const } : {}),

@@ -24,6 +24,7 @@ import type {
   DistrictSelectionRoutes,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { simulateDistrictEvent } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import { buildDistrictAwardSlate } from "../../../../../packages/core/districts/awardSlate.js";
 import { pickPositionPmfForSeason } from "../../../../../packages/core/districts/pickDraft.js";
 import {
   ZERO_AWARD_PROFILE,
@@ -67,6 +68,14 @@ type EventPoints = DistrictTeam["eventPoints"][number];
 type RemainingEvent = DistrictTeam["remainingEvents"][number];
 
 const SEASON = 2026;
+
+/**
+ * Every district tier request carries an award slate since quick task
+ * 261014-qje (Q-01). The builder fits a district role slate to the event's
+ * own award field, so one empty slate serves every fixture: the season's
+ * measured counts, every team allowed every award.
+ */
+const DISTRICT_SLATE = buildDistrictAwardSlate({ season: SEASON, awardField: [], eligibility: [] });
 
 function state(overrides: Partial<DistrictEventState> = {}): DistrictEventState {
   return { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true, ...overrides };
@@ -832,6 +841,7 @@ describe("the per-event simulation input at three positions", () => {
 
   function inputAt(stage: DistrictStageFinality, startMatchKey: string | null) {
     const built = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: "2026wadone",
       season: SEASON,
       eventArtifact,
@@ -891,6 +901,7 @@ describe("the per-event simulation input at three positions", () => {
       ]);
     const profileFrom = (awardProfile: WireAwardProfile) => {
       const built = buildDistrictEventSimulationInput({
+        awardSlate: DISTRICT_SLATE,
         eventKey: "2026wadone",
         season: SEASON,
         eventArtifact,
@@ -926,6 +937,7 @@ describe("the per-event simulation input at three positions", () => {
 
   it("reports the field size as a disclosed fallback, because the event artifact publishes none", () => {
     const built = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: "2026wadone",
       season: SEASON,
       eventArtifact,
@@ -943,6 +955,7 @@ describe("the per-event simulation input at three positions", () => {
     const withDemo = { ...eventArtifact, teams: [...eventArtifact.teams, demo] };
     for (const startMatchKey of [null, "2026wadone_qm3"]) {
       const built = buildDistrictEventSimulationInput({
+        awardSlate: DISTRICT_SLATE,
         eventKey: "2026wadone",
         season: SEASON,
         eventArtifact: withDemo,
@@ -1029,6 +1042,7 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
 
   function buildWith(alliances: { allianceNumber: number; picks: string[] }[] | undefined) {
     const built = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: "2026wapartial",
       season: SEASON,
       eventArtifact: artifactWithAlliances(alliances),
@@ -1057,6 +1071,7 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
     );
     expect(unprofiled.teams[0]!.awardProfile).toBeUndefined();
     const built = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: "2026wapartial",
       season: SEASON,
       eventArtifact: artifactWithAlliances(finalAlliances()),
@@ -1129,6 +1144,7 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
   it("a partial list before the alliance stage closes is not disclosed, because it was never going to be used", () => {
     const partial = finalAlliances().slice(0, 4);
     const built = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: "2026wapartial",
       season: SEASON,
       eventArtifact: artifactWithAlliances(partial),
@@ -1518,6 +1534,7 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
       pointsFinal?: DistrictStageFinality;
     }) {
       const built = buildDistrictEventSimulationInput({
+        awardSlate: DISTRICT_SLATE,
         eventKey: "2026waplay",
         season: SEASON,
         eventArtifact: playoffArtifact(options.rows ?? played),
@@ -2285,6 +2302,7 @@ describe("the Playoffs cell tells not picked from fifth to eighth with the run's
     })),
   });
   const built = buildDistrictEventSimulationInput({
+    awardSlate: DISTRICT_SLATE,
     eventKey: EVENT,
     season: SEASON,
     eventArtifact,
@@ -2372,7 +2390,7 @@ describe("distributionsFromResult and the routes", () => {
       awardPoints: new Map(),
       eventTotal: new Map(),
       awardSources: new Map(),
-      awardOrdering: "applied",
+      awardOrdering: "district-slate",
       playoffMilestones: new Map(),
       selectionRoutes: routes,
       rankingFixed,
@@ -2486,6 +2504,7 @@ describe("a registered team missing from a started event's schedule is priced fr
   const artifact = districtArtifact(startedState, [registered(NO_SHOW, startedState)]);
   const eventArtifact = eventArtifactWith(true);
   const built = buildDistrictEventSimulationInput({
+    awardSlate: DISTRICT_SLATE,
     eventKey: EVENT,
     season: SEASON,
     eventArtifact,
@@ -2552,6 +2571,7 @@ describe("a registered team missing from a started event's schedule is priced fr
     const postedArtifact = districtArtifact(postedState, [postedNoShow]);
     const stage = deriveStageFromState(postedState).final;
     const posted = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: EVENT,
       season: SEASON,
       eventArtifact,
@@ -2576,6 +2596,7 @@ describe("a registered team missing from a started event's schedule is priced fr
 
   it("derives no award only list before the schedule posts, or when every registered team is scheduled", () => {
     const unscheduled = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: EVENT,
       season: SEASON,
       eventArtifact: eventArtifactWith(false),
@@ -2587,6 +2608,7 @@ describe("a registered team missing from a started event's schedule is priced fr
     if (unscheduled.ok) expect("awardOnlyTeams" in unscheduled.input).toBe(false);
 
     const everyoneScheduled = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: EVENT,
       season: SEASON,
       eventArtifact,
@@ -3493,6 +3515,7 @@ describe("the builder sets the season's weighted pick draft at every stage (quic
 
   function build(options: Partial<Parameters<typeof buildDistrictEventSimulationInput>[0]>) {
     const built = buildDistrictEventSimulationInput({
+      awardSlate: DISTRICT_SLATE,
       eventKey: "2026wapick",
       season: SEASON,
       eventArtifact,
@@ -3538,9 +3561,10 @@ describe("the builder sets the season's weighted pick draft at every stage (quic
   it("at the dcmp tier", () => {
     const input = build({
       tier: "dcmp",
-      dcmpAwardSlate: {
+      awardSlate: {
         role: "single",
-        expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+        // Five slot counts since quick task 261014-qje (Q-08).
+        expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judgedRookie: 0, judged: 12 },
         sources: { counts: "previousSeason", judged: "role" },
         eligibility: [],
       },

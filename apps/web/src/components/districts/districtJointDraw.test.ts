@@ -32,6 +32,7 @@ import { spr } from "../../../../../packages/core/algorithms/spr.js";
 import type { AsOfTeamTuple } from "../../../../../packages/harness/asOfState.js";
 import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DcmpAwardSlateInput } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
+import { buildDistrictAwardSlate } from "../../../../../packages/core/districts/awardSlate.js";
 import type { DistrictAsOfBlock } from "../../workers/districtSimulationProtocol.js";
 import type { UpcomingMatch } from "../../../../../packages/core/algorithms/types.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
@@ -378,7 +379,8 @@ function asOfBlock(mode: "real" | "generated"): DistrictAsOfBlock {
 function generatedInput(tier: "district" | "dcmp"): DistrictLedgerEventInput {
   const slate: DcmpAwardSlateInput = {
     role: "single",
-    expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+    // Five slot counts since quick task 261014-qje (Q-08).
+    expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judgedRookie: 0, judged: 12 },
     sources: { counts: "previousSeason", judged: "role" },
     eligibility: [],
   };
@@ -392,7 +394,10 @@ function generatedInput(tier: "district" | "dcmp"): DistrictLedgerEventInput {
     baselines: ROSTER.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
     ratings: new Map(),
     awardProfiles: new Map(ROSTER.map((teamKey) => [teamKey, { bucket: "none", rookieState: "veteran" }] as const)),
-    ...(tier === "dcmp" ? { dcmpAwardSlate: slate } : { recordEventTotalByRun: true as const }),
+    // Every request carries an award slate since quick task 261014-qje (Q-01).
+    ...(tier === "dcmp"
+      ? { awardSlate: slate }
+      : { recordEventTotalByRun: true as const, awardSlate: buildDistrictAwardSlate({ season: SEASON, awardField: ROSTER.map((teamKey) => ({ teamKey })), eligibility: [] }) }),
   };
 }
 
@@ -442,6 +447,8 @@ describe("the joint draw on the as of rewind (quick task 261014-qv2)", () => {
       stage: { qual: false, alliance: false, elim: false, award: false },
       startMatchKey: null,
       asOfBaselines: ROSTER.map((teamKey, i) => ({ teamKey, earnedRpSum: 24 - i, matchesPlayed: 4 })),
+      // Every request carries an award slate since quick task 261014-qje (Q-01).
+      awardSlate: buildDistrictAwardSlate({ season: SEASON, awardField: ROSTER.map((teamKey) => ({ teamKey })), eligibility: [] }),
     });
     if (!built.ok) throw new Error("expected an input");
     expect(built.input.recordEventTotalByRun).toBe(true);

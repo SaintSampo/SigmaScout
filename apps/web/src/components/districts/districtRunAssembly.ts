@@ -14,11 +14,13 @@
  * run's own pending state wait on its downstream. The main run keeps skipping
  * the unstarted championship; only a roster or stop change re-bakes.
  *
- * EVERY DCMP TIER REQUEST CARRIES A DCMP AWARD SLATE (quick task 261014-i8i):
- * Live, a rewound stop's real and generated championships, and the simulated
- * DCMP bake. Each is built by `dcmpAwardSlateAt` from the same eligibility the
- * champ draws read, at the same position. A district tier request never
- * carries one and is byte for byte what it was.
+ * EVERY REQUEST CARRIES AN AWARD SLATE (quick task 261014-i8i for the DCMP
+ * tier, quick task 261014-qje for the district tier, Q-01): Live, a rewound
+ * stop's real and generated events, and the simulated DCMP bake. A district
+ * tier request carries `districtAwardSlateAt` and a DCMP tier request
+ * `dcmpAwardSlateAt`, each built at the request's own position from the same
+ * eligibility the champ draws read. A season with no slate tables carries
+ * none, so its events read unavailable.
  */
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import {
@@ -37,12 +39,14 @@ import {
 } from "../../workers/districtSimulationProtocol.js";
 import type { AsOfBakeParams, AsOfRewindResult } from "./asOfRewind.js";
 import type { SimulatedDcmpBake } from "./champLedgerRows.js";
-import { dcmpAwardSlateAt } from "./dcmpAwardInputs.js";
+import { dcmpAwardSlateAt, districtAwardSlateAt } from "./dcmpAwardInputs.js";
+import { UnknownDcmpSlateTargetError } from "../../../../../packages/core/districts/dcmpAwardSlate.js";
 import {
-  UnknownDcmpAwardSlateSeasonError,
-  UnknownDcmpSlateTargetError,
-  type DcmpAwardSlateInput,
-} from "../../../../../packages/core/districts/dcmpAwardSlate.js";
+  districtEligibilityForField,
+  UnknownAwardSlateSeasonError,
+  UnknownSeasonAwardListError,
+  type AwardSlateInput,
+} from "../../../../../packages/core/districts/awardSlate.js";
 import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -69,38 +73,43 @@ function foldKnownPoints(known: ReadonlyMap<string, number> | undefined): string
 }
 
 /**
- * A DCMP award slate folded to every value the award draw reads: the role, the
- * four expected counts and the eligibility entries, sorted by team key (quick
- * task 261014-i8i). A stage change that moves a team's eligibility moves this
+ * An award slate folded to every value the award draw reads: the role, the
+ * five expected counts and the eligibility entries, sorted by team key (quick
+ * tasks 261014-i8i and 261014-qje). A stage change that moves a team's
+ * eligibility (an earlier event's awards turning final, say) moves this
  * segment, so the event re-runs.
  */
-function foldDcmpSlate(slate: DcmpAwardSlateInput): string {
+function foldAwardSlate(slate: AwardSlateInput): string {
   const { expected } = slate;
   const eligibility = [...slate.eligibility]
     .map((entry) => `${entry.teamKey}=${String(entry.impact)}/${String(entry.engineeringInspiration)}/${String(entry.rookieAllStar)}`)
     .sort()
     .join(",");
-  return `dcmpSlate=${slate.role}:${String(expected.impact)}/${String(expected.engineeringInspiration)}/${String(expected.rookieAllStar)}/${String(expected.judged)}:${eligibility}`;
+  return `awardSlate=${slate.role}:${String(expected.impact)}/${String(expected.engineeringInspiration)}/${String(expected.rookieAllStar)}/${String(expected.judgedRookie)}/${String(expected.judged)}:${eligibility}`;
 }
 
 /**
- * The slate member one DCMP tier request carries, or nothing for a district
- * tier one. A season the slate is not registered for, or a key the artifact
- * does not list among its DCMP tier keys, carries none: the run then refuses
- * the event with `MissingDcmpAwardSlateError` and its cells read unavailable,
- * never priced from the district tier tables.
+ * The slate member one request carries at its own position (quick tasks
+ * 261014-i8i and 261014-qje): `districtAwardSlateAt` at the district tier,
+ * `dcmpAwardSlateAt` at the dcmp tier. A season the slate is not registered
+ * for, a season with no declared award list, or a key the artifact does not
+ * list among its DCMP tier keys, carries none: the run then refuses the event
+ * with `MissingAwardSlateError` and its cells read unavailable, never priced
+ * from anything else. Exported so the champ cutoff backtest's earlier
+ * positions build the browser's own request.
  */
-function dcmpSlateMember(
+export function awardSlateMember(
   artifact: DistrictArtifact,
   stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined,
   tier: DistrictTier,
   target: { readonly eventKey: string } | "wholeChampionship"
-): { dcmpAwardSlate?: DcmpAwardSlateInput } {
-  if (tier !== "dcmp") return {};
+): { awardSlate?: AwardSlateInput } {
   try {
-    return { dcmpAwardSlate: dcmpAwardSlateAt(artifact, stageByEvent, target) };
+    if (tier === "dcmp") return { awardSlate: dcmpAwardSlateAt(artifact, stageByEvent, target) };
+    if (target === "wholeChampionship") return {};
+    return { awardSlate: districtAwardSlateAt(artifact, stageByEvent, target.eventKey) };
   } catch (error) {
-    if (error instanceof UnknownDcmpAwardSlateSeasonError || error instanceof UnknownDcmpSlateTargetError) return {};
+    if (error instanceof UnknownAwardSlateSeasonError || error instanceof UnknownSeasonAwardListError || error instanceof UnknownDcmpSlateTargetError) return {};
     throw error;
   }
 }
@@ -181,9 +190,9 @@ export function districtRunSignature(events: readonly DistrictSimulationEventReq
         foldKnownPoints(input.knownAwardPoints),
         foldPlayedElims(input.playedElimMatches),
         ...(input.awardOnlyTeams === undefined ? [] : [`awardOnly=${input.awardOnlyTeams.join(",")}`]),
-        // THE DCMP AWARD SLATE (quick task 261014-i8i), only where a request
-        // carries one, so every district tier signature is unchanged.
-        ...(input.dcmpAwardSlate === undefined ? [] : [foldDcmpSlate(input.dcmpAwardSlate)]),
+        // THE AWARD SLATE (quick tasks 261014-i8i and 261014-qje), wherever a
+        // request carries one: every request whose season has slate tables.
+        ...(input.awardSlate === undefined ? [] : [foldAwardSlate(input.awardSlate)]),
         // A REWOUND STOP (quick task 261005-5g0): the cut, the mode and what
         // the Worker prices or bakes, so a stop change always re-runs. Only an
         // as-of request carries it, so every Live signature is unchanged.
@@ -294,9 +303,9 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
       // The number reading, beside the field's `stage` (quick task
       // 261009-vp9). Absent keeps this the frozen copy's own call.
       ...pointsFinalFor(pointsFinalByEvent, eventKey),
-      // A DCMP tier event's award slate at this position (quick task
-      // 261014-i8i). Nothing for a district tier event.
-      ...dcmpSlateMember(artifact, stageByEvent, tier, { eventKey }),
+      // This event's award slate at this position, either tier (quick tasks
+      // 261014-i8i and 261014-qje, Q-01).
+      ...awardSlateMember(artifact, stageByEvent, tier, { eventKey }),
     });
     if (!built.ok) continue;
     if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
@@ -347,8 +356,8 @@ function generatedRequest(params: {
   readonly common: AsOfCommon;
   readonly bake: AsOfBakeParams;
   readonly algorithmVersion: string;
-  /** A DCMP tier event's award slate (quick task 261014-i8i), placed on the input only at the dcmp tier. */
-  readonly dcmpAwardSlate?: DcmpAwardSlateInput;
+  /** The event's award slate at the stop (quick tasks 261014-i8i and 261014-qje); a district role slate is fitted to the roster. */
+  readonly awardSlate?: AwardSlateInput;
 }): DistrictSimulationEventRequest | undefined {
   const { artifact, districtTeamByKey, eventKey, tier, roster } = params;
   if (roster.length === 0 || roster.length > MAX_DISTRICT_SIMULATION_ROSTER) return undefined;
@@ -364,7 +373,14 @@ function generatedRequest(params: {
     baselines: roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
     ratings: new Map(),
     awardProfiles,
-    ...(tier === "dcmp" && params.dcmpAwardSlate !== undefined ? { dcmpAwardSlate: params.dcmpAwardSlate } : {}),
+    ...(params.awardSlate === undefined
+      ? {}
+      : {
+          awardSlate:
+            params.awardSlate.role === "district"
+              ? { ...params.awardSlate, eligibility: districtEligibilityForField(params.awardSlate.eligibility, roster.map((teamKey) => ({ teamKey }))) }
+              : params.awardSlate,
+        }),
     // THE PER RUN RECORD (quick task 261014-qv2), at the district tier only:
     // the bake pools every schedule's runs for the joint advancement draw. The
     // simulated DCMP bake (dcmp tier) never records.
@@ -454,8 +470,8 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
           tier,
           asOfBaselines: plan.baselines,
           ...pointsFinalFor(params.pointsFinalByEvent, eventKey),
-          // The stop's own DCMP award slate (quick task 261014-i8i).
-          ...dcmpSlateMember(artifact, stageByEvent, tier, { eventKey }),
+          // The stop's own award slate, either tier (quick tasks 261014-i8i and 261014-qje).
+          ...awardSlateMember(artifact, stageByEvent, tier, { eventKey }),
         });
         if (!built.ok) {
           asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
@@ -477,8 +493,8 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
         common,
         bake: plan.bake,
         algorithmVersion: params.algorithmVersion,
-        // A generated championship prices its awards from the stop's slate too (quick task 261014-i8i).
-        ...dcmpSlateMember(artifact, stageByEvent, tier, { eventKey }),
+        // A generated event prices its awards from the stop's slate too, either tier (quick tasks 261014-i8i and 261014-qje).
+        ...awardSlateMember(artifact, stageByEvent, tier, { eventKey }),
       });
       if (built === undefined) {
         asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
@@ -562,8 +578,10 @@ export function assembleSimulatedDcmpBake(params: AssembleSimulatedDcmpBakeParam
     algorithmVersion: params.algorithmVersion,
     // The bake stands for a WHOLE championship: every consuming award at the
     // district's full share, plus each single or division key's judged anchor
-    // (quick task 261014-i8i).
-    ...dcmpSlateMember(artifact, params.stageByEvent, plan.tier, "wholeChampionship"),
+    // (quick task 261014-i8i). A plan at the district tier (never shipped, a
+    // test fixture's stand in) carries its own district slate, so every
+    // request carries one (quick task 261014-qje, Q-01).
+    ...awardSlateMember(artifact, params.stageByEvent, plan.tier, plan.tier === "dcmp" ? "wholeChampionship" : { eventKey }),
   });
   if (request === undefined) return { status: "unavailable", reason: "the simulated field cannot be baked" };
   return { status: "ready", request, signature: districtRunSignature([request]) };

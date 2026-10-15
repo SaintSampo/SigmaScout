@@ -43,6 +43,7 @@ import {
   type DistrictAwardProfile,
   type DistrictLedgerEventInput,
 } from "../../../../packages/core/districts/ledgerSimulation.js";
+import { buildDistrictAwardSlate } from "../../../../packages/core/districts/awardSlate.js";
 import type { AllianceMemberRating } from "../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type { SimMatchInput, SimTeamBaseline } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
@@ -88,7 +89,7 @@ function remainingMatches(): SimMatchInput[] {
 }
 
 function inputFor(eventKey: string, teamCount = 24, overrides: Partial<DistrictLedgerEventInput> = {}): DistrictLedgerEventInput {
-  return {
+  const input: DistrictLedgerEventInput = {
     eventKey,
     season: SEASON,
     tier: "district",
@@ -100,6 +101,11 @@ function inputFor(eventKey: string, teamCount = 24, overrides: Partial<DistrictL
     awardProfiles: profilesFor(teamCount),
     ...overrides,
   };
+  // Q-01 (quick task 261014-qje): every district tier request carries a
+  // district slate over its award field unless the caller set one.
+  if (input.tier !== "district" || "awardSlate" in overrides) return input;
+  const field = [...input.baselines.map((baseline) => ({ teamKey: baseline.teamKey })), ...(input.awardOnlyTeams ?? []).map((teamKey) => ({ teamKey }))];
+  return { ...input, awardSlate: buildDistrictAwardSlate({ season: input.season, awardField: field, eligibility: [] }) };
 }
 
 function eventRequest(eventKey: string, overrides: Partial<DistrictLedgerEventInput> = {}): DistrictSimulationEventRequest {
