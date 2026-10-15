@@ -1,0 +1,59 @@
+261015-3g4 COMPOSE CHECK (2026-10-15)
+
+Compose: npx tsx scripts/publishDistricts.ts --years 2016-2020,2022-2026 --dry-run --local-out data/local-publish/districts-261015-3g4
+  run at HEAD db5505877e4aab8f64fb7ac88cc1f270d105ba8c, no env file, no network; exit 0 in about 7 s
+  the imported code was clean: git status showed no modified file under packages, apps/web/src or scripts
+  log ends: "--dry-run, nothing published" and "--local-out, every composed object written"
+  log lines naming a credential, token, R2, fetch, http, warn or error: 0
+
+B1. File names
+  staging folder: 119 files (109 v1__district__, 10 v1__districts__, 0 presim sidecars)
+  old data/local-publish/districts: 119 files, same names: true
+
+B2. Award model stamp
+  2019 and later detail files carrying a team awardProfile: 81, of them not stamped 2.0.0: 0
+  v1__district__2026pnw.json awardModelVersion: 2.0.0
+
+B3. Deep compare against the old data/local-publish/districts
+  dropped: generation, computedAt, awardBaseRates, awardOrderingTables, awardModelVersion, each team's awardProfile
+  differing files: 0 of 119
+  sanity: dropping only generation, computedAt and awardModelVersion, 81 files differ, the first key
+  in each being teams[].awardProfile.priorJudgedAwards (the retired per team award counts)
+
+B4. Deep compare against 261014-qje's own compose (scratchpad/qje-local-after, still present)
+  dropped: generation, computedAt, awardModelVersion
+  differing files: 0 of 119 (the champ figures reproduce by construction)
+
+C. Origin cache
+  data/local-publish/origin-cache/v1/manifest/algorithms.json: generation bcbab12f-c0be-45c1-80de-d2aa43a61e28,
+  spr 11.0.0+baseline (opr 6.0.0+baseline, epa 15.0.0+baseline). B3 at 0 means the events the backtests read
+  are unchanged, so no refetch was planned.
+
+D. Swap
+  data/local-publish/districts renamed to data/local-publish/districts-pre-qje-261014, then the staging folder
+  renamed to data/local-publish/districts. Both renames succeeded; the new folder holds 119 files.
+  Local data tests after the swap, from the repo root:
+    batch 1 (champFieldStagedWalk, champJointMonotone, districtLocksNoTakeBack, districtLocksStagedReplay,
+    measureChampJointLocks): Test Files 5 passed (5), Tests 234 passed (234), 1,636 s under load
+    batch 2 (measureLedgerSettledTenets, measureLedgerTenets, measureChampCutoff, champLedgerRows,
+    champLedgerStatus): Test Files 5 passed (5), Tests 310 passed (310)
+
+E. Before copies
+  data/local-publish/locks-backtest/spr@11.0.0+baseline copied to data/local-publish/locks-backtest-hx6-before
+  (48 district-cutoff files, 48 in-range files, four reports; diff -rq identical), then the two result
+  folders and four reports were deleted so every pooled file is written by this run.
+
+F. Dry run: district seasons 48 (result files expected), projected GENERATED bakes 1198.
+
+G. Tracer: --district 2026pnw --force at spr@11.0.0+baseline, joint draws: 2026pnw done, 4 scored;
+  bakes 20; no origin cache miss.
+
+H. Full runs, both at HEAD fae9f14a with no modified file under packages, apps/web/src or scripts
+  measureDistrictCutoff --force: 48 seasons done, origin cache miss 0, refused 0
+  measureLocksInRange --force: 48 seasons simulated on both tabs, origin cache miss 0, refused 0
+  reports written and copied as 261015-3g4-after-*.
+
+I. Champ, at HEAD fae9f14a, reading the refreshed data/local-publish/districts
+  measureChampCutoff output against 261014-qje-champ-cutoff-after.txt, source line removed: identical
+  (17.58 against 39.03, 48 of 69, 69.6%)
+  --check-history: no drift for dcmpHistory.generated.ts and champCutoffTuning.generated.ts; no write mode run.

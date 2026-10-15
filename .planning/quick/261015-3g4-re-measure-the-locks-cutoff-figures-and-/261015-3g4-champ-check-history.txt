@@ -1,0 +1,2 @@
+no drift: packages/core/districts/dcmpHistory.generated.ts
+no drift: packages/core/districts/champCutoffTuning.generated.ts

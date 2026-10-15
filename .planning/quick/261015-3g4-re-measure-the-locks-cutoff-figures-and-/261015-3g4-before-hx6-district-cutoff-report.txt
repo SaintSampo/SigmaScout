@@ -1,0 +1,48 @@
+
+DISTRICT CUTOFF BACKTEST: the District Locks simulated line at season start and after each week, walk-forward, on the as-of path
+  source: data\local-publish\locks-backtest\spr@11.0.0+baseline\district-cutoff (48 result files), event artifacts and as-of objects at spr@11.0.0+baseline
+  draws 1000, seed 20260830; 48 district seasons, 205 scored positions; bakes 1197 at mean 191 ms, 3.9 min summed
+  target: the tab's own settled cutoff at season end (midpoint rule over the final rows); TBA's published DCMP cut line reported beside it, not scored
+
+BY POSITION (what the gate pools)
+  Season start     n=  48  vs settled: sim MAE   1.8 bias    0.5  midpoint MAE   3.5 bias    0.2  range holds   40 (83.3%)   vs published: sim MAE   1.8  midpoint MAE   3.4  holds   42 of   48 (87.5%)
+  After week 1     n=  42  vs settled: sim MAE   1.6 bias    0.6  midpoint MAE   2.5 bias   -0.2  range holds   38 (90.5%)   vs published: sim MAE   1.5  midpoint MAE   2.5  holds   38 of   42 (90.5%)
+  After week 2     n=  40  vs settled: sim MAE   1.0 bias   -0.1  midpoint MAE   2.4 bias   -1.6  range holds   36 (90.0%)   vs published: sim MAE   1.1  midpoint MAE   2.5  holds   37 of   40 (92.5%)
+  After week 3     n=  41  vs settled: sim MAE   0.9 bias    0.0  midpoint MAE   2.0 bias   -0.8  range holds   38 (92.7%)   vs published: sim MAE   0.9  midpoint MAE   2.0  holds   38 of   41 (92.7%)
+  After week 4     n=  31  vs settled: sim MAE   0.7 bias   -0.2  midpoint MAE   1.5 bias   -1.1  range holds   28 (90.3%)   vs published: sim MAE   0.7  midpoint MAE   1.6  holds   28 of   31 (90.3%)
+  After week 5     n=   2  vs settled: sim MAE   0.0 bias    0.0  midpoint MAE   0.0 bias    0.0  range holds    2 (100.0%)   vs published: sim MAE   0.0  midpoint MAE   0.0  holds    2 of    2 (100.0%)
+  After week 17    n=   1  vs settled: sim MAE   0.0 bias    0.0  midpoint MAE   1.0 bias    1.0  range holds    1 (100.0%)   vs published: sim MAE   0.0  midpoint MAE   1.0  holds    1 of    1 (100.0%)
+  All positions    n= 205  vs settled: sim MAE   1.2 bias    0.2  midpoint MAE   2.4 bias   -0.6  range holds  183 (89.3%)   vs published: sim MAE   1.2  midpoint MAE   2.5  holds  186 of  205 (90.7%)
+
+BY SEASON
+  2023             n=  49  vs settled: sim MAE   1.2 bias    0.3  midpoint MAE   2.3 bias   -0.6  range holds   44 (89.8%)   vs published: sim MAE   1.2  midpoint MAE   2.3  holds   47 of   49 (95.9%)
+  2024             n=  44  vs settled: sim MAE   1.3 bias   -0.3  midpoint MAE   2.8 bias   -1.1  range holds   35 (79.5%)   vs published: sim MAE   1.4  midpoint MAE   2.9  holds   35 of   44 (79.5%)
+  2025             n=  51  vs settled: sim MAE   1.4 bias   -0.1  midpoint MAE   2.8 bias   -1.0  range holds   45 (88.2%)   vs published: sim MAE   1.4  midpoint MAE   2.8  holds   45 of   51 (88.2%)
+  2026             n=  61  vs settled: sim MAE   1.1 bias    0.7  midpoint MAE   2.0 bias    0.0  range holds   59 (96.7%)   vs published: sim MAE   1.1  midpoint MAE   2.0  holds   59 of   61 (96.7%)
+
+POSITIONS NOT SCORED
+  settled (nothing open, midpoint rule printed)        48
+  excluded team fallback (midpoint, no likely range)   1  (2024chs 2024vapor:awards x36)
+  no call                                              0
+  district seasons skipped                             0
+  started events with no artifact at the version       0; scored positions with an unpriced open event 0
+
+PRICING AT SCORED POSITIONS
+  REAL events (as-of state)   0
+  GENERATED events (baked)    1194
+  unavailable by reason       none
+
+LEAK CHECKS (positions passing, of 205)
+  award qualified only from award final events     205
+  earned at position never above season final      205
+  open events open on every row                    205
+  REAL rows strictly after the cut, split exact    205
+  REAL baselines from rows at or before the cut    205
+  played playoff rows at or before the cut         205
+  GENERATED requests carry no rows, no ratings     205
+
+GATE (registered before the run, re-registered unchanged 2026-10-14)
+  1. PASS  simulated line MAE against the settled cutoff below the midpoint rule's MAE at the same positions: 1.25 < 2.43 (n = 205)
+  2. FAIL  printed 10 to 90 range holds the settled cutoff in 72% to 88% of scored positions: 183 of 205 (89.3%)
+
+NO-GO
