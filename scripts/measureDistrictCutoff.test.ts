@@ -115,11 +115,18 @@ const eventFixturesPresent = existsSync(`${FIXTURE_DIR}/event-2026wabon.json`);
  * the fixture's eight events. Open events shrink 8, 6, 4, 2, every one of them
  * unstarted at its week end and so GENERATED.
  *
+ * Re-recorded 2026-10-14 for the weighted pick draft (261014-ol6) and the
+ * joint event draws (261014-qv2): the season start line moved 63 to 62, and
+ * the midpoint rule, which reads each team's median predicted total, moved
+ * from [59, 58, 57, 57].
+ *
  * HISTORY, the retired stored odds path on the same fixture: simulated
- * [58, 57, 58, 57], midpoint [53, 53, 54, 54].
+ * [58, 57, 58, 57], midpoint [53, 53, 54, 54]; the fixed draft with
+ * independent draws on the as-of path: simulated [63, 62, 62, 60], midpoint
+ * [59, 58, 57, 57].
  */
-const SEEDED_SIMULATED = [63, 62, 62, 60];
-const SEEDED_MIDPOINT = [59, 58, 57, 57];
+const SEEDED_SIMULATED = [62, 62, 62, 60];
+const SEEDED_MIDPOINT = [59, 57, 56, 56];
 
 describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 PNW fixture, on the as-of path", () => {
   const artifact = eventFixturesPresent ? stampedFixture() : (undefined as unknown as DistrictArtifact);
