@@ -52,6 +52,12 @@ import {
   parseShard,
   poolResultFiles,
   writeResultFile,
+  calibrationBin,
+  calibrationOf,
+  drawArmOf,
+  parseCli,
+  resultDirFor,
+  sumCalibrations,
   type BacktestSummary,
   type DistrictOutcome,
   type FetchLike,
@@ -60,6 +66,7 @@ import {
   type TabSources,
 } from "./measureDistrictCutoff.js";
 import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../apps/web/src/workers/simulationProtocol.js";
+import type { LockStatus } from "../packages/core/districts/locks.js";
 
 const FINAL_STATE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
 const FIXTURE_DIR = "data/fixtures/phase10";
@@ -496,5 +503,53 @@ describe("gateVerdict", () => {
     expect(coverageInBand(18, 25)).toBe(true);
     expect(coverageInBand(22, 25)).toBe(true);
     expect(coverageInBand(23, 25)).toBe(false);
+  });
+});
+
+describe("the two draw arms and the chance calibration (quick task 261014-qv2)", () => {
+  it("parses --independent-draws, defaults to the joint arm, and sends the arms to sibling directories", () => {
+    expect(parseCli([]).independentDraws).toBe(false);
+    expect(parseCli(["--independent-draws"]).independentDraws).toBe(true);
+    expect(parseCli(["--report", "--independent-draws"]).report).toBe(true);
+    expect(drawArmOf(parseCli([]))).toBe("joint");
+    expect(drawArmOf(parseCli(["--independent-draws"]))).toBe("independent");
+    expect(resultDirFor("11.0.0+baseline", "district-cutoff-independent", "base").split("\\").join("/")).toBe("base/spr@11.0.0+baseline/district-cutoff-independent");
+    expect(resultDirFor("11.0.0+baseline", "district-cutoff", "base").split("\\").join("/")).toBe("base/spr@11.0.0+baseline/district-cutoff");
+  });
+
+  it("bins chances into ten equal widths with 1 in the top bin", () => {
+    expect(calibrationBin(0)).toBe(0);
+    expect(calibrationBin(0.09999)).toBe(0);
+    expect(calibrationBin(0.1)).toBe(1);
+    expect(calibrationBin(0.95)).toBe(9);
+    expect(calibrationBin(1)).toBe(9);
+  });
+
+  it("pairs printed chances with the final verdict, leaves award, prequalified and unknown finals out, and sums", () => {
+    const printed = new Map([
+      ["frc1", 0.8],
+      ["frc2", 0.3],
+      ["frc3", 0.5],
+      ["frc4", 0.6],
+      ["frc5", 0.2],
+      ["frc6", 0.9],
+    ]);
+    const finals = new Map<string, LockStatus>([
+      ["frc1", "locked"],
+      ["frc2", "eliminated"],
+      ["frc3", "contending"],
+      ["frc4", "lockedAward"],
+      ["frc5", "prequalified"],
+    ]);
+    const calibration = calibrationOf(printed, finals);
+    expect(calibration.pairs).toBe(3);
+    expect(calibration.brierSum).toBeCloseTo(0.2 ** 2 + 0.3 ** 2 + 0.5 ** 2, 12);
+    expect(calibration.leftOut).toEqual({ lockedAward: 1, prequalified: 1, unknown: 1 });
+    expect(calibration.bins[8]).toEqual({ count: 1, chanceSum: 0.8, outcomeSum: 1 });
+    expect(calibration.bins[3]).toEqual({ count: 1, chanceSum: 0.3, outcomeSum: 0 });
+    const doubled = sumCalibrations([calibration, calibration]);
+    expect(doubled.pairs).toBe(6);
+    expect(doubled.leftOut.unknown).toBe(2);
+    expect(doubled.bins[5]!.count).toBe(2);
   });
 });

@@ -14,11 +14,19 @@
  *     The positions and the projected GENERATED bake count, from the district
  *     artifacts alone.
  *
- *   npx tsx scripts/measureDistrictCutoff.ts [--district KEY] [--seasons ...] [--shard k/n] [--force] [--version V]
+ *   npx tsx scripts/measureDistrictCutoff.ts [--district KEY] [--seasons ...] [--shard k/n] [--force] [--version V] [--independent-draws]
  *     The backtest. One result file per district season.
  *
- *   npx tsx scripts/measureDistrictCutoff.ts --report [--json] [--verbose]
+ *   npx tsx scripts/measureDistrictCutoff.ts --report [--json] [--verbose] [--independent-draws]
  *     Pools every result file and prints the pre-registered gate.
+ *
+ * TWO ARMS (quick task 261014-qv2). The default is the JOINT arm: the chance
+ * run draws every event that carries per run data once, shared by its teams,
+ * exactly as the tab does. `--independent-draws` is the shipped independent
+ * draw (the chance builder is called without the distributions map), kept so
+ * the two arms can be compared; its files go to a sibling directory
+ * (`district-cutoff-independent`), every file records which draw wrote it, and
+ * `--report` refuses to pool a file written by the other arm.
  *
  * THE BROWSER'S OWN CODE, IN THE COMPONENT'S OWN ORDER. This script defines no
  * model. At every position it calls what `DistrictLedger.tsx` calls at a
@@ -169,7 +177,9 @@ import {
 } from "../apps/web/src/components/districts/districtTimeline.js";
 import { districtMilestoneEvents } from "../apps/web/src/components/districts/districtMilestones.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
-import { buildAdvancementChanceRun } from "../apps/web/src/components/districts/districtLedgerChances.js";
+import { buildAdvancementChanceRun, reconcileAdvancementChances } from "../apps/web/src/components/districts/districtLedgerChances.js";
+import type { LockStatus } from "../packages/core/districts/locks.js";
+import { districtTierFinalVerdicts } from "./measureLedgerTenets.js";
 import { predictedCutoff, type ChampNoCallReason } from "../apps/web/src/components/districts/predictedCutoff.js";
 import { applyLedgerRangeState, districtRangeState } from "../apps/web/src/components/districts/ledgerRangeState.js";
 import { applyChampionshipFieldOverlay } from "../apps/web/src/components/districts/districtFieldOverlay.js";
@@ -632,6 +642,12 @@ export interface TabSources {
   readonly memo: RunMemo;
   readonly draws: number;
   readonly seed: number;
+  /**
+   * THE INDEPENDENT ARM (quick task 261014-qv2): the chance builder is called
+   * without the distributions map, which is the shipped independent draw.
+   * Absent or false is the joint arm, as the tab draws.
+   */
+  readonly independentDraws?: boolean;
 }
 
 /** The tab's per artifact memos, computed once per district season. */
@@ -811,8 +827,16 @@ export async function districtTabAtPosition(ctx: DistrictTabContext, positionInd
   const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
 
   // Lines 449 to 461: the chance run, on the landed run's signature.
-  // The SAME map the rows were built from (quick task 261014-qv2).
-  const chanceRun = buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature: priced.runSignature, positionId, distributions: priced.distributions });
+  // The SAME map the rows were built from (quick task 261014-qv2), except on
+  // the independent arm, which omits it.
+  const chanceRun = buildAdvancementChanceRun({
+    artifact,
+    teams: rows.teams,
+    statuses,
+    runSignature: priced.runSignature,
+    positionId,
+    ...(sources.independentDraws === true ? {} : { distributions: priced.distributions }),
+  });
   const chance = chanceRun === undefined ? undefined : advancementChances(chanceRun.inputs, sources.draws, sources.seed);
 
   // Lines 474 to 536: the boundary rule's kind and the one range state.
@@ -930,6 +954,101 @@ export function asOfLeakChecks(params: {
   return { realRowsAfterCut, baselinesAtOrBeforeCut, playedPlayoffsAtOrBeforeCut, generatedCarriesNoSchedule };
 }
 
+/**
+ * THE CHANCE CALIBRATION, REPORT ONLY (quick task 261014-qv2): every printed
+ * chance (the teams `reconcileAdvancementChances` lets through the shown
+ * chips) paired with the season's final district verdict, 1 for `locked` and
+ * 0 for `eliminated` or `contending`. `lockedAward`, `prequalified` and
+ * `unknown` finals are left out and counted. Ten equal width bins over the
+ * chance.
+ */
+export interface ChanceCalibration {
+  readonly pairs: number;
+  readonly brierSum: number;
+  readonly leftOut: { readonly lockedAward: number; readonly prequalified: number; readonly unknown: number };
+  readonly bins: readonly { readonly count: number; readonly chanceSum: number; readonly outcomeSum: number }[];
+}
+
+export const CALIBRATION_BIN_COUNT = 10;
+
+export function emptyCalibration(): ChanceCalibration {
+  return {
+    pairs: 0,
+    brierSum: 0,
+    leftOut: { lockedAward: 0, prequalified: 0, unknown: 0 },
+    bins: Array.from({ length: CALIBRATION_BIN_COUNT }, () => ({ count: 0, chanceSum: 0, outcomeSum: 0 })),
+  };
+}
+
+/** The bin a chance falls in: `[k / 10, (k + 1) / 10)`, with 1 in the top bin. */
+export function calibrationBin(chance: number): number {
+  return Math.min(Math.max(Math.floor(chance * CALIBRATION_BIN_COUNT), 0), CALIBRATION_BIN_COUNT - 1);
+}
+
+/** Pairs every printed chance with its final verdict. */
+export function calibrationOf(printed: ReadonlyMap<string, number>, finals: ReadonlyMap<string, LockStatus>): ChanceCalibration {
+  const out = emptyCalibration();
+  let pairs = 0;
+  let brierSum = 0;
+  const leftOut = { lockedAward: 0, prequalified: 0, unknown: 0 };
+  const bins = out.bins.map((bin) => ({ ...bin }));
+  for (const [teamKey, chance] of printed) {
+    const final = finals.get(teamKey) ?? "unknown";
+    if (final === "lockedAward" || final === "prequalified" || final === "unknown") {
+      leftOut[final] += 1;
+      continue;
+    }
+    const outcome = final === "locked" ? 1 : 0;
+    pairs += 1;
+    brierSum += (chance - outcome) ** 2;
+    const bin = bins[calibrationBin(chance)]!;
+    bin.count += 1;
+    bin.chanceSum += chance;
+    bin.outcomeSum += outcome;
+  }
+  return { pairs, brierSum, leftOut, bins };
+}
+
+/** Sums calibrations, bin by bin. */
+export function sumCalibrations(parts: readonly ChanceCalibration[]): ChanceCalibration {
+  const out = emptyCalibration();
+  const bins = out.bins.map((bin) => ({ ...bin }));
+  const leftOut = { lockedAward: 0, prequalified: 0, unknown: 0 };
+  let pairs = 0;
+  let brierSum = 0;
+  for (const part of parts) {
+    pairs += part.pairs;
+    brierSum += part.brierSum;
+    leftOut.lockedAward += part.leftOut.lockedAward;
+    leftOut.prequalified += part.leftOut.prequalified;
+    leftOut.unknown += part.leftOut.unknown;
+    part.bins.forEach((bin, k) => {
+      bins[k]!.count += bin.count;
+      bins[k]!.chanceSum += bin.chanceSum;
+      bins[k]!.outcomeSum += bin.outcomeSum;
+    });
+  }
+  return { pairs, brierSum, leftOut, bins };
+}
+
+/** The joint cells and bytes one chance request carries (quick task 261014-qv2). */
+export interface JointLoad {
+  readonly cells: number;
+  readonly bytes: number;
+  readonly positionId: string;
+}
+
+/** The joint cells and bytes of one chance run's inputs; zero for an independent run. */
+export function jointLoadOf(chanceRun: ReturnType<typeof buildAdvancementChanceRun>, positionId: string): JointLoad {
+  let cells = 0;
+  let bytes = 0;
+  for (const event of chanceRun?.inputs.jointEvents ?? []) {
+    cells += event.totals.length;
+    bytes += event.totals.byteLength;
+  }
+  return { cells, bytes, positionId };
+}
+
 export interface PositionRow {
   readonly districtKey: string;
   readonly year: number;
@@ -959,6 +1078,8 @@ export interface PositionRow {
   /** The unavailable events by the `name` that refused them. */
   readonly unavailable: Readonly<Record<string, number>>;
   readonly leaks: PositionLeakChecks;
+  /** The printed chances at this position paired with the final verdicts (quick task 261014-qv2, report only). */
+  readonly calibration: ChanceCalibration;
 }
 
 export type PositionOutcome =
@@ -977,6 +1098,8 @@ export interface DistrictBacktest {
   readonly outcomes: readonly PositionOutcome[];
   /** Started district tier events with no artifact at the run version. */
   readonly eventsWithoutArtifact: readonly string[];
+  /** The largest joint load one chance request carried at any position of this season (quick task 261014-qv2). */
+  readonly maxJoint: JointLoad;
 }
 
 export type DistrictOutcome =
@@ -996,7 +1119,14 @@ function unavailableByName(events: readonly { readonly eventKey: string; readonl
 }
 
 /** One position's outcome, from the tab's own state there. */
-function outcomeAtPosition(tab: DistrictTabAtPosition, artifact: DistrictArtifact, label: string, settled: number, eventArtifacts: ReadonlyMap<string, EventArtifact>): PositionOutcome {
+function outcomeAtPosition(
+  tab: DistrictTabAtPosition,
+  artifact: DistrictArtifact,
+  label: string,
+  settled: number,
+  eventArtifacts: ReadonlyMap<string, EventArtifact>,
+  finals: ReadonlyMap<string, LockStatus>
+): PositionOutcome {
   const { positionId, rangeState: state, boundary, stageByEvent, rows, statuses, chanceRun } = tab;
   // `districtRangeState` reads `settled` for every boundary kind but `predicted`, so past this check the midpoint exists.
   if (boundary.kind !== "predicted") return { kind: "settled", positionId, label };
@@ -1046,6 +1176,9 @@ function outcomeAtPosition(tab: DistrictTabAtPosition, artifact: DistrictArtifac
       unpricedEvents: unavailable.count,
       unavailable: unavailable.byName,
       leaks,
+      // `DistrictLedger.tsx` line 560: the printed chances are the run's,
+      // narrowed by the shown chips.
+      calibration: calibrationOf(tab.chance === undefined ? new Map() : reconcileAdvancementChances(tab.chance.chanceByTeam, tab.display).byTeam, finals),
     },
   };
 }
@@ -1092,10 +1225,14 @@ export async function backtestDistrict(artifact: DistrictArtifact, sources: TabS
   assertEventArtifactVersions(sources.eventArtifacts, sources.version);
 
   const ctx = districtTabContext(artifact, sources.eventArtifacts);
+  const finals = districtTierFinalVerdicts(artifact);
   const outcomes: PositionOutcome[] = [];
+  let maxJoint: JointLoad = { cells: 0, bytes: 0, positionId: "" };
   for (const { index, label } of measurementPositions(ctx.timeline)) {
     const tab = await districtTabAtPosition(ctx, index, sources);
-    outcomes.push(outcomeAtPosition(tab, artifact, label, settled.points, sources.eventArtifacts));
+    const load = jointLoadOf(tab.chanceRun, tab.positionId);
+    if (load.bytes > maxJoint.bytes) maxJoint = load;
+    outcomes.push(outcomeAtPosition(tab, artifact, label, settled.points, sources.eventArtifacts, finals));
   }
   return {
     ok: true,
@@ -1106,6 +1243,7 @@ export async function backtestDistrict(artifact: DistrictArtifact, sources: TabS
       published: artifact.insights.dcmpCutLinePoints,
       outcomes,
       eventsWithoutArtifact: [...sources.unloadedEventKeys].sort(),
+      maxJoint,
     },
   };
 }
@@ -1471,7 +1609,17 @@ export function assignShards(items: readonly { readonly key: string; readonly we
 // Result files
 // ---------------------------------------------------------------------------
 
-export function resultDirFor(version: string, kind: "district-cutoff" | "in-range", base: string = BACKTEST_DIR): string {
+/** The result kinds: each backtest's joint arm, and its independent arm in a sibling directory (quick task 261014-qv2). */
+export type ResultKind = "district-cutoff" | "in-range" | "district-cutoff-independent" | "in-range-independent";
+
+/** Which draw wrote a result file (quick task 261014-qv2). */
+export type DrawArm = "joint" | "independent";
+
+export function drawArmOf(cli: Pick<CliArgs, "independentDraws">): DrawArm {
+  return cli.independentDraws ? "independent" : "joint";
+}
+
+export function resultDirFor(version: string, kind: ResultKind, base: string = BACKTEST_DIR): string {
   return join(base, `${EVENT_ALGORITHM_ID}@${version}`, kind);
 }
 
@@ -1504,6 +1652,8 @@ export function poolResultFiles<T extends { readonly version: string }>(dir: str
 
 export interface DistrictCutoffResultFile {
   readonly kind: "district-cutoff";
+  /** Which draw wrote this file (quick task 261014-qv2); `--report` refuses to pool the other arm's. */
+  readonly draw: DrawArm;
   readonly districtKey: string;
   readonly year: number;
   readonly version: string;
@@ -1534,6 +1684,8 @@ export interface CliArgs {
   readonly district: string | undefined;
   readonly seasons: ReadonlySet<number>;
   readonly shard: { readonly k: number; readonly n: number } | undefined;
+  /** The independent arm (quick task 261014-qv2). */
+  readonly independentDraws: boolean;
 }
 
 export function parseCli(argv: readonly string[]): CliArgs {
@@ -1551,6 +1703,7 @@ export function parseCli(argv: readonly string[]): CliArgs {
       district: { type: "string" },
       seasons: { type: "string" },
       shard: { type: "string" },
+      "independent-draws": { type: "boolean", default: false },
     },
     strict: true,
   });
@@ -1566,6 +1719,7 @@ export function parseCli(argv: readonly string[]): CliArgs {
     district: values.district,
     seasons: new Set(values.seasons === undefined ? DEFAULT_SEASONS : values.seasons.split(",").map((part) => Number(part.trim()))),
     shard: parseShard(values.shard),
+    independentDraws: values["independent-draws"],
   };
 }
 
@@ -1676,9 +1830,10 @@ async function fetchMode(eligible: readonly DistrictArtifact[], refused: readonl
 async function runMode(eligible: readonly DistrictArtifact[], refused: readonly DistrictArtifact[], cli: CliArgs): Promise<void> {
   const cache = new OriginCache({ mode: "offline" });
   const version = await runVersionOf(cache, cli.version);
-  const dir = resultDirFor(version, "district-cutoff");
+  const draw = drawArmOf(cli);
+  const dir = resultDirFor(version, draw === "joint" ? "district-cutoff" : "district-cutoff-independent");
   const selected = inShard(eligible, cli.shard, districtCutoffWeight);
-  process.stderr.write(`district cutoff backtest at ${EVENT_ALGORITHM_ID}@${version}: ${String(selected.length)} district seasons into ${dir}\n`);
+  process.stderr.write(`district cutoff backtest at ${EVENT_ALGORITHM_ID}@${version}, ${draw} draws: ${String(selected.length)} district seasons into ${dir}\n`);
   printRefusedByConstruction(refused);
   for (const artifact of selected) {
     if (!cli.force && hasResultFile(dir, artifact.districtKey)) {
@@ -1701,11 +1856,13 @@ async function runMode(eligible: readonly DistrictArtifact[], refused: readonly 
         memo,
         draws: SIMULATION_DRAWS,
         seed: DEFAULT_SIMULATION_SEED,
+        independentDraws: cli.independentDraws,
       });
     }
     const elapsedMs = Date.now() - started;
     const file: DistrictCutoffResultFile = {
       kind: "district-cutoff",
+      draw,
       districtKey: artifact.districtKey,
       year: artifact.year,
       version,
@@ -1721,7 +1878,7 @@ async function runMode(eligible: readonly DistrictArtifact[], refused: readonly 
     cache.clearMemo();
     const scored = outcome.ok ? outcome.backtest.outcomes.filter((o) => o.kind === "scored").length : 0;
     process.stderr.write(
-      `  ${artifact.districtKey} ${outcome.ok ? `done, ${String(scored)} scored` : `refused: ${outcome.reason}`}; bakes ${String(file.bakes)} at mean ${file.meanBakeMs.toFixed(0)} ms, real runs ${String(file.realRuns)}, ${(elapsedMs / 1000).toFixed(1)} s\n`
+      `  ${artifact.districtKey} ${outcome.ok ? `done, ${String(scored)} scored` : `refused: ${outcome.reason}`}; bakes ${String(file.bakes)} at mean ${file.meanBakeMs.toFixed(0)} ms, real runs ${String(file.realRuns)}, ${(elapsedMs / 1000).toFixed(1)} s${outcome.ok && outcome.backtest.maxJoint.bytes > 0 ? `; largest joint request ${String(outcome.backtest.maxJoint.cells)} cells, ${String(outcome.backtest.maxJoint.bytes)} bytes at ${outcome.backtest.maxJoint.positionId}` : ""}\n`
     );
   }
 }
@@ -1758,7 +1915,8 @@ const LEAK_CHECK_LABELS: Readonly<Record<keyof PositionLeakChecks, string>> = {
 
 async function reportMode(eligible: readonly DistrictArtifact[], refused: readonly DistrictArtifact[], cli: CliArgs): Promise<void> {
   const version = await runVersionOf(new OriginCache({ mode: "offline" }), cli.version);
-  const dir = resultDirFor(version, "district-cutoff");
+  const draw = drawArmOf(cli);
+  const dir = resultDirFor(version, draw === "joint" ? "district-cutoff" : "district-cutoff-independent");
   const pooled = poolResultFiles<DistrictCutoffResultFile>(dir, eligible.map((artifact) => artifact.districtKey), version);
   if (pooled.status === "incomplete") {
     console.log(`NO-GO incomplete: ${String(pooled.missing.length)} of ${String(eligible.length)} district seasons have no result file in ${dir}: ${pooled.missing.join(", ")}`);
@@ -1767,6 +1925,13 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
   }
   if (pooled.status === "versionMismatch") {
     console.log(`NO-GO version mismatch: ${pooled.keys.join(", ")} were not written at ${EVENT_ALGORITHM_ID}@${version}`);
+    process.exitCode = 1;
+    return;
+  }
+  // THE ARM GUARD (quick task 261014-qv2): never pool a file the other draw wrote.
+  const otherArm = pooled.files.filter((file) => file.draw !== draw).map((file) => file.districtKey);
+  if (otherArm.length > 0) {
+    console.log(`NO-GO draw mismatch: ${otherArm.join(", ")} were not written by the ${draw} arm`);
     process.exitCode = 1;
     return;
   }
@@ -1804,6 +1969,11 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
   const elapsedMs = pooled.files.reduce((sum, file) => sum + file.elapsedMs, 0);
   const realEvents = rows.reduce((sum, row) => sum + row.realEvents, 0);
   const generatedEvents = rows.reduce((sum, row) => sum + row.generatedEvents, 0);
+  const calibration = sumCalibrations(rows.map((row) => row.calibration));
+  let maxJoint: (JointLoad & { districtKey: string }) | undefined;
+  for (const backtest of backtests) {
+    if (backtest.maxJoint.bytes > 0 && (maxJoint === undefined || backtest.maxJoint.bytes > maxJoint.bytes)) maxJoint = { ...backtest.maxJoint, districtKey: backtest.districtKey };
+  }
 
   if (cli.json) {
     console.log(
@@ -1811,6 +1981,10 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
         {
           version,
           path: "as-of",
+          draw,
+          calibration,
+          brier: calibration.pairs === 0 ? null : calibration.brierSum / calibration.pairs,
+          maxJoint: maxJoint ?? null,
           draws: SIMULATION_DRAWS,
           seed: DEFAULT_SIMULATION_SEED,
           summary,
@@ -1847,6 +2021,9 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
   console.log("DISTRICT CUTOFF BACKTEST: the District Locks simulated line at season start and after each week, walk-forward, on the as-of path");
   console.log(`  source: ${dir} (${String(pooled.files.length)} result files), event artifacts and as-of objects at ${EVENT_ALGORITHM_ID}@${version}`);
   console.log(`  draws ${String(SIMULATION_DRAWS)}, seed ${String(DEFAULT_SIMULATION_SEED)}; ${String(backtests.length)} district seasons, ${String(rows.length)} scored positions; bakes ${String(bakes)} at mean ${(bakes === 0 ? 0 : bakeMs / bakes).toFixed(0)} ms, ${(elapsedMs / 60_000).toFixed(1)} min summed`);
+  console.log(
+    `  chance draw: ${draw === "joint" ? "JOINT (each event with per run data drawn once per advancement run, shared by its teams)" : "INDEPENDENT (every team's season total drawn on its own)"}; largest joint request ${maxJoint === undefined ? "none" : `${String(maxJoint.cells)} cells, ${String(maxJoint.bytes)} bytes (${maxJoint.districtKey} ${maxJoint.positionId})`}`
+  );
   console.log("  target: the tab's own settled cutoff at season end (midpoint rule over the final rows); TBA's published DCMP cut line reported beside it, not scored");
   console.log("");
 
@@ -1905,6 +2082,19 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
 
   console.log(`LEAK CHECKS (positions passing, of ${String(rows.length)})`);
   for (const key of leakKeys) console.log(`  ${LEAK_CHECK_LABELS[key].padEnd(48)} ${String(leakCounts[key])}`);
+  console.log("");
+
+  console.log("CHANCE CALIBRATION (report only, not gated)");
+  console.log(
+    `  n ${String(calibration.pairs)} printed chances paired with the final district verdict (locked 1; eliminated or contending 0); Brier ${calibration.pairs === 0 ? "-" : (calibration.brierSum / calibration.pairs).toFixed(4)}; left out: lockedAward ${String(calibration.leftOut.lockedAward)}, prequalified ${String(calibration.leftOut.prequalified)}, unknown ${String(calibration.leftOut.unknown)}`
+  );
+  calibration.bins.forEach((bin, k) => {
+    const lo = (k / CALIBRATION_BIN_COUNT).toFixed(1);
+    const hi = ((k + 1) / CALIBRATION_BIN_COUNT).toFixed(1);
+    console.log(
+      `  ${lo} to ${hi}  n ${pad(bin.count, 5)}  mean chance ${bin.count === 0 ? "    -" : (bin.chanceSum / bin.count).toFixed(3)}  observed ${bin.count === 0 ? "    -" : (bin.outcomeSum / bin.count).toFixed(3)}`
+    );
+  });
   console.log("");
 
   console.log("GATE (registered before the run, re-registered unchanged 2026-10-14)");

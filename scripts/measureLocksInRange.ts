@@ -5,12 +5,19 @@
  * For every district season of 2023 to 2026: the teams each tab shows In range
  * at the season start, and how many of them end the season locked.
  *
- *   npx tsx scripts/measureLocksInRange.ts [--district KEY] [--seasons ...] [--shard k/n] [--force] [--version V]
+ *   npx tsx scripts/measureLocksInRange.ts [--district KEY] [--seasons ...] [--shard k/n] [--force] [--version V] [--independent-draws]
  *     One result file per district season, reading only the origin cache
  *     `measureDistrictCutoff.ts --fetch` filled.
  *
- *   npx tsx scripts/measureLocksInRange.ts --report [--json]
- *     Pools every file; refuses an incomplete set.
+ *   npx tsx scripts/measureLocksInRange.ts --report [--json] [--independent-draws]
+ *     Pools every file; refuses an incomplete set, and a file the other arm
+ *     wrote.
+ *
+ * TWO ARMS (quick task 261014-qv2), as in `measureDistrictCutoff.ts`: the
+ * default draws the district chance runs (the District tab's and the Champ
+ * tab's district run) jointly, as the tabs do; `--independent-draws` omits the
+ * distributions map, the shipped independent draw, into `in-range-independent`.
+ * The champ run itself is independent on both arms.
  *
  * THE DISTRICT TAB is `measureDistrictCutoff.ts`' own `districtTabAtPosition`
  * at index 0, the same call the backtest scores, so its season start state is
@@ -87,6 +94,7 @@ import {
   champTabContext,
   createRunMemo,
   districtEventKeysOf,
+  drawArmOf,
   districtTabAtPosition,
   districtTabContext,
   hasResultFile,
@@ -106,6 +114,7 @@ import {
   type ChampTabContext,
   type CliArgs,
   type DistrictTabContext,
+  type DrawArm,
   type TabSources,
 } from "./measureDistrictCutoff.js";
 
@@ -264,8 +273,16 @@ export async function champTabAtPosition(ctx: ChampTabContext, positionIndex: nu
   for (const [teamKey, result] of districtStatuses.byTeam) if (result.status === "lockedOut") districtLockedOut.add(teamKey);
   // Lines 662 to 690: the district chance run and the field chance.
   const runSignature = priced.runSignature;
-  // The SAME map the district rows were built from (quick task 261014-qv2).
-  const districtChanceRun = buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature, positionId, distributions: priced.distributions });
+  // The SAME map the district rows were built from (quick task 261014-qv2),
+  // except on the independent arm, which omits it.
+  const districtChanceRun = buildAdvancementChanceRun({
+    artifact,
+    teams: districtRows.teams,
+    statuses: districtStatuses,
+    runSignature,
+    positionId,
+    ...(sources.independentDraws === true ? {} : { distributions: priced.distributions }),
+  });
   const districtChance: AdvancementChanceResult | undefined = districtChanceRun === undefined ? undefined : advancementChances(districtChanceRun.inputs, sources.draws, sources.seed);
   const districtTierSettled = !districtRows.teams.some((team) => team.hasOpenCategory);
   const fieldChanceByTeam = champFieldChances(districtStatuses, districtChance?.chanceByTeam, districtTierSettled && districtChanceRun === undefined);
@@ -408,6 +425,8 @@ export function inRangeRefusalOf(artifact: DistrictArtifact): string | undefined
 
 export interface InRangeResultFile {
   readonly kind: "in-range";
+  /** Which draw wrote this file (quick task 261014-qv2); `--report` refuses to pool the other arm's. */
+  readonly draw: DrawArm;
   readonly districtKey: string;
   readonly year: number;
   readonly version: string;
@@ -434,7 +453,7 @@ export async function inRangeForDistrict(
     readonly champ: Omit<TabSources, "memo" | "draws" | "seed">;
   },
   memo = createRunMemo()
-): Promise<Omit<InRangeResultFile, "kind" | "version" | "elapsedMs" | "bakes" | "meanBakeMs">> {
+): Promise<Omit<InRangeResultFile, "kind" | "draw" | "version" | "elapsedMs" | "bakes" | "meanBakeMs">> {
   const refused = inRangeRefusalOf(artifact);
   if (refused !== undefined) return { districtKey: artifact.districtKey, year: artifact.year, refused };
   const common = { memo, draws: SIMULATION_DRAWS, seed: DEFAULT_SIMULATION_SEED };
@@ -450,9 +469,10 @@ export async function inRangeForDistrict(
 async function runMode(eligible: readonly DistrictArtifact[], cli: CliArgs): Promise<void> {
   const cache = new OriginCache({ mode: "offline" });
   const version = await runVersionOf(cache, cli.version);
-  const dir = resultDirFor(version, "in-range");
+  const draw = drawArmOf(cli);
+  const dir = resultDirFor(version, draw === "joint" ? "in-range" : "in-range-independent");
   const selected = inShard(eligible, cli.shard, inRangeWeight);
-  process.stderr.write(`in-range report at ${EVENT_ALGORITHM_ID}@${version}: ${String(selected.length)} district seasons into ${dir}\n`);
+  process.stderr.write(`in-range report at ${EVENT_ALGORITHM_ID}@${version}, ${draw} draws: ${String(selected.length)} district seasons into ${dir}\n`);
   for (const artifact of selected) {
     if (!cli.force && hasResultFile(dir, artifact.districtKey)) {
       process.stderr.write(`  ${artifact.districtKey} exists, skipped (--force reruns it)\n`);
@@ -469,14 +489,14 @@ async function runMode(eligible: readonly DistrictArtifact[], cli: CliArgs): Pro
       body = await inRangeForDistrict(
         artifact,
         {
-          district: { eventArtifacts: district.eventArtifacts, unloadedEventKeys: district.missing, fetchers, version },
-          champ: { eventArtifacts: champ.eventArtifacts, unloadedEventKeys: champ.missing, fetchers, version },
+          district: { eventArtifacts: district.eventArtifacts, unloadedEventKeys: district.missing, fetchers, version, independentDraws: cli.independentDraws },
+          champ: { eventArtifacts: champ.eventArtifacts, unloadedEventKeys: champ.missing, fetchers, version, independentDraws: cli.independentDraws },
         },
         memo
       );
     }
     const elapsedMs = Date.now() - started;
-    const file: InRangeResultFile = { kind: "in-range", ...body, version, elapsedMs, bakes: memo.stats.bakes, meanBakeMs: memo.stats.bakes === 0 ? 0 : memo.stats.bakeMs / memo.stats.bakes };
+    const file: InRangeResultFile = { kind: "in-range", draw, ...body, version, elapsedMs, bakes: memo.stats.bakes, meanBakeMs: memo.stats.bakes === 0 ? 0 : memo.stats.bakeMs / memo.stats.bakes };
     writeResultFile(dir, artifact.districtKey, file);
     cache.clearMemo();
     process.stderr.write(
@@ -495,7 +515,8 @@ function rate(value: number | null): string {
 
 async function reportMode(eligible: readonly DistrictArtifact[], refused: readonly DistrictArtifact[], cli: CliArgs): Promise<void> {
   const version = await runVersionOf(new OriginCache({ mode: "offline" }), cli.version);
-  const dir = resultDirFor(version, "in-range");
+  const draw = drawArmOf(cli);
+  const dir = resultDirFor(version, draw === "joint" ? "in-range" : "in-range-independent");
   const pooled = poolResultFiles<InRangeResultFile>(dir, eligible.map((artifact) => artifact.districtKey), version);
   if (pooled.status === "incomplete") {
     console.log(`NO-GO incomplete: ${String(pooled.missing.length)} of ${String(eligible.length)} district seasons have no result file in ${dir}: ${pooled.missing.join(", ")}`);
@@ -504,6 +525,13 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
   }
   if (pooled.status === "versionMismatch") {
     console.log(`NO-GO version mismatch: ${pooled.keys.join(", ")} were not written at ${EVENT_ALGORITHM_ID}@${version}`);
+    process.exitCode = 1;
+    return;
+  }
+  // THE ARM GUARD (quick task 261014-qv2): never pool a file the other draw wrote.
+  const otherArm = pooled.files.filter((file) => file.draw !== draw).map((file) => file.districtKey);
+  if (otherArm.length > 0) {
+    console.log(`NO-GO draw mismatch: ${otherArm.join(", ")} were not written by the ${draw} arm`);
     process.exitCode = 1;
     return;
   }
@@ -521,12 +549,12 @@ async function reportMode(eligible: readonly DistrictArtifact[], refused: readon
   const refusedFiles = pooled.files.filter((file) => file.refused !== undefined).map((file) => ({ key: file.districtKey, reason: file.refused! }));
 
   if (cli.json) {
-    console.log(JSON.stringify({ version, path: "as-of", published: false, pooled: pooledByTab, refused: refusedFiles, refusedByConstruction: refused.map((a) => a.districtKey), rows }, null, 2));
+    console.log(JSON.stringify({ version, path: "as-of", draw, published: false, pooled: pooledByTab, refused: refusedFiles, refusedByConstruction: refused.map((a) => a.districtKey), rows }, null, 2));
     return;
   }
   console.log("");
   console.log("SEASON START IN RANGE TO LOCKED AT END, both Locks tabs, on the as-of path (REPORT ONLY, never published)");
-  console.log(`  source: ${dir} (${String(pooled.files.length)} result files) at ${EVENT_ALGORITHM_ID}@${version}; champ side on the simulated DCMP bake`);
+  console.log(`  source: ${dir} (${String(pooled.files.length)} result files) at ${EVENT_ALGORITHM_ID}@${version}; champ side on the simulated DCMP bake; district chance runs drawn ${draw === "joint" ? "JOINTLY" : "INDEPENDENTLY"}`);
   console.log("");
   console.log("  tab       district  state                    unpriced  inRange   pts  award  pre  tie   no    pct");
   for (const row of rows) {
