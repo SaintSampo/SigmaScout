@@ -184,7 +184,7 @@ describe("/districts route", () => {
     expect(tabs[1]!.textContent!.startsWith("Champ Locks")).toBe(true);
   });
 
-  it("each tab carries its tier's slot count from the published verdicts: Locked teams over the published capacity", async () => {
+  it("the open tab's count is the Locked count its own table's chip prints; the other tab's count comes from the published verdicts", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -193,17 +193,22 @@ describe("/districts route", () => {
     });
     renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
 
-    // One of the two fixture teams reads `locked` on both tiers; the other is
-    // `contending`. The counts sit INSIDE the triggers, so the inactive Champ
-    // Locks tab prints its count without its ledger ever mounting.
-    expect((await screen.findByTestId("district-locks-tab-count")).textContent).toBe("1 of 54 slots called");
+    // The District Locks ledger is mounted, and its own model locks BOTH
+    // fixture teams (nothing left to play, 54 slots), where the published
+    // verdicts lock one. The tab follows the chip, not the verdicts.
+    const chip = await screen.findByText(/^Locked \d+$/);
+    const chipLocked = Number(/\d+$/.exec(chip.textContent!)![0]);
+    expect(chipLocked).toBe(2);
+    await waitFor(() => expect(screen.getByTestId("district-locks-tab-count").textContent).toBe(`${chipLocked} of 54 slots called`));
+    // The Champ Locks ledger never mounted, so its count is the published
+    // verdicts' own: one `locked` team of 19 slots.
     expect(screen.getByTestId("champ-locks-tab-count").textContent).toBe("1 of 19 slots called");
     const tabs = screen.getAllByRole("tab");
     expect(within(tabs[0]!).getByTestId("district-locks-tab-count")).toBeDefined();
     expect(within(tabs[1]!).getByTestId("champ-locks-tab-count")).toBeDefined();
   });
 
-  it("the tab counts count lockedAward as a held slot and prequalified as none, and print a bare locked count when the capacity is unpublished", async () => {
+  it("the unmounted tab's fallback counts lockedAward as a held slot and prequalified as none, and prints a bare locked count when the capacity is unpublished", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -219,10 +224,15 @@ describe("/districts route", () => {
       }
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
+    // Landing on the Champ Locks tab leaves the District Locks ledger
+    // unmounted, so the district count is the fallback: `locked` plus
+    // `lockedAward`. The champ count is the mounted champ ledger's own chip.
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc&tab=champ-locks");
 
     expect((await screen.findByTestId("district-locks-tab-count")).textContent).toBe("2 of 54 slots called");
-    expect(screen.getByTestId("champ-locks-tab-count").textContent).toBe("1 locked");
+    const chip = await screen.findByText(/^Locked \d+$/);
+    const chipLocked = Number(/\d+$/.exec(chip.textContent!)![0]);
+    await waitFor(() => expect(screen.getByTestId("champ-locks-tab-count").textContent).toBe(`${chipLocked} locked`));
   });
 
   it("?tab=champ-locks still deep-links directly to the Champ Locks tab, which renders the two row ledger", async () => {

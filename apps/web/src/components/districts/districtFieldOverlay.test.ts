@@ -28,6 +28,7 @@ import { computeDistrictLedgerStatuses, type DistrictLedgerStatusModel, type Dis
 import {
   DISTRICT_LEDGER_SHOWN_STATUS_KEYS,
   applyChampionshipFieldOverlay,
+  championshipFieldLockedCount,
   championshipHasStarted,
   isPlayingChampionship,
 } from "./districtFieldOverlay.js";
@@ -237,6 +238,23 @@ describe("O2: when the championship has started", () => {
       team("frc2", { pointTotal: 10, eventPoints: [{ ...played("a", 10), state: STARTED }] }),
     ]);
     expect(championshipHasStarted(artifact)).toBe(false);
+  });
+});
+
+describe("the tab strip's field count reads what the overlay's Locked chip would print, from the artifact alone", () => {
+  it("equals the overlay's locked count on the cell district, whatever the published verdicts say", () => {
+    const artifact = cellDistrict();
+    const shown = applyChampionshipFieldOverlay(rawFor(artifact), artifact, { atLive: true });
+    expect(shown.fieldOverlay).toBe(true);
+    expect(championshipFieldLockedCount(artifact)).toBe(shown.counts.locked);
+    // frc1, frc4, frc6 and frc9 played; frc3 and frc8 hold award only rows and are not playing.
+    expect(championshipFieldLockedCount(artifact)).toBe(4);
+  });
+
+  it("is undefined while the championship has not started, and with no published capacity", () => {
+    const unstarted = artifactOf([team("frc1", { pointTotal: 100, eventPoints: [played("a", 100)], remainingEvents: [championshipAhead(UNSTARTED)] })]);
+    expect(championshipFieldLockedCount(unstarted)).toBeUndefined();
+    expect(championshipFieldLockedCount(cellDistrict({ dcmpSlots: null }))).toBeUndefined();
   });
 });
 

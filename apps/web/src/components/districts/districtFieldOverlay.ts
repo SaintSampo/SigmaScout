@@ -199,6 +199,28 @@ function championshipFieldProven(artifact: DistrictArtifact, liveStage: Readonly
 }
 
 /**
+ * The Locked count the District Locks tab's chip prints under the field view
+ * at Live, for a caller that holds ONLY the artifact: the route's tab strip,
+ * which prints a count for the tab whose ledger is not mounted. The same four
+ * conditions as the overlay below, and the same per team rule, read from the
+ * PUBLISHED verdicts in place of the raw model's (since quick task 261007-il9
+ * both rank the district tier total). `undefined` whenever the overlay would
+ * not apply, so the caller falls back to the raw verdict count.
+ */
+export function championshipFieldLockedCount(artifact: DistrictArtifact, nowYear: number = new Date().getUTCFullYear()): number | undefined {
+  if (artifact.dcmpSlots === null || !championshipHasStarted(artifact)) return undefined;
+  const liveStage = liveStageByEvent(artifact, ["dcmp"]);
+  if (!championshipFieldProven(artifact, liveStage, nowYear)) return undefined;
+  let locked = 0;
+  for (const team of artifact.teams) {
+    const verdict = team.districtLock.status;
+    if (verdict === "prequalified") continue;
+    if (isPlayingChampionship(team, verdict === "locked" || verdict === "lockedAward", liveStage)) locked += 1;
+  }
+  return locked;
+}
+
+/**
  * THE OVERLAY. A separate pure function over the raw model.
  *
  * IT APPLIES ONLY WHEN ALL FOUR HOLD: the caller passes `atLive: true`, the

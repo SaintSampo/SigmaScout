@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +10,8 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
 import { ChampLocksLedger } from "../components/districts/ChampLocksLedger.js";
 import { DistrictLedger } from "../components/districts/DistrictLedger.js";
-import { CHAMP_LEDGER_TAB_LABEL, DISTRICT_LEDGER_TAB_LABEL, locksTabSlotsText } from "../components/districts/districtLedgerCopy.js";
+import { CHAMP_LEDGER_TAB_LABEL, DISTRICT_LEDGER_TAB_LABEL } from "../components/districts/districtLedgerCopy.js";
+import { locksTabCounts, mergeLocksTabReport, type LocksTabLockedReport, type LocksTabReportedCounts } from "../components/districts/locksTabCounts.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -43,27 +44,6 @@ const REGISTERED_DISTRICT_TABS: readonly DistrictTab[] = [...DISTRICT_TABS];
 function resolveActiveTab(tab: DistrictTab): DistrictTab {
   if (!REGISTERED_DISTRICT_TABS.includes(tab)) return DEFAULT_DISTRICT_TAB;
   return tab;
-}
-
-/**
- * The slot count each tab prints beside its label (prototype 01 of the
- * 2026-10-15 Locks tab sketch: a segmented switch with counts).
- *
- * Read from the artifact's PUBLISHED verdicts and not from either ledger's
- * own status model: only the active tab's ledger is mounted, so the inactive
- * tab's count has to come from data the route already holds. `locked` and
- * `lockedAward` both hold one of the tier's slots. `prequalified` never does
- * (`packages/core/districts/locks.ts`: the slots are worked out after the
- * prequalified teams are taken out), so it is not counted. This is the LIVE
- * census; a rewound milestone inside a panel changes that panel's chips and
- * not these counts.
- */
-function locksTabCounts(artifact: DistrictArtifact | undefined): { readonly district: string; readonly champ: string } | undefined {
-  if (artifact === undefined) return undefined;
-  const holdsSlot = (status: DistrictArtifact["teams"][number]["districtLock"]["status"]): boolean => status === "locked" || status === "lockedAward";
-  const district = artifact.teams.filter((team) => holdsSlot(team.districtLock.status)).length;
-  const champ = artifact.teams.filter((team) => holdsSlot(team.champLock.status)).length;
-  return { district: locksTabSlotsText(district, artifact.dcmpSlots), champ: locksTabSlotsText(champ, artifact.cmpSlots) };
 }
 
 /**
@@ -191,7 +171,15 @@ function DistrictsPage() {
   });
 
   const activeTab = resolveActiveTab(tab);
-  const tabCounts = useMemo(() => locksTabCounts(districtQuery.data), [districtQuery.data]);
+
+  // The slot count each tab prints beside its label (prototype 01 of the
+  // 2026-10-15 Locks tab sketch). The mounted ledger reports the Locked count
+  // its chips print, so the open tab reads exactly what its table reads; the
+  // other tab reads what the artifact alone supports (`locksTabCounts.ts`).
+  const [reportedCounts, setReportedCounts] = useState<LocksTabReportedCounts>({});
+  const reportDistrictLocked = useCallback((report: LocksTabLockedReport) => setReportedCounts((prev) => mergeLocksTabReport(prev, "district", report)), []);
+  const reportChampLocked = useCallback((report: LocksTabLockedReport) => setReportedCounts((prev) => mergeLocksTabReport(prev, "champ", report)), []);
+  const tabCounts = useMemo(() => locksTabCounts(districtQuery.data, reportedCounts), [districtQuery.data, reportedCounts]);
 
   function handleTabChange(value: string) {
     void navigate({ search: (prev) => ({ ...prev, tab: value as DistrictTab }) });
@@ -220,7 +208,7 @@ function DistrictsPage() {
       districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictLedger artifact={artifact} algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <DistrictLedger artifact={artifact} algorithm={algorithm} season={year} onLockedCount={reportDistrictLocked} />,
     });
   }
 
@@ -233,7 +221,7 @@ function DistrictsPage() {
       districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <ChampLocksLedger artifact={artifact} algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <ChampLocksLedger artifact={artifact} algorithm={algorithm} season={year} onLockedCount={reportChampLocked} />,
     });
   }
 

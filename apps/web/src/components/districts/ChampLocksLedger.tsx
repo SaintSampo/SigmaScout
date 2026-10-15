@@ -77,7 +77,8 @@
  * in that combination and only a screenshot catches it (project memory
  * `project_cn_drops_text_role_classes`).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { LocksTabLockedReport } from "./locksTabCounts.js";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { EmptyState } from "@/components/StateViews";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -202,6 +203,8 @@ export interface ChampLocksLedgerProps {
   artifact: DistrictArtifact;
   algorithm: PublishedAlgorithmId;
   season: number;
+  /** Reports the Locked count the status chips print, so the tab strip above the table prints the same number (`locksTabCounts.ts`). */
+  onLockedCount?: (report: LocksTabLockedReport) => void;
 }
 
 /**
@@ -388,7 +391,7 @@ export function ChampLocksLedger(props: ChampLocksLedgerProps) {
   );
 }
 
-function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedgerProps) {
+function ChampLocksLedgerContent({ artifact, algorithm, season, onLockedCount }: ChampLocksLedgerProps) {
   // `strict: false` plus a narrow local cast — the documented escape hatch for
   // a control mounted inside a route whose search type it does not own.
   const search = useSearch({ strict: false }) as { at?: string; drawerTeam?: number; drawerCell?: string };
@@ -956,6 +959,12 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     () => applyChampRangeState(statuses, rows.teams, rangeState),
     [statuses, rows.teams, rangeState]
   );
+
+  // The Locked chip's own number, handed up to the tab strip (`locksTabCounts.ts`).
+  const lockedCount = displayStatuses.counts.locked;
+  useEffect(() => {
+    onLockedCount?.({ districtKey: artifact.districtKey, locked: lockedCount });
+  }, [onLockedCount, artifact.districtKey, lockedCount]);
 
   const chances = useMemo(
     () =>
