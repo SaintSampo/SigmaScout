@@ -8,7 +8,7 @@
  * message crosses a real `structuredClone` and a request carrying a function
  * would fail HERE rather than only in a visitor's browser.
  *
- * TWO POSITIONS ARE FIXTURED, and they are the two a reader actually meets:
+ * THREE POSITIONS ARE FIXTURED, and they are the ones a reader actually meets:
  *
  * - THE FINISHED DISTRICT AND CHAMPIONSHIP. Every category of both tiers is
  *   final, so the field is a fact, every number is TBA's own and the tab starts
@@ -19,7 +19,14 @@
  *   row, because `scripts/publishDistricts.ts` builds `remainingEvents` from TBA
  *   registrations and a team registers only after it qualifies. This is where
  *   "not yet priced", the labelled district-only grand total, the "to be there"
- *   line and the ABSENCE of a champ chance are pinned.
+ *   line and the ABSENCE of a champ chance are pinned. Since quick task
+ *   261014-j4i this is the Now window where the estimate and "not yet priced"
+ *   survive, because no championship key is on the artifact.
+ * - THE NOW WINDOW BEFORE THE DISTRICT CHAMPIONSHIP STARTS (quick task
+ *   261014-j4i). One team is registered, which puts the championship key on the
+ *   artifact, so the DCMP is baked over the Locked plus In range field from a
+ *   championship only as-of load, exactly as a rewound stop bakes it, while the
+ *   Live district events stay on the Live assembly.
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -593,6 +600,11 @@ describe("ChampLocksLedger — the finished district and championship", () => {
  * artifact with no dcmp-tier event anywhere rendering "not yet priced" DCMP
  * cells, a "district only" grand total and a computed status for every team.
  *
+ * SINCE QUICK TASK 261014-j4i this is the Now window where the estimate and
+ * "not yet priced" survive: no championship key is on the artifact, so nothing
+ * can be baked and no as-of object is fetched. A district with a registered team
+ * bakes the championship instead (the Now window describe below).
+ *
  * MOVED BY QUICK TASK 260927-6bf, deliberately. The DCMP row's Subtotal is now
  * ESTIMATED from past District Championships by field rank, so the grand total
  * is a real champ total rather than a district only one, the champ run is no
@@ -630,6 +642,16 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     expect(dcmpRow.querySelector('[data-cell-id="dcmp-row:eventTotal"]')?.getAttribute("data-cell")).toBe("open");
     expect(dcmpRow.querySelectorAll('[data-cell="not-in-field"]')).toHaveLength(0);
     expect(dcmpRow.querySelectorAll('[data-cell="unavailable"]')).toHaveLength(0);
+  }, 30000);
+
+  it("fetches no as-of object at all: with no championship key on the artifact nothing is baked (261014-j4i)", async () => {
+    renderDistrictSeason();
+    await waitForSimulatedLine();
+    const dcmpRow = dcmpRowOf(ROSTER[0]!);
+    expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(4);
+    expect(dcmpCellKind(dcmpRow, "dcmp-row:eventTotal")).toBe("open");
+    const urls = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/v1/asof"))).toBe(false);
   }, 30000);
 
   it("prints NO district only label once the estimate is in, and no grand total is unavailable", async () => {
@@ -1496,3 +1518,156 @@ describe("ChampLocksLedger — a championship in two divisions with one division
   }, 30000);
 });
 
+
+// ---------------------------------------------------------------------------
+
+/**
+ * THE NOW WINDOW BEFORE THE DISTRICT CHAMPIONSHIP STARTS (quick task
+ * 261014-j4i). ROSTER[0] is Locked by an award at the finished district event,
+ * so it sits in the simulated field; with `registered` it also carries the
+ * championship's dcmp tier row, which is what puts the championship key on the
+ * artifact and opens the window. Every other team is open, and the live district
+ * event keeps running on the shipped Live assembly.
+ */
+function nowWindowArtifact(registered: boolean): DistrictArtifact {
+  return artifactOf(
+    ROSTER.map((teamKey) => {
+      const base = withLiveEvent(districtTeam(teamKey));
+      if (teamKey !== ROSTER[0]) return base;
+      return {
+        ...base,
+        qualifyingAwards: [{ eventKey: DISTRICT_EVENT, awardType: 0, label: "Impact Award", awardOnly: true }],
+        ...(registered
+          ? {
+              remainingEvents: [
+                ...base.remainingEvents,
+                {
+                  eventKey: DCMP_EVENT,
+                  eventName: "PNW District Championship",
+                  week: 6,
+                  tier: "dcmp" as const,
+                  maxPoints: 249,
+                  state: state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false }),
+                },
+              ],
+              maxRemainingChamp: 332,
+            }
+          : {}),
+      };
+    })
+  );
+}
+
+const CATEGORY_CELL_IDS = ["dcmp-row:qual", "dcmp-row:alliance", "dcmp-row:elim", "dcmp-row:award"];
+
+function dcmpRowOf(teamKey: string): HTMLElement {
+  return rowsFor(teamKey)[1]!;
+}
+
+function dcmpCellKind(row: HTMLElement, id: string): string | null | undefined {
+  return row.querySelector(`[data-cell-id="${id}"]`)?.getAttribute("data-cell");
+}
+
+describe("ChampLocksLedger — the Now position before the District Championship starts (quick task 261014-j4i)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderNowWindow(registered: boolean, script: MockWorkerScript = realRunScript) {
+    installFetch([liveEventArtifact()]);
+    handle = installMockWorker({ script });
+    renderLedger(nowWindowArtifact(registered));
+  }
+
+  it("bakes the DCMP over the Locked and In range field at Now, and reads out of range outside it", async () => {
+    renderNowWindow(true);
+    await waitForSimulatedLine();
+    await waitFor(
+      () => {
+        const dcmpRows = screen.getAllByTestId("champ-ledger-row").filter((row) => row.getAttribute("data-row") === "dcmp");
+        const baked = dcmpRows.filter(
+          (row) => row.getAttribute("data-team") !== ROSTER[0] && CATEGORY_CELL_IDS.every((id) => dcmpCellKind(row, id) === "open") && dcmpCellKind(row, "dcmp-row:eventTotal") === "open"
+        );
+        expect(baked.length).toBeGreaterThan(0);
+        for (const row of baked) expect(within(rowsFor(row.getAttribute("data-team")!)[0]!).queryByTestId("champ-ledger-district-only")).toBeNull();
+
+        const outside = dcmpRows.filter((row) => row.querySelectorAll('[data-cell="out-of-range"]').length === 5);
+        expect(outside.length).toBeGreaterThan(0);
+        for (const row of outside) {
+          for (const cell of row.querySelectorAll('[data-cell="out-of-range"]')) expect(cell.textContent).toBe("out of range");
+          expect(within(row).getByTestId("champ-ledger-source-cell").textContent).toContain("outside the simulated field");
+          expect(within(rowsFor(row.getAttribute("data-team")!)[0]!).getByTestId("champ-ledger-district-only")).toBeDefined();
+        }
+
+        // No other team's DCMP row is left on the estimate's "not yet priced" (ROSTER[0]'s own row is the registered team's).
+        for (const row of dcmpRows) {
+          if (row.getAttribute("data-team") === ROSTER[0]) continue;
+          expect(row.querySelectorAll('[data-cell="not-yet-priced"]'), row.getAttribute("data-team") ?? "").toHaveLength(0);
+        }
+      },
+      { timeout: 20000 }
+    );
+  }, 30000);
+
+  it("posts the Live per event request unchanged by the Now championship load, and the bake as its own request", async () => {
+    const mainRunOf = (messages: unknown[]) => {
+      const runs = (messages as { type?: string; events?: { eventKey: string }[] }[]).filter(
+        (message) => message.type === "run" && (message.events ?? []).some((event) => event.eventKey === LIVE_EVENT)
+      );
+      expect(runs.length).toBeGreaterThan(0);
+      return runs[runs.length - 1] as unknown as { events: { eventKey: string; asOf?: unknown }[]; draws: number; seed: number };
+    };
+    const recordingScript = (messages: unknown[]): MockWorkerScript => (message, ctx) => {
+      messages.push(message);
+      realRunScript(message, ctx);
+    };
+    const asOfFetches = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/v1/asof"));
+
+    const without: unknown[] = [];
+    renderNowWindow(false, recordingScript(without));
+    await waitForSimulatedLine();
+    expect(asOfFetches()).toHaveLength(0);
+    const mainWithout = mainRunOf(without);
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+
+    const withLoad: unknown[] = [];
+    renderNowWindow(true, recordingScript(withLoad));
+    await waitForSimulatedLine();
+    await waitFor(() => expect(asOfFetches().some((url) => url.includes("/v1/asof-season/"))).toBe(true), { timeout: 20000 });
+    const mainWith = mainRunOf(withLoad);
+
+    expect({ events: mainWith.events, draws: mainWith.draws, seed: mainWith.seed }).toEqual({ events: mainWithout.events, draws: mainWithout.draws, seed: mainWithout.seed });
+    for (const event of mainWith.events) expect(event.asOf).toBeUndefined();
+
+    // The bake is its own request: one generated championship event, carrying an as-of block.
+    const bakes = (withLoad as { type?: string; events?: { eventKey: string; asOf?: unknown }[] }[]).filter(
+      (message) => message.type === "run" && message.events?.length === 1 && message.events[0]!.eventKey === DCMP_EVENT
+    );
+    expect(bakes.length).toBeGreaterThan(0);
+    expect(bakes[0]!.events![0]!.asOf).toBeDefined();
+  }, 60000);
+
+  it("leaves no cell reading not yet priced once settled, and prices the registered team's own DCMP row from the bake (261014-j4i)", async () => {
+    renderNowWindow(true);
+    await waitForSimulatedLine();
+    await waitFor(
+      () => {
+        expect(document.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(0);
+        const row = dcmpRowOf(ROSTER[0]!);
+        for (const id of CATEGORY_CELL_IDS) expect(dcmpCellKind(row, id), id).toBe("open");
+        expect(dcmpCellKind(row, "dcmp-row:eventTotal")).toBe("open");
+      },
+      { timeout: 20000 }
+    );
+  }, 30000);
+});

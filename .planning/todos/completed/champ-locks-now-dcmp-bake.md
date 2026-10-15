@@ -24,3 +24,17 @@ The Now position was left on purpose (CONTEXT decision): until the DCMP field is
 
 - **A district whose championship is not on the artifact yet** (the live season before registrations) keeps the estimate at rewound stops too. `dcmpEventKeysFor` is empty there, so there is no event key to plan the bake under. A fix needs a synthetic championship key (or the TBA event key fetched ahead of registrations) to plan and fold under.
 - **A divisioned championship (FIM) or a two championship district (2026 California)** is simulated as ONE eight alliance event over the whole field, so alliance selection and playoff points are drawn from one bracket. A per division simulation needs a rule that assigns each simulated team to a division before the bake.
+
+## Closed
+
+Closed by quick task 261014-j4i on 2026-10-14. Commits: 156fed59 (the Now championship load), 9eb559da (the registered team fallback), fe8c1caa (methodology and module notes).
+
+What shipped:
+
+- The Now position bakes the first championship over the Locked plus In range field, from a championship only as-of load cut at the latest fold any district team has played (the latest season tail among the district's teams, `asOfLatestTailCut`). The Now rail holds no finished event artifact, so the shipped anchor walk would reach season start between event weeks; the season object supplies the cut instead.
+- The live district events stay on the shipped Live assembly, byte for byte. The Now load reaches `useSimulatedDcmpBake` only, and a request equality test pins the Live per event run with and without the load (no as-of block on any main run event).
+- A registered team whose own championship row is not priced reads the bake (a baked or pending reading only). A registered team the simulated field leaves out keeps the estimate.
+
+Where the estimate and "not yet priced" stay at Now: a district whose championship is on no row of the artifact, a season the as-of pricer cannot price (a new season before its RP module lands), and a registered team outside the simulated field whose own championship row is not published.
+
+Both known limits above still stand at Now and are NOT closed by this task: a district whose championship is not on the artifact yet, and a divisioned or two championship district simulated as one eight alliance event.

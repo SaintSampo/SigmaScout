@@ -364,6 +364,28 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     expect(everyParagraph.filter((text) => text.includes("still treated as able to attend"))).toHaveLength(1);
   });
 
+  it("says the championship is simulated at a rewound point and on the live view alike, and names the two estimate cases (261014-j4i)", () => {
+    const paragraphs = paragraphsOf("how-district-points-work");
+    const simulated = paragraphs.findIndex((text) => text.startsWith("Until the District Championship starts, the championship is simulated"));
+    expect(simulated).toBeGreaterThan(-1);
+    expect(paragraphs[simulated]).toBe(
+      "Until the District Championship starts, the championship is simulated with a field made of the teams that are Locked or In range, at a rewound point and on the live view alike. A team outside that field reads out of range in the championship row, and its grand total counts district points only."
+    );
+    expect(paragraphs[simulated]).toContain("at a rewound point and on the live view alike");
+    const live = paragraphs[simulated + 1]!;
+    expect(live).toBe(
+      "On the live view, until the championship field is set, a team already registered at the championship is priced from the championship's own prediction where one is published, and once the District Championship has started, teams not registered at it are left out of the table. Two cases fall back to an estimate from the points teams at the same place in past championship fields scored, using only seasons before the one shown: a district whose championship is not yet on the season's data, and a season the simulation cannot price yet. There the four championship categories read not yet priced, and a season with no earlier season to learn from shows the district season alone until the field is set."
+    );
+    expect(live).toContain("not yet on the season's data");
+    expect(live).toContain("cannot price yet");
+    // The shipped adjacency test finds the live paragraph by this opening, directly before the attend paragraph.
+    expect(paragraphs[simulated + 2]!.startsWith("Until a championship's points are posted")).toBe(true);
+    expect(paragraphs[simulated]).not.toMatch(/[-‐-―−~]/);
+    expect(live).not.toMatch(/[-‐-―−~]/);
+    // The superseded rewound only wording is gone.
+    expect(paragraphs.join(" ")).not.toContain("At a rewound point before the District Championship starts");
+  });
+
   it("closes the open categories section with the as-of rule and the playoff stops, and nothing says a rewound view knows more (261005-5g0, 261007-3g2)", () => {
     const paragraphs = paragraphsOf("how-open-categories-are-predicted");
     expect(paragraphs[paragraphs.length - 1]).toBe(

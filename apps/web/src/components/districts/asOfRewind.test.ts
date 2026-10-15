@@ -28,6 +28,8 @@ import {
 import {
   asOfCutId,
   asOfDefaultMatchesPerTeam,
+  asOfLatestTailCut,
+  asOfNowChampionshipApplies,
   asOfPlayedPlayoffMatchKeys,
   AS_OF_PRICEABLE_SEASONS,
   asOfQualSplit,
@@ -534,5 +536,113 @@ describe("the Champ Locks roster override (quick task 261007-mxf)", () => {
     expect(zzz.state.plan.roster).toEqual([...TEAMS].sort());
     const resolved = new Set(zzz.state.teams.map(([teamKey]) => teamKey));
     for (const teamKey of TEAMS) expect(resolved.has(teamKey), teamKey).toBe(true);
+  });
+});
+
+describe("the Now championship load (quick task 261014-j4i)", () => {
+  /** The rail the Champ Locks tab holds at Now: no finished event's artifact is loaded. */
+  function artifactLessTimeline(): DistrictTimeline {
+    return buildDistrictTimeline({ events: EVENTS, eventArtifacts: new Map() });
+  }
+
+  const SEASON_WITH = (tails: AsOfSeason["tails"]): AsOfSeason => ({ ...OBJECTS.season, tails });
+
+  it("PIN: the shipped anchor walk reaches the season start on an artifact-less Now rail, which is why the Now load needs its own cut", () => {
+    const tl = artifactLessTimeline();
+    expect(resolveStopCut(tl, tl.nowIndex, new Map())).toEqual({ status: "ok", cut: AS_OF_SEASON_START_CUT, id: "start" });
+  });
+
+  describe("asOfLatestTailCut", () => {
+    it("names only the listed teams: a later tail of an unlisted team is ignored", () => {
+      const season = SEASON_WITH({ frc100: ["2026waaa", 100, 3], frc101: ["2026wabbb", 900, 5] });
+      const cut = asOfLatestTailCut(season, ["frc100"]);
+      expect(cut.cut).toEqual({ eventKey: "2026waaa", t: 100, i: 3 });
+      expect(cut.id).toBe(asOfCutId(cut.cut));
+    });
+
+    it("takes the greatest pointer by the one order: a later t, then the larger event key at the same t, then the larger i in one event", () => {
+      expect(asOfLatestTailCut(SEASON_WITH({ frc100: ["2026waaa", 100, 9], frc101: ["2026wabbb", 200, 0] }), ["frc100", "frc101"]).cut).toEqual({ eventKey: "2026wabbb", t: 200, i: 0 });
+      expect(asOfLatestTailCut(SEASON_WITH({ frc100: ["2026waaa", 200, 9], frc101: ["2026wabbb", 200, 0] }), ["frc100", "frc101"]).cut).toEqual({ eventKey: "2026wabbb", t: 200, i: 0 });
+      expect(asOfLatestTailCut(SEASON_WITH({ frc100: ["2026wabbb", 200, 2], frc101: ["2026wabbb", 200, 7], frc102: ["2026wabbb", 200, 4] }), ["frc102", "frc101", "frc100"]).cut).toEqual({
+        eventKey: "2026wabbb",
+        t: 200,
+        i: 7,
+      });
+    });
+
+    it("is the season start, id start, when no listed team has a tail", () => {
+      const cut = asOfLatestTailCut(SEASON_WITH({ frc101: ["2026wabbb", 900, 5] }), ["frc100", "frc999"]);
+      expect(cut.cut).toBe(AS_OF_SEASON_START_CUT);
+      expect(cut.id).toBe("start");
+      expect(asOfLatestTailCut(SEASON_WITH({}), []).id).toBe("start");
+    });
+  });
+
+  describe("loadAsOfRewind with cutAtLatestTailOf", () => {
+    const PNCMP = { eventKey: "2026pncmp", tier: "dcmp" as const, week: 6, roster: TEAMS };
+    const stages = (): ReadonlyMap<string, (typeof NOW_STAGES extends ReadonlyMap<string, infer V> ? V : never)> =>
+      new Map([...NOW_STAGES, ["2026pncmp", { qual: false, alliance: false, elim: false, award: false }]]);
+
+    it("cuts where a default load at the district's last played row cuts, with the same tuples and league, from no event artifact at all", async () => {
+      const tl = artifactLessTimeline();
+      const nowLoad = await loadAsOfRewind(
+        {
+          districtArtifact: districtArtifact(),
+          timeline: tl,
+          positionIndex: tl.nowIndex,
+          eventArtifacts: new Map(),
+          stageByEvent: stages(),
+          candidates: [PNCMP],
+          scheduleStopEventKey: undefined,
+          cutAtLatestTailOf: TEAMS,
+        },
+        countingFetchers().fetchers
+      );
+      const full = timeline();
+      const positionIndex = full.positions.findIndex((position) => position.id === "2026wabbb:m:2026wabbb_qm4");
+      expect(positionIndex).toBeGreaterThan(-1);
+      const rewound = await loadAsOfRewind(
+        {
+          districtArtifact: districtArtifact(),
+          timeline: full,
+          positionIndex,
+          eventArtifacts: ARTIFACTS,
+          stageByEvent: stages(),
+          candidates: [...CANDIDATES, PNCMP],
+          scheduleStopEventKey: undefined,
+        },
+        countingFetchers().fetchers
+      );
+      expect(nowLoad.status).toBe("ready");
+      expect(rewound.status).toBe("ready");
+      if (nowLoad.status !== "ready" || rewound.status !== "ready") return;
+      expect(nowLoad.cutId).not.toBe("start");
+      expect(nowLoad.cutId).toBe(rewound.cutId);
+      const a = nowLoad.events.get("2026pncmp");
+      const b = rewound.events.get("2026pncmp");
+      expect(a?.status).toBe("ready");
+      expect(b?.status).toBe("ready");
+      if (a?.status !== "ready" || b?.status !== "ready") return;
+      expect(a.state.plan.mode).toBe("generated");
+      expect(a.state.plan.roster).toEqual([...TEAMS].sort());
+      expect(a.state.teams).toEqual(b.state.teams);
+      expect(a.state.league).toEqual(b.state.league);
+    });
+  });
+
+  describe("asOfNowChampionshipApplies", () => {
+    const none = new Set<string>();
+    it("is true for a priceable season with a championship key and nothing started", () => {
+      expect(asOfNowChampionshipApplies({ season: 2026, dcmpEventKeys: ["2026pncmp"], startedDcmpEventKeys: none })).toBe(true);
+    });
+    it("is false with no championship key, and once a key has started", () => {
+      expect(asOfNowChampionshipApplies({ season: 2026, dcmpEventKeys: [], startedDcmpEventKeys: none })).toBe(false);
+      expect(asOfNowChampionshipApplies({ season: 2026, dcmpEventKeys: ["2026pncmp"], startedDcmpEventKeys: new Set(["2026pncmp"]) })).toBe(false);
+    });
+    it("is false for a season the as-of pricer cannot price, true for every season it can", () => {
+      expect(asOfNowChampionshipApplies({ season: 2021, dcmpEventKeys: ["2021pncmp"], startedDcmpEventKeys: none })).toBe(false);
+      expect(asOfNowChampionshipApplies({ season: 2027, dcmpEventKeys: ["2027pncmp"], startedDcmpEventKeys: none })).toBe(false);
+      for (const season of AS_OF_PRICEABLE_SEASONS) expect(asOfNowChampionshipApplies({ season, dcmpEventKeys: [`${String(season)}pncmp`], startedDcmpEventKeys: none }), String(season)).toBe(true);
+    });
   });
 });

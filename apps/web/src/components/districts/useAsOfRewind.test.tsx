@@ -7,9 +7,9 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ARTIFACTS, CANDIDATES, EVENTS, FIXTURE_VERSION, NOW_STAGES, OBJECTS, T0, asOfBodyFor, districtArtifact } from "./asOfTestFixtures.js";
+import { ARTIFACTS, BBB, CANDIDATES, EVENTS, FIXTURE_VERSION, NOW_STAGES, OBJECTS, T0, TEAMS, asOfBodyFor, districtArtifact } from "./asOfTestFixtures.js";
 import { EVENT_POLL_INTERVAL_MS } from "../../lib/liveEvent.js";
-import type { AsOfRewindResult } from "./asOfRewind.js";
+import { loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import { buildDistrictTimeline, districtStageAtPosition } from "./districtTimeline.js";
 import { asOfRewindRefetchInterval, useAsOfRewind, type UseAsOfRewindOptions } from "./useAsOfRewind.js";
 
@@ -131,6 +131,71 @@ describe("useAsOfRewind", () => {
     installFetch((url) => (url.includes("/v1/asof-season/") ? 503 : 200));
     const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2")), { wrapper });
     await waitFor(() => expect(result.current?.status).toBe("failed"));
+  });
+});
+
+/** The Champ Locks Now championship load: the artifact-less Now rail, no `at`, only the championship planned, the cut at the latest district tail. */
+function nowOptions(eventArtifacts: UseAsOfRewindOptions["eventArtifacts"] = new Map()): UseAsOfRewindOptions {
+  const timeline = buildDistrictTimeline({ events: EVENTS, eventArtifacts });
+  const positionIndex = timeline.nowIndex;
+  return {
+    enabled: true,
+    artifactsLoading: false,
+    unloadedEventKeys: [],
+    districtArtifact: districtArtifact(),
+    timeline,
+    positionIndex,
+    eventArtifacts,
+    stageByEvent: new Map([...NOW_STAGES, ["2026pncmp", { qual: false, alliance: false, elim: false, award: false }]]),
+    at: undefined,
+    candidates: [{ eventKey: "2026pncmp", tier: "dcmp", week: 6, roster: TEAMS }],
+    cutAtLatestTailOf: TEAMS,
+  };
+}
+
+describe("useAsOfRewind: the Now championship mode (quick task 261014-j4i)", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+  });
+
+  it("is loading, then ready, at the cut of the district's last played row though the rail holds no event artifact", async () => {
+    installFetch();
+    const { result } = renderHook(() => useAsOfRewind(nowOptions()), { wrapper });
+    expect(result.current?.status).toBe("loading");
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    const ready = result.current;
+    if (ready?.status !== "ready" || ready.result.status !== "ready") throw new Error("not ready");
+    expect(ready.result.cutId).not.toBe("start");
+    // The cut of BBB's fourth row, as a default load at that stop reads it.
+    const first = options("2026wabbb:m:2026wabbb_qm4");
+    const fetchers: AsOfFetchers = {
+      index: async (eventKey) => JSON.parse(asOfBodyFor(OBJECTS, `v1/asof/${eventKey}/spr@${FIXTURE_VERSION}.json`)!),
+      log: async (eventKey) => JSON.parse(asOfBodyFor(OBJECTS, `v1/asof-log/${eventKey}/spr@${FIXTURE_VERSION}.json`)!),
+      season: async () => JSON.parse(asOfBodyFor(OBJECTS, `v1/asof-season/2026/spr@${FIXTURE_VERSION}.json`)!),
+      start: async () => JSON.parse(asOfBodyFor(OBJECTS, `v1/asof-start/2026/spr@${FIXTURE_VERSION}.json`)!),
+    };
+    const rewound = await loadAsOfRewind(
+      { districtArtifact: first.districtArtifact, timeline: first.timeline, positionIndex: first.positionIndex, eventArtifacts: first.eventArtifacts, stageByEvent: first.stageByEvent, candidates: [], scheduleStopEventKey: undefined },
+      fetchers
+    );
+    expect(rewound.status === "ready" && rewound.cutId).toBe(ready.result.cutId);
+    const outcome = ready.result.events.get("2026pncmp");
+    expect(outcome?.status).toBe("ready");
+    expect(outcome?.status === "ready" && outcome.state.plan.mode).toBe("generated");
+  });
+
+  it("keeps the previous plan standing when a refreshed artifact also rebuilds the rail (only the fingerprint moves)", async () => {
+    installFetch();
+    const { result, rerender } = renderHook((props: UseAsOfRewindOptions) => useAsOfRewind(props), { wrapper, initialProps: nowOptions() });
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    const plan = result.current?.status === "ready" ? result.current.result : undefined;
+    // A live event's artifact arrived: a rail built over it moves the shipped anchor, and the fingerprint moves.
+    const refreshed = new Map([["2026wabbb", { ...BBB, computedAt: "2026-09-25T00:01:00.000Z" }]]);
+    rerender(nowOptions(refreshed));
+    expect(result.current?.status).toBe("ready");
+    expect(result.current?.status === "ready" && result.current.result).toEqual(plan);
   });
 });
 

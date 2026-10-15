@@ -17,9 +17,9 @@
  * `packages/core/districts/advancementChance.ts`'s existing per-run loop), and
  * it is deliberately not built: the DCMP's predictions come from the shipped
  * per-event machinery on the DCMP event artifact's REAL roster, so no run needs
- * a field of its own. At a rewound stop before the championship starts they
- * come from the simulated Locked plus In range field instead
- * (`dcmpSimulatedField`, quick task 261007-mxf): one bake over one field the
+ * a field of its own. Before the championship starts, at a rewound stop or at
+ * Now, they come from the simulated Locked plus In range field instead
+ * (`dcmpSimulatedField`, quick tasks 261007-mxf and 261014-j4i): one bake over one field the
  * stop already knows, still no per-run membership.
  *
  * THE CHIP STILL WINS. `reconcileChampAdvancementChances` is the shipped
@@ -327,9 +327,9 @@ export interface SimulatedFieldStatusModel {
 }
 
 /**
- * THE SIMULATED DCMP FIELD at a rewound stop before any championship has
- * started (quick task 261007-mxf): the teams the District Locks tab SHOWS as
- * Prequalified, Locked or In range at the stop, after its simulated line has
+ * THE SIMULATED DCMP FIELD before any championship has started, at a rewound
+ * stop or at Now (quick tasks 261007-mxf and 261014-j4i): the teams the District
+ * Locks tab SHOWS as Prequalified, Locked or In range at the position, after its simulated line has
  * settled. That chip, and not a provisional verdict level one, is the field
  * Jacob asked to simulate.
  *
@@ -541,8 +541,9 @@ export interface ChampRangeStateInputs {
   readonly districtRun: ChampRangeRunInput;
   readonly estimates: HypotheticalDcmpEstimates["kind"];
   /**
-   * THE SIMULATED DCMP's state (`simulatedDcmpState`), supplied only at a
-   * rewound stop before any championship has started (quick task 261007-mxf).
+   * THE SIMULATED DCMP's state (`simulatedDcmpState`), supplied only before any
+   * championship has started, at a rewound stop and at Now (quick tasks
+   * 261007-mxf and 261014-j4i).
    * When supplied it is read IN PLACE OF `estimates`: the estimate prices
    * nothing there. Absent keeps the shipped order.
    */

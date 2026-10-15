@@ -29,6 +29,14 @@
  * fresh refetch of that INDEX, makes the whole stop unavailable: no exact
  * instant exists to rebuild at.
  *
+ * THE NOW CHAMPIONSHIP MODE (quick task 261014-j4i). The Champ Locks tab at
+ * Now plans only the unstarted District Championship, and the live rail carries
+ * no artifact for any finished event (the tab fetches only the events in
+ * progress), so the anchor walk above reaches the season start whenever no
+ * district event is in progress. `cutAtLatestTailOf` takes the cut from the
+ * season object instead: the latest tail among the listed teams
+ * (`asOfLatestTailCut`), which is each listed team's own latest state.
+ *
  * COPIES OF DIFFERENT AGES. Every object is cached on its own, so the loader
  * can hold a LOG older than its INDEX, or a season object out of step with an
  * INDEX. `resolveAsOf` reports such a copy instead of answering from it; the
@@ -50,6 +58,7 @@
 import {
   asOfAtOrBefore,
   AS_OF_SEASON_START_CUT,
+  compareAsOfPositions,
   type AsOfCut,
   type AsOfIndex,
   type AsOfLeagueTuple,
@@ -122,6 +131,29 @@ export function asOfStopAnchorId(timeline: DistrictTimeline, positionIndex: numb
     return `${anchor.eventKey}|${anchor.matchKey}|${anchor.stage ? "stage" : "row"}`;
   }
   return "start";
+}
+
+/**
+ * The cut the Now championship load reads: the latest season tail among
+ * `teamKeys` (a `[eventKey, t, i]` pointer, the team's last folded match this
+ * season), greatest by the ONE order (`compareAsOfPositions`). Every listed
+ * team's tuple at this cut is its own latest state, which is the live state for
+ * the whole roster, and it needs no event artifact and no INDEX up front: the
+ * live rail holds no finished event, so `resolveStopCut` would walk back to the
+ * season start between event weeks. No listed team with a tail gives the season
+ * start. Only the listed teams count: a later fold by an unlisted team does not
+ * move the cut.
+ */
+export function asOfLatestTailCut(season: AsOfSeason, teamKeys: readonly string[]): { readonly cut: AsOfCut; readonly id: string } {
+  let best: { readonly eventKey: string; readonly t: number; readonly i: number } | undefined;
+  for (const teamKey of teamKeys) {
+    const tail = season.tails[teamKey];
+    if (tail === undefined) continue;
+    const [eventKey, t, i] = tail;
+    if (best === undefined || compareAsOfPositions(eventKey, [t, i], best.eventKey, [best.t, best.i]) > 0) best = { eventKey, t, i };
+  }
+  const cut: AsOfCut = best === undefined ? AS_OF_SEASON_START_CUT : { eventKey: best.eventKey, t: best.t, i: best.i };
+  return { cut, id: asOfCutId(cut) };
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +584,13 @@ export interface AsOfRewindInput {
    * print a generated forecast for an event that has played.
    */
   readonly unloadedEventKeys?: readonly string[];
+  /**
+   * The Champ Locks tab's Now championship load (quick task 261014-j4i): with
+   * it the cut is `asOfLatestTailCut` over these teams, read from the season
+   * object this load fetched, and `timeline` and `positionIndex` are not read
+   * for the cut.
+   */
+  readonly cutAtLatestTailOf?: readonly string[];
 }
 
 /** The event a `?at=` value names as its Schedule milestone (`districtScheduleMilestoneId`), or `undefined`. */
@@ -576,6 +615,18 @@ export const AS_OF_PRICEABLE_SEASONS: readonly number[] = [2016, 2017, 2018, 201
 
 export function asOfSeasonIsPriceable(season: number): boolean {
   return AS_OF_PRICEABLE_SEASONS.includes(season);
+}
+
+/**
+ * The Champ Locks Now championship load's window (quick task 261014-j4i): the
+ * artifact names a championship, no championship has started and the as-of
+ * pricer can price the season. The estimate stays at Now in the two places this
+ * leaves out: no championship key on the artifact (the todo's known limit 1),
+ * and a season with no registered RP rule module. No `fieldProven` term: it can
+ * only be false after a championship has started.
+ */
+export function asOfNowChampionshipApplies(params: { readonly season: number; readonly dcmpEventKeys: readonly string[]; readonly startedDcmpEventKeys: ReadonlySet<string> }): boolean {
+  return params.dcmpEventKeys.length > 0 && params.startedDcmpEventKeys.size === 0 && asOfSeasonIsPriceable(params.season);
 }
 
 /** An upper bound on fetch rounds: each round fetches every object the previous resolve named, and a walk crosses a handful of events. */
@@ -609,8 +660,11 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
   const { indexes } = objects;
   fetchSet.forEach((eventKey, n) => indexes.set(eventKey, fetched[n]!));
 
-  let stop = resolveStopCut(input.timeline, input.positionIndex, indexes);
-  for (let round = 0; round < MAX_RESOLVE_ROUNDS; round++) {
+  let stop: AsOfStopCut =
+    input.cutAtLatestTailOf !== undefined
+      ? { status: "ok", ...asOfLatestTailCut(objects.season, input.cutAtLatestTailOf) }
+      : resolveStopCut(input.timeline, input.positionIndex, indexes);
+  for (let round = 0; input.cutAtLatestTailOf === undefined && round < MAX_RESOLVE_ROUNDS; round++) {
     if (stop.status === "pending") {
       const missing = stop.missingIndexes;
       const loaded = await Promise.all(missing.map((eventKey) => fetchers.index(eventKey)));
