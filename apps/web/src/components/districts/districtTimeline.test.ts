@@ -475,6 +475,33 @@ describe("buildDistrictTimeline: playoffs and awards sit at the last played play
     expect(stage.get("eva")).toEqual({ qual: true, alliance: true, elim: false, award: false });
   });
 
+  it("keeps A's alliance selection OPEN at B's match between A's last qualification row and A's first playoff row (fast task, 2026-10-15)", () => {
+    // A's quals at t+0 and t+10, its playoffs at t+60 and t+90; B's quals at t+20, t+40 (inside A's gap) and t+70 (after A's first playoff row).
+    const minute = 60_000;
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "eva", eventName: "Event A", week: 0 },
+        { eventKey: "evb", eventName: "Event B", week: 0 },
+      ],
+      eventArtifacts: new Map([
+        ["eva", playedEventArtifact("eva", [BASE_MS, BASE_MS + 10 * minute], [BASE_MS + 60 * minute, BASE_MS + 90 * minute])],
+        ["evb", playedEventArtifact("evb", [BASE_MS + 20 * minute, BASE_MS + 40 * minute, BASE_MS + 70 * minute], [])],
+      ]),
+    });
+    expect(timeline.firstPlayoffMs.get("eva")).toBe(BASE_MS + 60 * minute);
+    expect(timeline.firstPlayoffMs.has("evb")).toBe(false);
+    const ids = timeline.positions.map((position) => position.id);
+    const stageAt = (id: string) => districtStageAtPosition(timeline, ids.indexOf(id), NOW_STAGES).get("eva");
+    // Inside the gap: the quals are final, the selection is not yet proven.
+    expect(stageAt("evb:m:evb_qm2")).toEqual({ qual: true, alliance: false, elim: false, award: false });
+    // A's own Alliance selection stop is what the reader asked for.
+    expect(stageAt("eva:alliance")).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    // A later B match, after A's first playoff row, reads the selection as done.
+    expect(stageAt("evb:m:evb_qm3")).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    // The cut at the gap stop is B's own row, unchanged.
+    expect(cutAtPosition(timeline, ids.indexOf("evb:m:evb_qm2"))).toEqual({ kind: "row", eventKey: "evb", matchKey: "evb_qm2", played: true, stage: false });
+  });
+
   it("places Playoffs and Awards after every timed step while an event's playoffs are still ahead", () => {
     const timeline = concurrentTimeline({ aPlayoffs: [], aPlayoffsDone: false });
     const ids = timeline.positions.map((position) => position.id);

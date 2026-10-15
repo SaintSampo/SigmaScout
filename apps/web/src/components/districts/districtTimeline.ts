@@ -135,6 +135,15 @@ export interface DistrictTimeline {
    * artifact. An event without such an artifact has no entry.
    */
   readonly playoffRoundsDecided: ReadonlyMap<string, number>;
+  /**
+   * Per event with a loaded artifact that holds a timed played playoff row:
+   * the instant of its EARLIEST one. TBA records no time for alliance
+   * selection, so a played playoff row is the first proof that the selection
+   * happened; `districtStageAtPosition` keeps the Alliance selection category
+   * open at another event's stop that no such row sits at or before. An event
+   * without such a row has no entry.
+   */
+  readonly firstPlayoffMs: ReadonlyMap<string, number>;
 }
 
 export interface BuildDistrictTimelineOptions {
@@ -295,6 +304,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
   const eventsWithoutArtifact: string[] = [];
   const eventsWithUntimedRows: string[] = [];
   const playoffRoundsDecided = new Map<string, number>();
+  const firstPlayoffMs = new Map<string, number>();
 
   for (const event of events) {
     const artifact = eventArtifacts.get(event.eventKey);
@@ -302,6 +312,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
     let lastQual: DistrictTimelineAnchor | undefined;
     let playoffMs: number | null = null;
     let playoffAnchor: DistrictTimelineAnchor | undefined;
+    let earliestPlayoffMs: number | null = null;
     if (artifact === undefined) {
       // An event whose artifact is NOT loaded still contributes its four stage
       // steps. Dropping it would silently shorten the timeline and misrepresent
@@ -339,7 +350,9 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
           playoffMs = sortMs;
           playoffAnchor = { matchKey: match.matchKey, played: true };
         }
+        if (earliestPlayoffMs === null || sortMs < earliestPlayoffMs) earliestPlayoffMs = sortMs;
       }
+      if (earliestPlayoffMs !== null) firstPlayoffMs.set(event.eventKey, earliestPlayoffMs);
       // ROUND STEPS, ONLY FOR THE EIGHT-ALLIANCE BRACKET (quick task
       // 261007-3g2). A divisioned DCMP parent publishes 2 or 4 alliances and
       // runs no `BRACKET_SETS` bracket, so reading its sf rows as rounds would
@@ -391,6 +404,10 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
     // counted as remaining at `E:awards` while E's playoff points were already
     // final, so that stop had no one instant to rebuild the model at.
     //
+    // Alliance selection's instant is the last qualification one, but its
+    // FINALITY at another event's stop waits for this event's first playoff
+    // row (`firstPlayoffMs`, read by `districtStageAtPosition`).
+    //
     // With no played playoff row, an event whose playoffs are still ahead
     // (`playoffsDone === false`) places both after every timed step, so no stop
     // reads its playoff points as final before they are played. Otherwise (an
@@ -432,6 +449,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
     nowIndex,
     gaps: { eventsWithoutArtifact: [...eventsWithoutArtifact].sort(), eventsWithUntimedRows: [...eventsWithUntimedRows].sort() },
     playoffRoundsDecided,
+    firstPlayoffMs,
   };
 }
 
@@ -504,6 +522,32 @@ export function districtStageAtPosition(
       final.set(step.eventKey, record);
     }
     record[category] = true;
+  }
+  // ALLIANCE SELECTION IS PROVEN ONLY BY A PLAYED PLAYOFF ROW AT OR BEFORE
+  // THE STOP (fast task, 2026-10-15). An event's Alliance selection step
+  // shares its last qualification instant, because TBA records no time for
+  // the selection itself, and its cut has to stay there: the as-of state can
+  // only be rebuilt at a folded row. But another event's match that lands
+  // between that instant and this event's first playoff match may well have
+  // been played before the selection happened. A stop at such a match
+  // therefore keeps the Alliance selection open, so the run draws the
+  // selection rather than reading the real alliances, which were future
+  // knowledge then. The proof is a playoff row of this event at or before the
+  // stop's instant, never the first row's existence: a world truncated at
+  // the stop holds no later row, and the stop must read the same in it
+  // (`scripts/asOfRewindWeb.test.ts`). Untouched: the event's OWN stops (at
+  // its Alliance selection step and every later stage of its own the reader
+  // asked for the selection as done), an event whose Playoffs the steps
+  // already place at or before the stop (its steps fell back to the last
+  // qualification instant, so the selection is as settled as its playoffs),
+  // and a stop with no instant.
+  const stop = timeline.positions[positionIndex]?.step;
+  if (stop !== undefined && stop.sortMs !== null) {
+    for (const [eventKey, record] of final) {
+      if (!record.alliance || record.elim || stop.eventKey === eventKey) continue;
+      const firstPlayoff = timeline.firstPlayoffMs.get(eventKey);
+      if (firstPlayoff === undefined || firstPlayoff > stop.sortMs) record.alliance = false;
+    }
   }
   // A CATEGORY OPEN AT "NOW" IS NEVER FINAL AT AN EARLIER STOP. The steps
   // above place an event's Playoffs and Awards at its last PLAYED playoff row,
