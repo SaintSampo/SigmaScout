@@ -1,0 +1,61 @@
+AWARD MODEL SCORE: the shipped award cell, walk forward, per tier.
+seasons:    2023, 2024, 2025, 2026
+population: district_rankings entries (own district_cmp decides the tier), events with any award row, fields of at least 11
+odds:       eventAwardOutcomeOdds, the same resolution simulateDistrictEvent draws from
+credential: none. Read only corpus, no network request, no environment variable.
+
+DCMP TIER: 3438 team events at 81 events
+  any award: said 30.3%, happened 30.9%, Brier 0.1909, flat guess at the observed rate 0.2136 (n=3438)
+  by bucket (said vs happened): three or more 32.2 vs 34.1 (n=2666); one or two 15.1 vs 11.0 (n=429); none 16.2 vs 13.4 (n=149); none rookie 47.5 vs 45.4 (n=194)
+  by review class, frozen review rule (said vs happened): three or more 32.2 vs 34.1 (n=2666); one or two 15.1 vs 11.0 (n=429); none 16.2 vs 13.4 (n=149); none rookie 47.5 vs 45.4 (n=194)
+  Impact row: said 73.587 (Impact draw 73.587, folded stacks 0.000), real Impact wins 82
+  reliability (any award chance bin: said vs happened, n):
+    0.0 to 0.1: 0.0 vs 0.0 (n=44)
+    0.1 to 0.2: 14.7 vs 10.5 (n=532)
+    0.2 to 0.3: 26.3 vs 27.3 (n=1321)
+    0.3 to 0.4: 32.9 vs 34.0 (n=1111)
+    0.4 to 0.5: 45.3 vs 48.0 (n=175)
+    0.5 to 0.6: 53.8 vs 63.4 (n=112)
+    0.6 to 0.7: 64.3 vs 70.4 (n=71)
+    0.7 to 0.8: 74.3 vs 88.9 (n=27)
+    0.8 to 0.9: 82.6 vs 72.7 (n=11)
+    0.9 to 1.0: 98.7 vs 91.2 (n=34)
+  any award, single: said 32.7%, happened 33.5%, Brier 0.1960, flat guess at the observed rate 0.2229 (n=1578)
+  any award, division: said 27.3%, happened 27.3%, Brier 0.1921, flat guess at the observed rate 0.1987 (n=1748)
+  any award, finals: said 42.3%, happened 50.0%, Brier 0.1003, flat guess at the observed rate 0.2500 (n=112)
+  mean award points per team: model 5.12, real 5.29
+  real point census: 0 x2375, 15 x870, 24 x111, 30 x82 (3438 team events)
+  Impact: 73.6 expected (Impact award mass), 0.0 on ineligible team events, 82 real winners, 1 of them ineligible, 457 eligible team events
+     cell mass on ineligible team events: 0.000000; eligibility differs from the any district reading on 0 team event(s)
+  Engineering Inspiration: 56.6 expected (veteran 8 point outcome mass), 0.0 on ineligible team events, 62 real winners, 1 of them ineligible, 376 eligible team events
+     cell mass on ineligible team events: 0.000000; eligibility differs from the any district reading on 0 team event(s)
+  Rookie All Star: 44.0 expected (rookie 8 point outcome mass), 0.0 on ineligible team events, 49 real winners, 1 of them ineligible, 151 eligible team events
+     cell mass on ineligible team events: 0.000000; eligibility differs from the any district reading on 0 team event(s)
+
+DISTRICT TIER: 14016 team events at 418 events
+  any award: said 45.6%, happened 42.5%, Brier 0.2039, flat guess at the observed rate 0.2444 (n=14016)
+  by bucket (said vs happened): three or more 58.6 vs 57.8 (n=7982); one or two 27.6 vs 19.1 (n=3379); none 19.9 vs 11.9 (n=1720); none rookie 48.1 vs 52.8 (n=935)
+  by review class, frozen review rule (said vs happened): three or more 58.6 vs 57.8 (n=7982); one or two 27.6 vs 19.1 (n=3379); none 19.9 vs 11.9 (n=1720); none rookie 48.1 vs 52.8 (n=935)
+  Impact row: said 525.384 (Impact draw 389.828, folded stacks 135.556), real Impact wins 408
+  reliability (any award chance bin: said vs happened, n):
+    0.0 to 0.1: empty
+    0.1 to 0.2: 19.5 vs 13.1 (n=1253)
+    0.2 to 0.3: 25.8 vs 17.7 (n=3027)
+    0.3 to 0.4: 31.7 vs 21.5 (n=1025)
+    0.4 to 0.5: 44.6 vs 49.6 (n=240)
+    0.5 to 0.6: 57.0 vs 52.4 (n=6647)
+    0.6 to 0.7: 63.0 vs 78.6 (n=1824)
+    0.7 to 0.8: empty
+    0.8 to 0.9: empty
+    0.9 to 1.0: empty
+  mean award points per team: model 2.63, real 2.42
+  real point census: 0 x8060, 5 x4847, 8 x701, 10 x408 (14016 team events)
+
+team events with an unknown rookie state (priced as their own class): 0
+DISTRICT TIER DIGEST: 494ac134703547235b1a049ef9ff8e9983af3e508a6672accc605a5d48e45d65 (14016 team events)
+
+snapshot written: .planning/quick/261014-mii-district-award-odds-decoration-drift-sta/261014-mii-before-snapshot.json (label BEFORE)
+
+GATE PASS: DCMP any award Brier below the flat guess at the observed rate (Brier 0.1909 vs flat 0.2136 (n=3438))
+GATE PASS: Impact, Engineering Inspiration and Rookie All Star mass on ineligible DCMP team events is exactly 0 (Impact 0 award / 0 cell; Engineering Inspiration 0 award / 0 cell; Rookie All Star 0 award / 0 cell)
+GATE PASS: district tier digest equals the expected digest (expected 494ac134703547235b1a049ef9ff8e9983af3e508a6672accc605a5d48e45d65, got 494ac134703547235b1a049ef9ff8e9983af3e508a6672accc605a5d48e45d65)

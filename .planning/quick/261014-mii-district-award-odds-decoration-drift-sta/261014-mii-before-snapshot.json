@@ -1,0 +1,299 @@
+{
+  "label": "BEFORE",
+  "timestamp": "2026-10-14T20:46:23.777Z",
+  "seasons": [
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "districtDigest": "494ac134703547235b1a049ef9ff8e9983af3e508a6672accc605a5d48e45d65",
+  "districtDigestLines": 14016,
+  "district": {
+    "n": 14016,
+    "events": 418,
+    "said": 0.4564230381344285,
+    "happened": 0.4249429223744292,
+    "brier": 0.2038856451639051,
+    "flat": 0.24436643509830905,
+    "classes": {
+      "none": {
+        "n": 1720,
+        "said": 0.19857822278754328,
+        "happened": 0.11918604651162791
+      },
+      "none rookie": {
+        "n": 935,
+        "said": 0.48079281225236153,
+        "happened": 0.5283422459893048
+      },
+      "one or two": {
+        "n": 3379,
+        "said": 0.27571849348709004,
+        "happened": 0.19058893163657886
+      },
+      "three or more": {
+        "n": 7982,
+        "said": 0.5856272476006048,
+        "happened": 0.5779253319969933
+      }
+    },
+    "reviewClasses": {
+      "none": {
+        "n": 1720,
+        "said": 0.19857822278754328,
+        "happened": 0.11918604651162791
+      },
+      "none rookie": {
+        "n": 935,
+        "said": 0.48079281225236153,
+        "happened": 0.5283422459893048
+      },
+      "one or two": {
+        "n": 3379,
+        "said": 0.27571849348709004,
+        "happened": 0.19058893163657886
+      },
+      "three or more": {
+        "n": 7982,
+        "said": 0.5856272476006048,
+        "happened": 0.5779253319969933
+      }
+    },
+    "reliability": [
+      {
+        "lo": 0,
+        "hi": 0.1,
+        "n": 0,
+        "said": null,
+        "happened": null
+      },
+      {
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 1253,
+        "said": 0.1952284314539849,
+        "happened": 0.13088587390263368
+      },
+      {
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 3027,
+        "said": 0.2580987098663992,
+        "happened": 0.17707300958044267
+      },
+      {
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 1025,
+        "said": 0.3167729873193325,
+        "happened": 0.2146341463414634
+      },
+      {
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 240,
+        "said": 0.4459844992072199,
+        "happened": 0.49583333333333335
+      },
+      {
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 6647,
+        "said": 0.570252724936461,
+        "happened": 0.5241462313825787
+      },
+      {
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 1824,
+        "said": 0.6300114192156644,
+        "happened": 0.7856359649122807
+      },
+      {
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 0,
+        "said": null,
+        "happened": null
+      },
+      {
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 0,
+        "said": null,
+        "happened": null
+      },
+      {
+        "lo": 0.9,
+        "hi": 1,
+        "n": 0,
+        "said": null,
+        "happened": null
+      }
+    ],
+    "impactRow": {
+      "said": 525.3841284746204,
+      "impactDraw": 389.8279427335039,
+      "realWins": 408
+    }
+  },
+  "dcmp": {
+    "n": 3438,
+    "events": 81,
+    "said": 0.3025242606997515,
+    "happened": 0.3091913903432228,
+    "brier": 0.19090940640178852,
+    "flat": 0.2135920744808476,
+    "classes": {
+      "none": {
+        "n": 149,
+        "said": 0.16208084145438398,
+        "happened": 0.1342281879194631
+      },
+      "none rookie": {
+        "n": 194,
+        "said": 0.47491805352167643,
+        "happened": 0.4536082474226804
+      },
+      "one or two": {
+        "n": 429,
+        "said": 0.15120001877498962,
+        "happened": 0.10955710955710955
+      },
+      "three or more": {
+        "n": 2666,
+        "said": 0.32217908944912355,
+        "happened": 0.34058514628657166
+      }
+    },
+    "reviewClasses": {
+      "none": {
+        "n": 149,
+        "said": 0.16208084145438398,
+        "happened": 0.1342281879194631
+      },
+      "none rookie": {
+        "n": 194,
+        "said": 0.47491805352167643,
+        "happened": 0.4536082474226804
+      },
+      "one or two": {
+        "n": 429,
+        "said": 0.15120001877498962,
+        "happened": 0.10955710955710955
+      },
+      "three or more": {
+        "n": 2666,
+        "said": 0.32217908944912355,
+        "happened": 0.34058514628657166
+      }
+    },
+    "reliability": [
+      {
+        "lo": 0,
+        "hi": 0.1,
+        "n": 44,
+        "said": 0,
+        "happened": 0
+      },
+      {
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 532,
+        "said": 0.1467868794152297,
+        "happened": 0.10526315789473684
+      },
+      {
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 1321,
+        "said": 0.2634670684054187,
+        "happened": 0.2732778198334595
+      },
+      {
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 1111,
+        "said": 0.32939572975463527,
+        "happened": 0.3402340234023402
+      },
+      {
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 175,
+        "said": 0.4534189175676297,
+        "happened": 0.48
+      },
+      {
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 112,
+        "said": 0.5381405184022565,
+        "happened": 0.6339285714285714
+      },
+      {
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 71,
+        "said": 0.643089707826823,
+        "happened": 0.704225352112676
+      },
+      {
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 27,
+        "said": 0.7428939939519906,
+        "happened": 0.8888888888888888
+      },
+      {
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 11,
+        "said": 0.8257406087053142,
+        "happened": 0.7272727272727273
+      },
+      {
+        "lo": 0.9,
+        "hi": 1,
+        "n": 34,
+        "said": 0.9873068497743318,
+        "happened": 0.9117647058823529
+      }
+    ],
+    "impactRow": {
+      "said": 73.58683473389354,
+      "impactDraw": 73.58683473389354,
+      "realWins": 82
+    },
+    "audits": {
+      "impact": {
+        "expected": 73.58683473389354,
+        "onIneligible": 0,
+        "realWinners": 82,
+        "winnersIneligible": 1,
+        "eligibleTeamEvents": 457,
+        "cellMassOnIneligible": 0,
+        "disagreementsWithAnyDistrict": 0
+      },
+      "engineeringInspiration": {
+        "expected": 56.612342385694056,
+        "onIneligible": 0,
+        "realWinners": 62,
+        "winnersIneligible": 1,
+        "eligibleTeamEvents": 376,
+        "cellMassOnIneligible": 0,
+        "disagreementsWithAnyDistrict": 0
+      },
+      "rookieAllStar": {
+        "expected": 44.03994545186495,
+        "onIneligible": 0,
+        "realWinners": 49,
+        "winnersIneligible": 1,
+        "eligibleTeamEvents": 151,
+        "cellMassOnIneligible": 0,
+        "disagreementsWithAnyDistrict": 0
+      }
+    }
+  }
+}

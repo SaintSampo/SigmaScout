@@ -1,0 +1,44 @@
+TYPE CENSUS 2019-2026 district tier fields (wins by rookie / veteran / unknown, rookie share):
+  type   0 (10 pts): rookie 0, veteran 621, unknown 0, rookie share 0.0%  seasons 2019:96 2020:35 2022:82 2023:91 2024:96 2025:100 2026:121
+  type   9 (8 pts): rookie 0, veteran 621, unknown 0, rookie share 0.0%  seasons 2019:94 2020:35 2022:84 2023:90 2024:97 2025:101 2026:120
+  type  10 (8 pts): rookie 422, veteran 20, unknown 0, rookie share 95.5%  seasons 2019:74 2020:27 2022:48 2023:64 2024:69 2025:80 2026:80
+  type  11 (5 pts): rookie 5, veteran 619, unknown 0, rookie share 0.8%  seasons 2019:92 2020:35 2022:85 2023:92 2024:96 2025:103 2026:121
+  type  13 (5 pts): rookie 10, veteran 612, unknown 0, rookie share 1.6%  seasons 2019:98 2020:34 2022:80 2023:90 2024:98 2025:101 2026:121
+  type  15 (5 pts): rookie 271, veteran 18, unknown 0, rookie share 93.8%  seasons 2019:82 2020:23 2022:50 2023:63 2024:71
+  type  16 (5 pts): rookie 4, veteran 609, unknown 0, rookie share 0.7%  seasons 2019:93 2020:34 2022:84 2023:92 2024:92 2025:99 2026:119
+  type  17 (5 pts): rookie 7, veteran 609, unknown 0, rookie share 1.1%  seasons 2019:90 2020:33 2022:82 2023:91 2024:97 2025:100 2026:123
+  type  18 (5 pts): rookie 1, veteran 130, unknown 0, rookie share 0.8%  seasons 2019:96 2020:35
+  type  20 (5 pts): rookie 4, veteran 619, unknown 0, rookie share 0.6%  seasons 2019:95 2020:34 2022:84 2023:93 2024:96 2025:99 2026:122
+  type  21 (5 pts): rookie 3, veteran 606, unknown 0, rookie share 0.5%  seasons 2019:94 2020:34 2022:80 2023:90 2024:95 2025:99 2026:117
+  type  22 (5 pts): rookie 3, veteran 208, unknown 0, rookie share 1.4%  seasons 2019:97 2020:34 2022:80
+  type  27 (5 pts): rookie 12, veteran 615, unknown 0, rookie share 1.9%  seasons 2019:95 2020:35 2022:83 2023:93 2024:96 2025:102 2026:123
+  type  29 (5 pts): rookie 5, veteran 608, unknown 0, rookie share 0.8%  seasons 2019:93 2020:34 2022:82 2023:88 2024:96 2025:100 2026:120
+  type  30 (5 pts): rookie 14, veteran 615, unknown 0, rookie share 2.2%  seasons 2019:97 2020:34 2022:84 2023:94 2024:98 2025:101 2026:121
+  type  71 (5 pts): rookie 5, veteran 601, unknown 0, rookie share 0.8%  seasons 2019:93 2020:35 2022:77 2023:89 2024:96 2025:99 2026:117
+  type  82 (5 pts): rookie 2, veteran 409, unknown 0, rookie share 0.5%  seasons 2023:91 2024:98 2025:101 2026:121
+  type  83 (5 pts): rookie 16, veteran 207, unknown 0, rookie share 7.2%  seasons 2025:102 2026:121
+
+PER SEASON (district tier fields):
+  season events rookies rookies/event  RAS/event RI/event  RI-to-rookie/event  perRookie: RAS  RI  RI|notRAS  other|none-of(I,RAS,RI)  other|none-of(I,RAS) (old residual)
+  2019    100     306    3.06        0.740    0.820    0.820              0.242  0.268  0.353      0.113 (n=150)          0.427 (n=232)
+  2020     35      74    2.11        0.771    0.657    0.657              0.365  0.311  0.489      0.042 (n=24)          0.511 (n=47)
+  2022     96     105    1.09        0.500    0.521    0.333              0.267  0.305  0.416      0.111 (n=45)          0.481 (n=77)
+  2023     94     203    2.16        0.681    0.670    0.670              0.315  0.310  0.453      0.132 (n=76)          0.525 (n=139)
+  2024     98     260    2.65        0.704    0.724    0.724              0.265  0.273  0.372      0.058 (n=120)          0.408 (n=191)
+  2025    103     244    2.37        0.777    0.000    0.000              0.328  0.000  0.000      0.140 (n=164)          0.140 (n=164)
+  2026    123     228    1.85        0.650    0.000    0.000              0.351  0.000  0.000      0.182 (n=148)          0.182 (n=148)
+
+BY ROOKIES PER EVENT (rookie team events):
+  2019-2022:
+    0    events 58
+    1-2  events   89 rookies  128  RI/event 0.607 RAS/event 0.584  perRookie RAS 0.406 RI 0.422 RI|notRAS 0.711  other|none 0.045 (n=22)
+    3-4  events   56 rookies  189  RI/event 0.982 RAS/event 0.875  perRookie RAS 0.259 RI 0.291 RI|notRAS 0.393  other|none 0.082 (n=85)
+    5-6  events   21 rookies  115  RI/event 1.000 RAS/event 1.000  perRookie RAS 0.183 RI 0.183 RI|notRAS 0.223  other|none 0.137 (n=73)
+    7-9  events    7 rookies   53  RI/event 1.000 RAS/event 1.000  perRookie RAS 0.132 RI 0.132 RI|notRAS 0.152  other|none 0.128 (n=39)
+  2023-2026:
+    0    events 58
+    1-2  events  204 rookies  296  RI/event 0.275 RAS/event 0.701  perRookie RAS 0.483 RI 0.189 RI|notRAS 0.366  other|none 0.186 (n=97)
+    3-4  events  111 rookies  376  RI/event 0.450 RAS/event 0.955  perRookie RAS 0.282 RI 0.133 RI|notRAS 0.185  other|none 0.123 (n=220)
+    5-6  events   35 rookies  189  RI/event 0.657 RAS/event 0.971  perRookie RAS 0.180 RI 0.122 RI|notRAS 0.148  other|none 0.114 (n=132)
+    7-9  events    9 rookies   64  RI/event 0.444 RAS/event 1.000  perRookie RAS 0.141 RI 0.063 RI|notRAS 0.073  other|none 0.137 (n=51)
+    10+  events    1 rookies   10  RI/event 1.000 RAS/event 1.000  perRookie RAS 0.100 RI 0.100 RI|notRAS 0.111  other|none 0.000 (n=8)
