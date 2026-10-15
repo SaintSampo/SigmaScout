@@ -18,14 +18,10 @@ The joint draw needs each event's total per team per run. Events the browser sim
 
 Only the Champ tab's district run (its field chances) reads the joint draw; the champ run itself still draws each team's district points on its own, and the core refuses joint input in champ mode (`packages/core/districts/advancementChance.ts`). Decide whether to extend the joint draw there, and measure with `scripts/measureChampCutoff.ts` and `measureLocksInRange.ts` first.
 
-## 3. The pick table ignores the SPR gap
-
-The table depends only on the round and the team's position in line. If the best team left is far ahead of the rest, real captains almost always take it, yet the table gives position 1 its usual share (33% for a first pick). A gap aware variant would add a fitted setting, so it must be measured against the shipped table with a pre registered bar first (`scripts/measureRandomPickDraft.ts` is the harness).
-
-## 4. Structural certainties lost their settled caption at Quals done
+## 3. Structural certainties lost their settled caption at Quals done
 
 Settled routes now print only once alliances are announced. At Quals done the rank 1 team is still certain to captain alliance 1, and a team ranked below 2k minus 1 (15 for eight alliances) can never captain, but neither is marked. A follow up could print those facts.
 
-## 5. The District Locks table runs wider than its container at desktop width
+## 4. The District Locks table runs wider than its container at desktop width
 
 The Playoffs column grew from 157 px to 184 px when the box gained the best guess finish (261014-i1c). The table already overflowed its 1150 px container on the live site at a Round 3 stop (1192 px, Awards partly hidden); it now overflows by about 69 px. Measured at 1440 px on 2026 FIM Livonia Round 3.
