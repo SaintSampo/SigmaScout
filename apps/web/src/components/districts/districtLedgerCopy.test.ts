@@ -481,7 +481,7 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
       impact: "Impact",
       rookieAllStar: "Rookie All Star",
       engineeringInspiration: "Engineering Inspiration",
-      judged: "One judged award",
+      judged: "Other team award",
       none: "No award",
     });
     // No label names two awards at once, which is the whole point of the fold.

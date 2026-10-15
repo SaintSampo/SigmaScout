@@ -500,12 +500,12 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS: Readonly<Record<DistrictPlay
   notPicked: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.notPicked,
 };
 
-/** See `DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS`. `judged` is one judged award, which is the award support's own second bin. */
+/** See `DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS`. `judged` is any other team award that pays points (5 points before the tier weight), the award support's own second bin. Its label matches the methodology pages' "other team awards" (quick task 261015-3g4); the id is unchanged. */
 export const DISTRICT_LEDGER_AWARD_OUTCOME_LABELS = {
   impact: "Impact",
   rookieAllStar: "Rookie All Star",
   engineeringInspiration: "Engineering Inspiration",
-  judged: "One judged award",
+  judged: "Other team award",
   none: "No award",
 } as const;
 
