@@ -1,7 +1,7 @@
 ---
 id: locks-first-live-2027-watch
 created: 2026-10-10
-source: quick 261009-r9x, 261009-tx6, 261009-vp9, 261010-66y, 261010-d7r, 261010-jyn, 261010-l0s
+source: quick 261009-r9x, 261009-tx6, 261009-vp9, 261010-66y, 261010-d7r, 261010-jyn, 261010-l0s, 261014-j4i
 priority: high
 due: 2027-03 (the first 2027 district event), then the first 2027 District Championship played in divisions
 ---
@@ -35,6 +35,10 @@ Before the 2027 season is registered, and after its first event:
 Any live day:
 
 10. **Tick wall time.** On 2026-10-10, with five offseason events playing, Worker ticks took 2 to 7 minutes each and overlapped, so results lagged past the 1 to 3 minute target. That is separate from the Locks work and not fixed. See the memory note "Live tick wall time on a busy Saturday".
+
+Once the first 2027 District Championship has a registered team, and before it starts:
+
+11. **The Now DCMP simulation (quick task 261014-j4i).** It has never run on real data: every 2026 championship had started when it shipped. Open that district's Champ Locks tab at Now (no `at` in the URL). Locked and In range teams should show four numeric DCMP cells, other teams "out of range" or the em dash, and no cell should read "not yet priced" once the table settles. If "not yet priced" stays, check that 2027 is in `AS_OF_PRICEABLE_SEASONS` (`apps/web/src/components/districts/asOfRewind.ts`; it follows the 2027 RP rule module). During a live district event the DCMP cells go pending with the district cells each refresh and should come back within seconds.
 
 ## Operator rules that go with this
 
