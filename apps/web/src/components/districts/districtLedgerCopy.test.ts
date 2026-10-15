@@ -46,6 +46,7 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
+  locksTabSlotsText,
   districtLedgerCellChance,
   districtLedgerCellLikelyText,
   DISTRICT_LEDGER_NOT_PICKED_WORDS,
@@ -290,6 +291,12 @@ describe("the UI-SPEC copy contract", () => {
     // Not a district name at all.
     expect(districtLedgerShortEventName("Done Event")).toBe("Done Event");
     expect(districtLedgerShortEventName("Einstein Field")).toBe("Einstein Field");
+  });
+
+  it("prints each tab's slot count as locked over capacity, or the locked count alone with no published capacity", () => {
+    expect(locksTabSlotsText(31, 50)).toBe("31 of 50 slots called");
+    expect(locksTabSlotsText(0, 8)).toBe("0 of 8 slots called");
+    expect(locksTabSlotsText(3, null)).toBe("3 locked");
   });
 
   it("pins the tab label and the column labels in render order", () => {

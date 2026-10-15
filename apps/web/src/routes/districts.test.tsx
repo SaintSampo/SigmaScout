@@ -174,10 +174,55 @@ describe("/districts route", () => {
       return new Promise<Response>(() => {});
     });
     renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
-    expect(await screen.findByRole("tab", { name: "District Locks" })).toBeDefined();
+    expect(await screen.findByRole("tab", { name: /^District Locks/ })).toBeDefined();
     // Exactly two triggers, in order, so the 2026-09-26 rename REPLACED the
-    // first tab's label rather than adding a third tab beside it.
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["District Locks", "Champ Locks"]);
+    // first tab's label rather than adding a third tab beside it. Each
+    // trigger's text STARTS with its label; the slot count follows it.
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.length).toBe(2);
+    expect(tabs[0]!.textContent!.startsWith("District Locks")).toBe(true);
+    expect(tabs[1]!.textContent!.startsWith("Champ Locks")).toBe(true);
+  });
+
+  it("each tab carries its tier's slot count from the published verdicts: Locked teams over the published capacity", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
+      return new Promise<Response>(() => {});
+    });
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
+
+    // One of the two fixture teams reads `locked` on both tiers; the other is
+    // `contending`. The counts sit INSIDE the triggers, so the inactive Champ
+    // Locks tab prints its count without its ledger ever mounting.
+    expect((await screen.findByTestId("district-locks-tab-count")).textContent).toBe("1 of 54 slots called");
+    expect(screen.getByTestId("champ-locks-tab-count").textContent).toBe("1 of 19 slots called");
+    const tabs = screen.getAllByRole("tab");
+    expect(within(tabs[0]!).getByTestId("district-locks-tab-count")).toBeDefined();
+    expect(within(tabs[1]!).getByTestId("champ-locks-tab-count")).toBeDefined();
+  });
+
+  it("the tab counts count lockedAward as a held slot and prequalified as none, and print a bare locked count when the capacity is unpublished", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      if (url.includes("/v1/district/")) {
+        return districtDetailResponse("2026fnc")
+          .json()
+          .then((body: { dcmpSlots: number | null; cmpSlots: number | null; teams: { districtLock: { status: string }; champLock: { status: string } }[] }) => {
+            body.cmpSlots = null;
+            body.teams[1]!.districtLock.status = "lockedAward";
+            body.teams[1]!.champLock.status = "prequalified";
+            return new Response(JSON.stringify(body), { status: 200 });
+          });
+      }
+      return new Promise<Response>(() => {});
+    });
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
+
+    expect((await screen.findByTestId("district-locks-tab-count")).textContent).toBe("2 of 54 slots called");
+    expect(screen.getByTestId("champ-locks-tab-count").textContent).toBe("1 locked");
   });
 
   it("?tab=champ-locks still deep-links directly to the Champ Locks tab, which renders the two row ledger", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +10,7 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
 import { ChampLocksLedger } from "../components/districts/ChampLocksLedger.js";
 import { DistrictLedger } from "../components/districts/DistrictLedger.js";
-import { CHAMP_LEDGER_TAB_LABEL, DISTRICT_LEDGER_TAB_LABEL } from "../components/districts/districtLedgerCopy.js";
+import { CHAMP_LEDGER_TAB_LABEL, DISTRICT_LEDGER_TAB_LABEL, locksTabSlotsText } from "../components/districts/districtLedgerCopy.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -44,6 +44,54 @@ function resolveActiveTab(tab: DistrictTab): DistrictTab {
   if (!REGISTERED_DISTRICT_TABS.includes(tab)) return DEFAULT_DISTRICT_TAB;
   return tab;
 }
+
+/**
+ * The slot count each tab prints beside its label (prototype 01 of the
+ * 2026-10-15 Locks tab sketch: a segmented switch with counts).
+ *
+ * Read from the artifact's PUBLISHED verdicts and not from either ledger's
+ * own status model: only the active tab's ledger is mounted, so the inactive
+ * tab's count has to come from data the route already holds. `locked` and
+ * `lockedAward` both hold one of the tier's slots. `prequalified` never does
+ * (`packages/core/districts/locks.ts`: the slots are worked out after the
+ * prequalified teams are taken out), so it is not counted. This is the LIVE
+ * census; a rewound milestone inside a panel changes that panel's chips and
+ * not these counts.
+ */
+function locksTabCounts(artifact: DistrictArtifact | undefined): { readonly district: string; readonly champ: string } | undefined {
+  if (artifact === undefined) return undefined;
+  const holdsSlot = (status: DistrictArtifact["teams"][number]["districtLock"]["status"]): boolean => status === "locked" || status === "lockedAward";
+  const district = artifact.teams.filter((team) => holdsSlot(team.districtLock.status)).length;
+  const champ = artifact.teams.filter((team) => holdsSlot(team.champLock.status)).length;
+  return { district: locksTabSlotsText(district, artifact.dcmpSlots), champ: locksTabSlotsText(champ, artifact.cmpSlots) };
+}
+
+/**
+ * The segmented strip's classes. The list drops the primitive's fixed `h-8`
+ * (`h-auto!`, as the `line` variant does) because each trigger wears
+ * `.tap-target`'s 44px minimum, and stretches its items so two triggers whose
+ * counts wrap differently on a phone still stand the same height. Each
+ * trigger is `flex-1`, so the two share the strip's full width, and wraps its
+ * count under the label on a narrow phone instead of scrolling.
+ *
+ * `data-[state=active]`, NOT the primitive's `data-active:` variants: Radix
+ * marks the open trigger with `data-state="active"` and never sets a
+ * `data-active` attribute, so every `data-active:` class in `ui/tabs.tsx`
+ * compiles to a `[data-active]` selector that matches nothing (measured on
+ * the built page 2026-10-15: the active trigger had no such attribute and a
+ * transparent background). The count chip reads the same state through a
+ * named group on its trigger.
+ *
+ * No `text-[var(...)]` beside `text-role-nav`: tailwind-merge drops the role
+ * class in that pairing (project memory `project_cn_drops_text_role_classes`);
+ * the base trigger's own `text-foreground/60` and the active `text-foreground`
+ * below carry the ink.
+ */
+const LOCKS_TAB_LIST_CLASS = "flex h-auto! w-full items-stretch gap-[3px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-inset)] p-[3px]";
+const LOCKS_TAB_TRIGGER_CLASS =
+  "group/lockstab tap-target h-auto flex-1 flex-wrap gap-x-[var(--spacing-sm)] gap-y-[var(--spacing-xs)] whitespace-normal rounded-md px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-nav data-[state=active]:bg-[var(--color-bg-surface)] data-[state=active]:text-foreground data-[state=active]:shadow-sm";
+const LOCKS_TAB_COUNT_CLASS =
+  "rounded-full bg-[var(--color-bg-surface)] px-[7px] text-[11px] leading-[18px] font-normal tabular-nums whitespace-nowrap text-[var(--color-text-muted)] group-data-[state=active]/lockstab:bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] group-data-[state=active]/lockstab:text-[var(--color-accent)]";
 
 /**
  * This route's own version of `event.$eventKey.tsx`'s shared `renderTabState`
@@ -143,6 +191,7 @@ function DistrictsPage() {
   });
 
   const activeTab = resolveActiveTab(tab);
+  const tabCounts = useMemo(() => locksTabCounts(districtQuery.data), [districtQuery.data]);
 
   function handleTabChange(value: string) {
     void navigate({ search: (prev) => ({ ...prev, tab: value as DistrictTab }) });
@@ -215,16 +264,24 @@ function DistrictsPage() {
             <EmptyState heading="Pick a district" body="Choose a district above to see its district and championship locks." />
           ) : (
             <Tabs value={activeTab} onValueChange={handleTabChange}>
-              <div className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
-                <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
-                  <TabsTrigger value="road-to-district-champs" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-                    {DISTRICT_LEDGER_TAB_LABEL}
-                  </TabsTrigger>
-                  <TabsTrigger value="champ-locks" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-                    {CHAMP_LEDGER_TAB_LABEL}
-                  </TabsTrigger>
-                </TabsList>
-              </div>
+              <TabsList className={LOCKS_TAB_LIST_CLASS}>
+                <TabsTrigger value="road-to-district-champs" className={LOCKS_TAB_TRIGGER_CLASS}>
+                  {DISTRICT_LEDGER_TAB_LABEL}
+                  {tabCounts !== undefined && (
+                    <span className={LOCKS_TAB_COUNT_CLASS} data-testid="district-locks-tab-count">
+                      {tabCounts.district}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="champ-locks" className={LOCKS_TAB_TRIGGER_CLASS}>
+                  {CHAMP_LEDGER_TAB_LABEL}
+                  {tabCounts !== undefined && (
+                    <span className={LOCKS_TAB_COUNT_CLASS} data-testid="champ-locks-tab-count">
+                      {tabCounts.champ}
+                    </span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
               <TabsContent value="road-to-district-champs" data-testid="road-to-district-champs-panel" className="min-w-0 mt-[var(--spacing-lg)]">
                 {renderDistrictLedgerContent()}
               </TabsContent>

@@ -806,6 +806,18 @@ export function districtLedgerCellChance(chance: number): string {
 export const CHAMP_LEDGER_TAB_LABEL = "Champ Locks";
 
 /**
+ * The count each Locks tab carries beside its label (quick task 261015, the
+ * segmented tab strip): how many of the tier's published slots are already
+ * taken by a team the verdicts read as Locked, on the LIVE artifact. "called"
+ * because a Locked team's slot is called for it, whatever the rest of the
+ * season does. With no published capacity only the locked count prints.
+ */
+export function locksTabSlotsText(locked: number, slots: number | null): string {
+  if (slots === null) return `${String(locked)} locked`;
+  return `${String(locked)} of ${String(slots)} slots called`;
+}
+
+/**
  * The champ table's column labels, in render order.
  *
  * "Source" rather than "Event" (the sketch 022 question, answered): the two
