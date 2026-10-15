@@ -43,6 +43,7 @@ import {
   type DistrictLedgerCell,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
+import { awardSlateMember } from "./districtRunAssembly.js";
 import { buildChampLedgerRows, dcmpEventKeysFor, type ChampLedgerCell } from "./champLedgerRows.js";
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
@@ -704,7 +705,7 @@ describe("the least a total may print, over the local 2026 PNW fixture on both t
   }
 
   it(
-    "without the least a low end prints below the earned figure 154 times and a median 110 times on each tab, and with it never; and nothing but print moves",
+    "without the least a low end prints below the earned figure 154 times and a median 100 times on each tab, and with it never; and nothing but print moves",
     () => {
       const district = DistrictArtifactSchema.parse(JSON.parse(readFileSync(repoPath(PRINT_FIXTURE_DISTRICT)!, "utf8")));
       const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
@@ -739,6 +740,9 @@ describe("the least a total may print, over the local 2026 PNW fixture on both t
             conditionOnPlayedElims: false,
             asOfPlayedElimMatchKeys: playedKeys,
             tier: "district",
+            // The award slate the tab's assembly attaches (quick task 261014-qje, Q-01); every
+            // other event's awards are final at Now, as in the stop's own stage map below.
+            ...awardSlateMember(district, undefined, "district", { eventKey }),
           });
           if (!built.ok) continue;
           stops += 1;
@@ -812,13 +816,13 @@ describe("the least a total may print, over the local 2026 PNW fixture on both t
         `[261012-mw2 printed totals] stops ${String(stops)}; district grand ${JSON.stringify(districtGrand)}; district event ${JSON.stringify(districtEvent)}; champ district row ${JSON.stringify(champDistrictRow)}; champ grand ${JSON.stringify(champGrand)}; team median ${JSON.stringify(teamMedian)}; champ floors ${String(champFloors)}, not the header ${String(champFloorNotTheHeader)}; district counted not the header ${String(districtCountedNotTheHeader)}`
       );
       expect(stops).toBe(48);
-      // Without the least: 154 low ends and 110 medians print below. With it: none. The same on every total.
-      const pinned: PrintTally = { checked: 1512, lowBelow: 154, medianBelow: 110, lowBelowHeld: 0, medianBelowHeld: 0, moved: 154 };
+      // Without the least: 154 low ends and 100 medians print below. With it: none. The same on every total.
+      const pinned: PrintTally = { checked: 1512, lowBelow: 154, medianBelow: 100, lowBelowHeld: 0, medianBelowHeld: 0, moved: 154 };
       expect(districtGrand).toEqual(pinned);
       expect(districtEvent).toEqual(pinned);
       expect(champDistrictRow).toEqual(pinned);
       expect(champGrand).toEqual(pinned);
-      expect(teamMedian).toEqual({ district: { checked: 1512, below: 110, belowHeld: 0 }, champ: { checked: 1512, below: 110, belowHeld: 0 } });
+      expect(teamMedian).toEqual({ district: { checked: 1512, below: 100, belowHeld: 0 }, champ: { checked: 1512, below: 100, belowHeld: 0 } });
       // What is handed in is the earned figure wherever the earned figure is the floor: every one of these rewound stops.
       expect(districtCountedNotTheHeader).toBe(0);
       expect({ champFloors, champFloorNotTheHeader }).toEqual({ champFloors: 6048, champFloorNotTheHeader: 0 });

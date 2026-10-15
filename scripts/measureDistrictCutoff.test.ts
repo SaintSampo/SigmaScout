@@ -120,13 +120,17 @@ const eventFixturesPresent = existsSync(`${FIXTURE_DIR}/event-2026wabon.json`);
  * the midpoint rule, which reads each team's median predicted total, moved
  * from [59, 58, 57, 57].
  *
+ * Re-recorded 2026-10-15 for the one award slate (261014-qje, approved by
+ * Jacob): district event awards now draw from the slate, so simulated moved
+ * from [62, 62, 62, 60] and midpoint from [59, 57, 56, 56].
+ *
  * HISTORY, the retired stored odds path on the same fixture: simulated
  * [58, 57, 58, 57], midpoint [53, 53, 54, 54]; the fixed draft with
  * independent draws on the as-of path: simulated [63, 62, 62, 60], midpoint
  * [59, 58, 57, 57].
  */
-const SEEDED_SIMULATED = [62, 62, 62, 60];
-const SEEDED_MIDPOINT = [59, 57, 56, 56];
+const SEEDED_SIMULATED = [64, 63, 63, 61];
+const SEEDED_MIDPOINT = [61, 59, 58, 57];
 
 describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 PNW fixture, on the as-of path", () => {
   const artifact = eventFixturesPresent ? stampedFixture() : (undefined as unknown as DistrictArtifact);
