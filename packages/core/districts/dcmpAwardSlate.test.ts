@@ -1,7 +1,7 @@
 /**
- * The DCMP award slate (quick task 261014-i8i). Pure, synthetic, no corpus:
- * the corpus re measure of the literals lives in
- * `scripts/measureDcmpAwardSlate.test.ts`.
+ * The DCMP award slate (quick task 261014-i8i, generalised by 261014-qje onto
+ * the one award model in `awardSlate.ts`). Pure, synthetic, no corpus: the
+ * corpus re measure of the literals lives in `scripts/measureAwardSlate.test.ts`.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -9,18 +9,23 @@ import { dcmpAwardEligibility, type DcmpEligibilityTeam } from "./dcmpAwardEligi
 import {
   buildDcmpAwardSlate,
   DCMP_AWARD_SLATE_SEASONS,
-  DCMP_AWARD_SLATE_TABLES,
-  dcmpAwardSlateTables,
   dcmpEventRoles,
-  dcmpSlateAssignments,
   slateAwardOutcomeOdds,
   UnknownDcmpAwardSlateSeasonError,
   UnknownDcmpSlateTargetError,
   waterFill,
   type DcmpAwardSlateInput,
 } from "./dcmpAwardSlate.js";
+import {
+  awardSlateTables,
+  DCMP_TIER_AWARD_SLATE_SEASONS,
+  seasonAwardTypes,
+  slateAssignments,
+  TYPE_SLOT,
+  UnknownAwardSlateSeasonError,
+} from "./awardSlate.js";
 import { champCutoffTuning, dcmpAwardCountDistribution } from "./hypotheticalDcmp.js";
-import type { DistrictAwardProfile } from "./ledgerSimulation.js";
+import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "./ledgerSimulation.js";
 
 const SEASON = 2026;
 
@@ -81,23 +86,12 @@ describe("dcmpEventRoles", () => {
   });
 });
 
-describe("the committed tables", () => {
-  it("are registered for 2023 to 2026, from the table's own keys", () => {
+describe("the re exports (quick task 261014-qje, Q-01)", () => {
+  it("name the one model's DCMP tier seasons and its unregistered season error", () => {
     expect(DCMP_AWARD_SLATE_SEASONS).toEqual([2023, 2024, 2025, 2026]);
-    expect(Object.keys(DCMP_AWARD_SLATE_TABLES).map(Number)).toEqual([...DCMP_AWARD_SLATE_SEASONS]);
-  });
-
-  it("carry no lift class below 100 observations", () => {
-    for (const season of DCMP_AWARD_SLATE_SEASONS) {
-      const tables = dcmpAwardSlateTables(season);
-      for (const record of [tables.impactLift, tables.engineeringInspirationLift, tables.judgedLiftCells, tables.judgedLiftBuckets]) {
-        for (const lift of Object.values(record)) expect(lift!.n).toBeGreaterThanOrEqual(100);
-      }
-    }
-  });
-
-  it("throws for an unregistered season rather than borrowing one", () => {
-    expect(() => dcmpAwardSlateTables(2019)).toThrow(UnknownDcmpAwardSlateSeasonError);
+    expect(DCMP_AWARD_SLATE_SEASONS).toBe(DCMP_TIER_AWARD_SLATE_SEASONS);
+    expect(UnknownDcmpAwardSlateSeasonError).toBe(UnknownAwardSlateSeasonError);
+    expect(() => awardSlateTables(2019, "dcmp")).toThrow(UnknownDcmpAwardSlateSeasonError);
   });
 });
 
@@ -121,18 +115,32 @@ function eligibility() {
       team("frc6", { districtEventKeys: ["2026wasno"] }),
     ],
     awardFinal: (key) => key === "2026wabon",
-    weight: (entry, awardType) => (awardType === 10 ? (entry.rookie ? 1 : 0) : awardType === 9 ? (entry.rookie ? 0 : 1) : 1),
+    // The one award model's weights (quick task 261014-qje, Q-11): frc5 and
+    // frc6 share a profile, so each is the open event's entrant half the time.
+    season: SEASON,
+    profileOf: (teamKey) => (teamKey === "frc3" ? { ...ZERO_AWARD_PROFILE, rookieState: "rookie" } : ZERO_AWARD_PROFILE),
   });
 }
 
 const FIM_KEYS = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
 const CA_KEYS = ["2026cancmp", "2026cascmp"];
 
+/** The declared 5 point types' measured DCMP tier counts at a role, per slot (Q-04). */
+function fivePointCounts(role: "single" | "division" | "finals"): { judgedRookie: number; judged: number } {
+  const counts = awardSlateTables(SEASON, "dcmp").counts[role]!;
+  const out = { judgedRookie: 0, judged: 0 };
+  for (const type of seasonAwardTypes(SEASON)) {
+    const slot = TYPE_SLOT.get(type)!;
+    if (slot === "judgedRookie" || slot === "judged") out[slot] += counts[type]!.count;
+  }
+  return out;
+}
+
 describe("buildDcmpAwardSlate", () => {
   const setting = champCutoffTuning(SEASON).setting;
   const fim = dcmpAwardCountDistribution(SEASON, "2026fim", 83, setting.countMode);
   const ca = dcmpAwardCountDistribution(SEASON, "2026ca", 46, setting.countMode);
-  const tables = dcmpAwardSlateTables(SEASON);
+  const tables = { division: fivePointCounts("division"), single: fivePointCounts("single"), finals: fivePointCounts("finals") };
 
   it("gives a division judged awards only", () => {
     const slate = buildDcmpAwardSlate({ season: SEASON, districtKey: "2026fim", cmpSlots: 83, dcmpEventKeys: FIM_KEYS, target: { eventKey: "2026micmp2" }, eligibility: eligibility() });
@@ -140,7 +148,9 @@ describe("buildDcmpAwardSlate", () => {
     expect(slate.expected.impact).toBe(0);
     expect(slate.expected.engineeringInspiration).toBe(0);
     expect(slate.expected.rookieAllStar).toBe(0);
-    expect(slate.expected.judged).toBe(tables.judgedAnchor.division.count);
+    // Q-04: the declared 5 point types' measured division counts.
+    expect(slate.expected.judged).toBeCloseTo(tables.division.judged, 12);
+    expect(slate.expected.judgedRookie).toBeCloseTo(tables.division.judgedRookie, 12);
     expect(slate.expected.judged).toBeGreaterThan(0);
   });
 
@@ -150,8 +160,8 @@ describe("buildDcmpAwardSlate", () => {
     expect(slate.expected.impact).toBeCloseTo(meanOf(fim[0]), 12);
     expect(slate.expected.engineeringInspiration).toBeCloseTo(meanOf(fim[9]), 12);
     expect(slate.expected.rookieAllStar).toBeCloseTo(meanOf(fim[10]), 12);
-    expect(slate.expected.judged).toBe(tables.judgedAnchor.finals.count);
     expect(slate.expected.judged).toBe(0);
+    expect(slate.expected.judgedRookie).toBe(0);
   });
 
   it("splits a single championship's consuming counts by the district's championship count", () => {
@@ -160,17 +170,17 @@ describe("buildDcmpAwardSlate", () => {
     expect(slate.expected.impact).toBeCloseTo(meanOf(ca[0]) / 2, 12);
     expect(slate.expected.engineeringInspiration).toBeCloseTo(meanOf(ca[9]) / 2, 12);
     expect(slate.expected.rookieAllStar).toBeCloseTo(meanOf(ca[10]) / 2, 12);
-    expect(slate.expected.judged).toBe(tables.judgedAnchor.single.count);
+    expect(slate.expected.judged).toBeCloseTo(tables.single.judged, 12);
   });
 
   it("prices a whole championship at the full share plus each single or division key's judged anchor", () => {
     const whole = buildDcmpAwardSlate({ season: SEASON, districtKey: "2026fim", cmpSlots: 83, dcmpEventKeys: FIM_KEYS, target: "wholeChampionship", eligibility: eligibility() });
     expect(whole.role).toBe("wholeChampionship");
     expect(whole.expected.impact).toBeCloseTo(meanOf(fim[0]), 12);
-    expect(whole.expected.judged).toBeCloseTo(4 * tables.judgedAnchor.division.count, 12);
+    expect(whole.expected.judged).toBeCloseTo(4 * tables.division.judged, 12);
     // No key known yet: at least one single championship's judged anchor.
     const unknown = buildDcmpAwardSlate({ season: SEASON, districtKey: "2026fim", cmpSlots: 83, dcmpEventKeys: [], target: "wholeChampionship", eligibility: eligibility() });
-    expect(unknown.expected.judged).toBe(tables.judgedAnchor.single.count);
+    expect(unknown.expected.judged).toBeCloseTo(tables.single.judged, 12);
     expect(unknown.expected.impact).toBeCloseTo(meanOf(fim[0]), 12);
   });
 
@@ -195,7 +205,7 @@ describe("buildDcmpAwardSlate", () => {
 });
 
 // ---------------------------------------------------------------------------
-// dcmpSlateAssignments
+// slateAssignments at a DCMP role (the one model's assignments, Q-08)
 // ---------------------------------------------------------------------------
 
 function profile(rookie: boolean, priorJudgedAwards: number, priorImpactWins: number): DistrictAwardProfile {
@@ -207,14 +217,15 @@ function profile(rookie: boolean, priorJudgedAwards: number, priorImpactWins: nu
   };
 }
 
-describe("dcmpSlateAssignments", () => {
+describe("slateAssignments on a DCMP slate", () => {
   const field = Array.from({ length: 30 }, (_, i) => ({ teamKey: `frc${String(i + 1)}` }));
   const profiles = new Map<string, DistrictAwardProfile>(
     field.map((member, i) => [member.teamKey, profile(i >= 26, i < 26 ? (i * 7) % 9 : 0, i < 6 ? i % 4 : 0)] as const)
   );
   const slate: DcmpAwardSlateInput = {
     role: "single",
-    expected: { impact: 2, engineeringInspiration: 1.5, rookieAllStar: 1, judged: 12 },
+    // Q-08: five slot counts; judgedRookie 0 here, so the rookie only 5 point slot gives nothing.
+    expected: { impact: 2, engineeringInspiration: 1.5, rookieAllStar: 1, judgedRookie: 0, judged: 12 },
     sources: { counts: "previousSeason", judged: "role" },
     eligibility: [
       { teamKey: "frc1", impact: 1, engineeringInspiration: 1, rookieAllStar: 0 },
@@ -230,7 +241,7 @@ describe("dcmpSlateAssignments", () => {
       { teamKey: "frc7", impact: 0, engineeringInspiration: 0, rookieAllStar: 1 },
     ].sort((a, b) => (a.teamKey < b.teamKey ? -1 : 1)),
   };
-  const assignments = dcmpSlateAssignments(SEASON, field, profiles, slate);
+  const assignments = slateAssignments(SEASON, field, profiles, slate);
   const byKey = new Map(assignments.map((assignment) => [assignment.teamKey, assignment] as const));
   const eligibleKeys = new Set(slate.eligibility.map((entry) => entry.teamKey));
 
@@ -245,7 +256,7 @@ describe("dcmpSlateAssignments", () => {
 
   it("gives a rookie no Engineering Inspiration and a veteran no Rookie All Star", () => {
     // frc27 is a rookie: its 8 point chance is Rookie All Star only.
-    const rookieOnly = dcmpSlateAssignments(SEASON, field, profiles, { ...slate, expected: { ...slate.expected, rookieAllStar: 0 } });
+    const rookieOnly = slateAssignments(SEASON, field, profiles, { ...slate, expected: { ...slate.expected, rookieAllStar: 0 } });
     expect(rookieOnly.find((entry) => entry.teamKey === "frc27")!.eight).toBe(0);
     // frc7 is a veteran with no EI chance: its 8 point chance is 0 whatever the RAS count.
     expect(byKey.get("frc7")!.eight).toBe(0);
@@ -254,14 +265,16 @@ describe("dcmpSlateAssignments", () => {
   it("sums the Impact chances to the expected count when the caps allow, and never above a team's eligibility", () => {
     expect(sum(assignments.map((entry) => entry.impact))).toBeCloseTo(2, 12);
     expect(byKey.get("frc3")!.impact).toBeLessThanOrEqual(0.5);
-    const rookieEight = assignments.filter((entry) => profiles.get(entry.teamKey)!.rookieState === "rookie").map((entry) => entry.eight);
+    // Q-08: the 8 point fill uses the room left after Impact, so the expected
+    // 8 point WINNERS (p8) deliver each count exactly.
+    const rookieEight = assignments.filter((entry) => profiles.get(entry.teamKey)!.rookieState === "rookie").map((entry) => slateAwardOutcomeOdds(entry).p8);
     expect(sum(rookieEight)).toBeCloseTo(1, 12);
-    const veteranEight = assignments.filter((entry) => profiles.get(entry.teamKey)!.rookieState !== "rookie").map((entry) => entry.eight);
+    const veteranEight = assignments.filter((entry) => profiles.get(entry.teamKey)!.rookieState !== "rookie").map((entry) => slateAwardOutcomeOdds(entry).p8);
     expect(sum(veteranEight)).toBeCloseTo(1.5, 12);
   });
 
   it("gives every eligible team its cap when the expected count exceeds the caps", () => {
-    const heavy = dcmpSlateAssignments(SEASON, field, profiles, { ...slate, expected: { ...slate.expected, impact: 10 } });
+    const heavy = slateAssignments(SEASON, field, profiles, { ...slate, expected: { ...slate.expected, impact: 10 } });
     for (const entry of slate.eligibility) expect(heavy.find((assignment) => assignment.teamKey === entry.teamKey)!.impact).toBe(entry.impact);
   });
 
@@ -281,7 +294,7 @@ describe("dcmpSlateAssignments", () => {
   it("prices every team at lift 1 (season pooled) when any profile lacks a prior count", () => {
     const partial = new Map(profiles);
     partial.set("frc10", { bucket: "none", rookieState: "veteran" });
-    const pooled = dcmpSlateAssignments(SEASON, field, partial, slate);
+    const pooled = slateAssignments(SEASON, field, partial, slate);
     expect(pooled.every((entry) => entry.judgedSource === "season-pooled")).toBe(true);
     // At lift 1 the Impact fill is proportional to eligibility alone.
     const impactOf = (key: string): number => pooled.find((entry) => entry.teamKey === key)!.impact;

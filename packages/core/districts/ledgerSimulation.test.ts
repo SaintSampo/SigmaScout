@@ -18,18 +18,7 @@ import {
   type SimMatchInput,
   type SimTeamBaseline,
 } from "../algorithms/simulation/rankSimulation.js";
-import { AWARD_POINT_SUPPORT, awardBaseRate } from "./awardBaseRates.js";
-import {
-  awardResidualRate,
-  foldStackedAwardPmf,
-  hasAwardOrderingTables,
-  IMPACT_AWARD_POINTS,
-  impactOrderingProbability,
-  MAX_IMPACT_POSITION,
-  ROOKIE_ALL_STAR_AWARD_POINTS,
-  rookieAllStarOrderingProbability,
-  SINGLE_AWARD_POINT_CEILING,
-} from "./awardOrderingTables.js";
+import { IMPACT_AWARD_POINTS, ROOKIE_ALL_STAR_AWARD_POINTS, SINGLE_AWARD_POINT_CEILING } from "./awardOrderingTables.js";
 import {
   BRACKET_SETS,
   divisionedDcmpPlayoffPmf,
@@ -54,8 +43,6 @@ import {
   InvalidKnownPointsError,
   MissingAwardProfileError,
   NegativeDistrictShiftError,
-  awardOrderingAssignments,
-  singleAwardPoints,
   simulateDistrictEvent,
   UnratedTeamError,
   type DistrictAwardProfile,
@@ -71,8 +58,10 @@ import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
 import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinProbability.js";
 import { eventAwardOutcomeOdds } from "./ledgerSimulation.js";
-import { DcmpAwardSlateOnDistrictTierError, MissingDcmpAwardSlateError } from "./ledgerSimulation.js";
+import { DcmpAwardSlateOnDistrictTierError, MissingAwardSlateError } from "./ledgerSimulation.js";
+import { DistrictAwardSlateOnDcmpTierError } from "./ledgerSimulation.js";
 import type { DcmpAwardSlateInput } from "./dcmpAwardSlate.js";
+import { buildDistrictAwardSlate, hasAwardSlateTables, slateAssignments, slateAwardOutcomeOdds, slateLift, awardSlateTables, type AwardSlateInput } from "./awardSlate.js";
 import { InvalidPickPositionPmfError, LEDGER_STREAM_SALT, PICK_STREAM_SALT, type PickPositionPmf } from "./ledgerSimulation.js";
 
 const SEASON = 2026;
@@ -137,11 +126,22 @@ function remainingMatches(): SimMatchInput[] {
   return out;
 }
 
+/**
+ * The district slate a district tier fixture carries by default (quick task
+ * 261014-qje, Q-01): the season's measured counts over the award field (the
+ * baselines, then any award only teams), every team allowed every award. A
+ * district tier event whose awards are open refuses to run without a slate
+ * (`MissingAwardSlateError`), so every district tier fixture carries one.
+ */
+function defaultDistrictSlate(season: number, keys: readonly string[]): AwardSlateInput {
+  return buildDistrictAwardSlate({ season, awardField: keys.map((key) => ({ teamKey: key })), eligibility: [] });
+}
+
 function inputFor(
   teamCount: number,
   overrides: Partial<DistrictLedgerEventInput> = {}
 ): DistrictLedgerEventInput {
-  return {
+  const input: DistrictLedgerEventInput = {
     eventKey: "2026zztest",
     season: SEASON,
     tier: TIER,
@@ -153,17 +153,22 @@ function inputFor(
     awardProfiles: profilesFor(teamCount),
     ...overrides,
   };
+  // Q-01: the default district slate, only where the caller set none and the
+  // season has tables. An explicit `awardSlate: undefined` keeps it off.
+  if (input.tier !== "district" || "awardSlate" in overrides || !hasAwardSlateTables(input.season, "district")) return input;
+  return { ...input, awardSlate: defaultDistrictSlate(input.season, [...input.baselines.map((baseline) => baseline.teamKey), ...(input.awardOnlyTeams ?? [])]) };
 }
 
 /**
  * A DCMP award slate with no eligible team and the 2026 single judged anchor,
  * for the dcmp tier tests that are about the bracket, the draft or the
  * ceilings rather than awards: a dcmp tier run with open awards refuses to
- * run without a slate since quick task 261014-i8i (`MissingDcmpAwardSlateError`).
+ * run without a slate since quick task 261014-i8i (`MissingAwardSlateError` since 261014-qje).
  */
 const NO_ELIGIBLE_DCMP_SLATE: DcmpAwardSlateInput = {
   role: "single",
-  expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+  // Q-08 (quick task 261014-qje): five slot counts; no rookie only 5 point award here.
+  expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judgedRookie: 0, judged: 12 },
   sources: { counts: "previousSeason", judged: "role" },
   eligibility: [],
 };
@@ -378,7 +383,7 @@ describe("simulateDistrictEvent — every histogram length traces to maxEventPoi
   it.each(["district", "dcmp"] as const)("%s tier: every length is that component's ceiling plus one", (tier) => {
     const teamCount = 24;
     // A dcmp tier run needs a DCMP award slate since 261014-i8i; the district run is unchanged.
-    const input = inputFor(teamCount, { tier, ...(tier === "dcmp" ? { dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE } : {}) });
+    const input = inputFor(teamCount, { tier, ...(tier === "dcmp" ? { awardSlate: NO_ELIGIBLE_DCMP_SLATE } : {}) });
     const result = simulateDistrictEvent(input, 50, 5);
     const ceilings = maxEventPoints(SEASON, tier);
     const key = teamKey(1);
@@ -514,63 +519,59 @@ describe("simulateDistrictEvent — the bracket", () => {
 // Awards
 // ---------------------------------------------------------------------------
 
-describe("simulateDistrictEvent — the award draw", () => {
-  it("the tallied award histogram matches the 10-02 lookup's own FOLDED pmf within Monte Carlo tolerance at 20,000 draws", () => {
+describe("simulateDistrictEvent — the award draw (the one award slate, quick task 261014-qje)", () => {
+  it("the tallied award histogram matches the slate's exact odds within 4 standard errors at 20,000 draws", () => {
     const input = inputFor(24, { remainingMatches: [] });
     const draws = 20_000;
     const result = simulateDistrictEvent(input, draws, 2024);
-    // The FOLDED pmf, because that is the distribution the draw reads: the
-    // measured table's 13 and 15 bins are stacks of two awards and the site never
-    // predicts one. Comparing against the raw pmf would pass anyway — those bins
-    // hold about a thousandth of the mass, well inside a two-decimal tolerance —
-    // which is exactly why the two assertions below are exact rather than close.
-    const folded = foldStackedAwardPmf(awardBaseRate(SEASON, "none", "veteran").pmf);
-    const histogram = result.awardPoints.get(teamKey(1))!;
-    AWARD_POINT_SUPPORT.forEach((points, index) => {
-      expect(histogram[points]! / draws).toBeCloseTo(folded[index]!, 2);
-    });
-  });
-
-  it("puts NO mass on a stacked award: the two stacked bins are empty and their mass moved onto 10 and 8", () => {
-    const input = inputFor(24, { remainingMatches: [] });
-    const draws = 20_000;
-    const result = simulateDistrictEvent(input, draws, 2024);
+    expect(result.awardOrdering).toBe("district-slate");
+    const odds = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: TIER, awardField: input.baselines, awardProfiles: input.awardProfiles, awardSlate: input.awardSlate! });
+    const weight = districtTierWeight(SEASON, TIER);
     for (const baseline of input.baselines) {
       const histogram = result.awardPoints.get(baseline.teamKey)!;
-      // Exactly zero, not "close to zero" — the fold moves the mass, so any
-      // count at all here is the fold having been skipped.
-      expect(histogram[13], `${baseline.teamKey} at 13 points`).toBe(0);
-      expect(histogram[15], `${baseline.teamKey} at 15 points`).toBe(0);
+      const team = odds.get(baseline.teamKey)!;
+      for (const [points, p] of [
+        [10, team.p10],
+        [8, team.p8],
+        [5, team.p5],
+        [0, team.p0],
+      ] as const) {
+        const se = Math.sqrt(Math.max(p * (1 - p), 1e-12) / draws);
+        expect(Math.abs((histogram[points * weight] ?? 0) / draws - p), `${baseline.teamKey} at ${String(points)}`).toBeLessThanOrEqual(4 * se + 1e-12);
+      }
     }
-    // A bucket with measured 15-plus mass moves it onto 10. The raw table's
-    // top bin is non-empty, and the folded 10 bin is exactly the sum of the
-    // raw 10, 15 bins.
-    const raw = awardBaseRate(SEASON, "none", "veteran").pmf;
-    expect(raw[5]!).toBeGreaterThan(0);
-    const folded = foldStackedAwardPmf(raw);
-    expect(folded[3]!).toBeCloseTo(raw[3]! + raw[5]!, 12);
-    expect(folded[2]!).toBeCloseTo(raw[2]! + raw[4]!, 12);
-    expect(folded[4]!).toBe(0);
-    expect(folded[5]!).toBe(0);
-    // The mass is MOVED, never dropped.
-    expect(folded.reduce((sum, value) => sum + value, 0)).toBeCloseTo(1, 12);
   });
 
-  it("carries the lookup's fallback rung for every team", () => {
+  it("puts NO mass on a stack: only 0, 5, 8 and 10 points ever carry mass", () => {
+    const input = inputFor(24, { remainingMatches: [] });
+    const draws = 5_000;
+    const result = simulateDistrictEvent(input, draws, 2024);
+    const weight = districtTierWeight(SEASON, TIER);
+    const allowed = new Set([0, 5, 8, 10].map((points) => points * weight));
+    for (const baseline of input.baselines) {
+      const histogram = result.awardPoints.get(baseline.teamKey)!;
+      histogram.forEach((count, points) => {
+        if (!allowed.has(points)) expect(count, `${baseline.teamKey} at ${String(points)} points`).toBe(0);
+      });
+    }
+  });
+
+  it("carries each team's judged slot lift rung: lift 1 for a field whose profiles lack the counts", () => {
     const input = inputFor(24, { remainingMatches: [] });
     const result = simulateDistrictEvent(input, 10, 1);
-    const expected = awardBaseRate(SEASON, "none", "veteran").source;
-    for (const baseline of input.baselines) {
-      expect(result.awardSources.get(baseline.teamKey)).toBe(expected);
-    }
+    for (const baseline of input.baselines) expect(result.awardSources.get(baseline.teamKey)).toBe("season-pooled");
   });
 
-  it("a bucket whose exact cell is absent falls back and reports the rung it landed on, rather than reporting a cell it did not use", () => {
-    const profiles = new Map<string, DistrictAwardProfile>();
-    for (let i = 1; i <= 24; i++) profiles.set(teamKey(i), { bucket: "three-or-more", rookieState: "rookie" });
+  it("a field with every count reports the rung its class landed on, the slate's own lookup", () => {
+    const profiles = profilesWithCounts(24);
     const input = inputFor(24, { remainingMatches: [], awardProfiles: profiles });
     const result = simulateDistrictEvent(input, 10, 1);
-    expect(result.awardSources.get(teamKey(1))).toBe("bucket-pooled");
+    const tables = awardSlateTables(SEASON, "district");
+    for (const baseline of input.baselines) {
+      const profile = profiles.get(baseline.teamKey)!;
+      const expected = slateLift(tables, "judged", { priorJudgedAwards: profile.priorJudgedAwards!, priorImpactWins: profile.priorImpactWins!, rookieState: profile.rookieState }).source;
+      expect(result.awardSources.get(baseline.teamKey)).toBe(expected);
+    }
   });
 });
 
@@ -986,7 +987,7 @@ describe("simulateDistrictEvent — the non-eight-alliance fallback never routes
     "an alliance count of %i draws every allianced team's elim points from the measured divisioned-dcmp table and calls routeBracket exactly zero times",
     (allianceCount) => {
       // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about the bracket.
-      const input = inputFor(24, { allianceCount, tier: "dcmp", remainingMatches: [], dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE });
+      const input = inputFor(24, { allianceCount, tier: "dcmp", remainingMatches: [], awardSlate: NO_ELIGIBLE_DCMP_SLATE });
       const draws = 4_000;
       let deciderCalls = 0;
       const captainOf: string[] = [];
@@ -1022,7 +1023,7 @@ describe("simulateDistrictEvent — the non-eight-alliance fallback never routes
 
   it("an alliance count of 4 still runs the draft: four three-team alliances, round one 1 through 4 and round two 4 down to 1", () => {
     // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about the draft.
-    const input = inputFor(24, { allianceCount: 4, tier: "dcmp", remainingMatches: [], dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE });
+    const input = inputFor(24, { allianceCount: 4, tier: "dcmp", remainingMatches: [], awardSlate: NO_ELIGIBLE_DCMP_SLATE });
     let seen: string[][] | undefined;
     simulateDistrictEvent(input, 1, 5, (observation) => {
       seen = snapshot(observation).alliances;
@@ -1397,133 +1398,12 @@ function profilesWithCounts(teamCount: number, rookieState: "rookie" | "veteran"
   return out;
 }
 
-describe("the award ordering layer — the assignment", () => {
-  it("prices the MOST DECORATED team in the field at the table's position-1 value, exactly", () => {
-    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
-    expect(assignments).toBeDefined();
-    // Team 1 holds the most prior judged awards, so it is position 1.
-    expect(assignments[0]!.teamKey).toBe(teamKey(1));
-    expect(assignments[0]!.impactPosition).toBe(1);
-    expect(assignments[0]!.impactProbability).toBe(impactOrderingProbability(SEASON, 1).p);
-    // And the second most decorated is position 2 — a bucket-averaged price
-    // cannot tell these two apart and this layer exists because it should.
-    expect(assignments[1]!.impactProbability).toBe(impactOrderingProbability(SEASON, 2).p);
-    expect(assignments[0]!.impactProbability).toBeGreaterThan(assignments[1]!.impactProbability);
-  });
-
-  it("puts a prior IMPACT winner ahead of every more decorated team, then orders the rest by decoration (260929-imp)", () => {
-    const profiles = profilesWithCounts(30);
-    // Team 20 holds 10 prior judged awards against team 1's 29, but it has won
-    // Impact before and nobody else has. The committed tables were measured
-    // under this ordering, so team 20 is position 1 and team 1 drops to 2.
-    profiles.set(teamKey(20), { ...profiles.get(teamKey(20))!, priorImpactWins: 1 });
-    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profiles)!;
-    const byTeam = new Map(assignments.map((a) => [a.teamKey, a] as const));
-    expect(byTeam.get(teamKey(20))!.impactPosition).toBe(1);
-    expect(byTeam.get(teamKey(20))!.impactProbability).toBe(impactOrderingProbability(SEASON, 1).p);
-    expect(byTeam.get(teamKey(1))!.impactPosition).toBe(2);
-    expect(byTeam.get(teamKey(2))!.impactPosition).toBe(3);
-  });
-
-  it("takes a team past the last named position to the TAIL, and every such team to the same tail", () => {
-    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
-    const tail = impactOrderingProbability(SEASON, MAX_IMPACT_POSITION + 1);
-    expect(tail.source).toBe("tail");
-    for (let i = MAX_IMPACT_POSITION; i < 30; i++) {
-      expect(assignments[i]!.impactPosition).toBe(i + 1);
-      expect(assignments[i]!.impactProbability).toBe(tail.p);
-    }
-  });
-
-  it("prices a ROOKIE from the rookie table, by its position among the rookies and never among the whole field", () => {
-    const profiles = profilesWithCounts(30);
-    // Teams 20 and 25 are the field's only rookies. Both hold zero prior judged
-    // awards, so the rookie ordering is ascending team number: 20 then 25.
-    profiles.set(teamKey(20), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
-    profiles.set(teamKey(25), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
-    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profiles)!;
-    const first = assignments.find((a) => a.teamKey === teamKey(20))!;
-    const second = assignments.find((a) => a.teamKey === teamKey(25))!;
-    expect(first.rookieAllStarPosition).toBe(1);
-    expect(second.rookieAllStarPosition).toBe(2);
-    expect(first.rookieAllStarProbability).toBe(rookieAllStarOrderingProbability(SEASON, 1).p);
-    expect(second.rookieAllStarProbability).toBe(rookieAllStarOrderingProbability(SEASON, 2).p);
-    // Their positions in the ROOKIE block are 1 and 2 even though they sit deep
-    // in the whole field's ordering — the two orderings are separate.
-    expect(first.impactPosition).toBeGreaterThan(2);
-  });
-
-  it("gives a NON-rookie a Rookie All Star chance of exactly zero, and no position at all", () => {
-    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
-    for (const assignment of assignments) {
-      expect(assignment.rookieAllStarPosition).toBe(0);
-      expect(assignment.rookieAllStarProbability).toBe(0);
-    }
-  });
-
-  it("draws the remaining judged awards from the RESIDUAL table, never from the unreduced base rate", () => {
-    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
-    const decorated = assignments[0]!;
-    const profile = profilesWithCounts(30).get(teamKey(1))!;
-    expect(decorated.residualPmf).toEqual(awardResidualRate(SEASON, profile.bucket, profile.rookieState).pmf);
-    // Drawing from the base rate here and ALSO drawing Impact is the double
-    // count the residual exists to prevent, so the two must differ.
-    expect(decorated.residualPmf).not.toEqual(awardBaseRate(SEASON, profile.bucket, profile.rookieState).pmf);
-  });
-
-  it("refuses the whole field when ANY team lacks the count, and when the season has no table", () => {
-    const partial = profilesWithCounts(30);
-    partial.set(teamKey(7), { bucket: "none", rookieState: "veteran" });
-    expect(awardOrderingAssignments(SEASON, baselinesFor(30), partial)).toBeUndefined();
-    // The Impact count on its own is required too: a field published with
-    // `priorJudgedAwards` but before `priorImpactWins` existed cannot be put in
-    // the ordering the committed Impact tables were measured under.
-    const noImpactCount = profilesWithCounts(30);
-    const { priorImpactWins: _dropped, ...withoutImpact } = noImpactCount.get(teamKey(7))!;
-    noImpactCount.set(teamKey(7), withoutImpact);
-    expect(awardOrderingAssignments(SEASON, baselinesFor(30), noImpactCount)).toBeUndefined();
-    // A team treated as undecorated because its count was missing would sort to
-    // the BOTTOM of the field and be priced at the tail — a confident wrong
-    // number, which is why one absence takes the whole event back.
-    expect(hasAwardOrderingTables(2018)).toBe(false);
-    expect(awardOrderingAssignments(2018, baselinesFor(30), profilesWithCounts(30))).toBeUndefined();
-  });
-
-  it("takes the HIGHEST SINGLE AWARD of a draw and never the sum of two", () => {
-    expect(singleAwardPoints(false, false, 0)).toBe(0);
-    expect(singleAwardPoints(false, false, 5)).toBe(5);
-    expect(singleAwardPoints(true, false, 0)).toBe(IMPACT_AWARD_POINTS);
-    expect(singleAwardPoints(false, true, 0)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
-    // The pair, which the corpus allows and the site never predicts: Impact wins.
-    expect(singleAwardPoints(true, true, 5)).toBe(IMPACT_AWARD_POINTS);
-    // Impact plus a judged award is still Impact, not 15.
-    expect(singleAwardPoints(true, false, 5)).toBe(IMPACT_AWARD_POINTS);
-    // Rookie All Star plus a judged award is still Rookie All Star, not 13.
-    expect(singleAwardPoints(false, true, 5)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
-    // A residual that is ITSELF a stack folds too.
-    expect(singleAwardPoints(false, false, 13)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
-    expect(singleAwardPoints(false, false, 15)).toBe(IMPACT_AWARD_POINTS);
-    // Nothing it returns is ever above the highest single award.
-    for (const residual of AWARD_POINT_SUPPORT) {
-      for (const impact of [false, true]) {
-        for (const rookie of [false, true]) {
-          expect(singleAwardPoints(impact, rookie, residual)).toBeLessThanOrEqual(SINGLE_AWARD_POINT_CEILING);
-        }
-      }
-    }
-  });
-});
-
-describe("the award ordering layer — the draw", () => {
+describe("the award slate draw — dispositions, completeness and the stream (quick task 261014-qje)", () => {
   const draws = 2000;
 
   it("reports which pricing it used rather than leaving a caller to infer it from the numbers", () => {
-    const ordered = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), 20, 5);
-    expect(ordered.awardOrdering).toBe("applied");
-
-    const withoutCounts = simulateDistrictEvent(inputFor(30), 20, 5);
-    expect(withoutCounts.awardOrdering).toBe("incomplete-profiles");
-
+    expect(simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), 20, 5).awardOrdering).toBe("district-slate");
+    expect(simulateDistrictEvent(inputFor(30), 20, 5).awardOrdering).toBe("district-slate");
     const posted = simulateDistrictEvent(
       inputFor(30, { knownAwardPoints: new Map([[teamKey(1), 5]]), awardProfiles: new Map<string, DistrictAwardProfile>() }),
       20,
@@ -1532,67 +1412,20 @@ describe("the award ordering layer — the draw", () => {
     expect(posted.awardOrdering).toBe("posted");
   });
 
-  it("falls back to the base-rate path BIT-IDENTICALLY when one team's count is missing", () => {
-    // The SAME buckets in both runs, so the only difference is the presence of
-    // the ordering key. Comparing against a differently-bucketed fixture would
-    // compare two base rates and prove nothing about the fallback.
-    const stripped = new Map(
-      [...profilesWithCounts(30)].map(([key, profile]) => [key, { bucket: profile.bucket, rookieState: profile.rookieState }] as const)
+  it("refuses a district tier event with open awards and no slate before any draw, in the draw and in the odds", () => {
+    const missing = inputFor(30, { awardSlate: undefined });
+    let observed = 0;
+    expect(() => simulateDistrictEvent(missing, 10, 1, () => observed++)).toThrow(MissingAwardSlateError);
+    expect(observed).toBe(0);
+    expect(() => eventAwardOutcomeOdds({ eventKey: missing.eventKey, season: SEASON, tier: TIER, awardField: missing.baselines, awardProfiles: missing.awardProfiles })).toThrow(
+      MissingAwardSlateError
     );
-    // Every count absent (every artifact published before the field existed)...
-    const allMissing = simulateDistrictEvent(inputFor(30, { awardProfiles: stripped }), draws, 11);
-    // ...and exactly one absent among twenty-nine present.
-    const oneMissing = profilesWithCounts(30);
-    oneMissing.set(teamKey(13), { bucket: stripped.get(teamKey(13))!.bucket, rookieState: "veteran" });
-    const partial = simulateDistrictEvent(inputFor(30, { awardProfiles: oneMissing }), draws, 11);
-
-    // Not "close": the same histogram, integer for integer, for every team. A
-    // single missing count must leave the event priced exactly as it was before
-    // the ordering existed.
-    for (const baseline of baselinesFor(30)) {
-      expect([...partial.awardPoints.get(baseline.teamKey)!], baseline.teamKey).toEqual([
-        ...allMissing.awardPoints.get(baseline.teamKey)!,
-      ]);
-    }
-    expect(partial.awardOrdering).toBe("incomplete-profiles");
-
-    // And exactly one team missing ONLY its Impact count (260929-imp): the
-    // same base-rate price, never the one-number ordering against tables
-    // measured under the award-type-first one.
-    const oneImpactMissing = profilesWithCounts(30);
-    const { priorImpactWins: _dropped, ...withoutImpact } = oneImpactMissing.get(teamKey(13))!;
-    oneImpactMissing.set(teamKey(13), withoutImpact);
-    const impactPartial = simulateDistrictEvent(inputFor(30, { awardProfiles: oneImpactMissing }), draws, 11);
-    for (const baseline of baselinesFor(30)) {
-      expect([...impactPartial.awardPoints.get(baseline.teamKey)!], baseline.teamKey).toEqual([
-        ...allMissing.awardPoints.get(baseline.teamKey)!,
-      ]);
-    }
-    expect(impactPartial.awardOrdering).toBe("incomplete-profiles");
-  });
-
-  it("changes the award marginal when it applies — a layer that changed nothing would pass every other test here", () => {
-    const base = simulateDistrictEvent(inputFor(30), draws, 11);
-    const ordered = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), draws, 11);
-    expect([...ordered.awardPoints.get(teamKey(1))!]).not.toEqual([...base.awardPoints.get(teamKey(1))!]);
-    // The most decorated team gets MORE award mass than the bucket average gave
-    // it, which is the whole point of the layer.
-    const anyPoints = (histogram: Int32Array): number => 1 - histogram[0]! / draws;
-    expect(anyPoints(ordered.awardPoints.get(teamKey(1))!)).toBeGreaterThan(anyPoints(base.awardPoints.get(teamKey(1))!));
   });
 
   it("keeps every team's award histogram a complete distribution, and puts NO mass above the highest single award", () => {
-    // A rookie field is the case that used to overflow: Impact at 10, Rookie All
-    // Star at 8 and a residual of 5 or 10 SUMMED to 23 or 28 against a district
-    // ceiling of 15, and the clamp existed to keep the out-of-range write from
-    // silently no-opping. Since 260925-uf8 the draw takes the HIGHEST SINGLE
-    // AWARD instead, so the clamp is unreachable and the real property is the
-    // stronger one: no mass at all above Impact's own 10. A team whose mass went
-    // missing is still exactly what a broken write looks like, so the
-    // complete-distribution assertion stays.
     const rookies = profilesWithCounts(30, "rookie");
     const result = simulateDistrictEvent(inputFor(30, { awardProfiles: rookies }), draws, 7);
-    expect(result.awardOrdering).toBe("applied");
+    expect(result.awardOrdering).toBe("district-slate");
     const ceiling = maxEventPoints(SEASON, TIER).award;
     for (const baseline of baselinesFor(30)) {
       const histogram = result.awardPoints.get(baseline.teamKey)!;
@@ -1604,8 +1437,6 @@ describe("the award ordering layer — the draw", () => {
         expect(histogram[points], `${baseline.teamKey} at ${String(points)} points`).toBe(0);
       }
     }
-    // And Impact's own bin carries mass, so the fold has something to fold ONTO
-    // and the assertion above is not vacuous.
     const impactBin = [...baselinesFor(30)].reduce((sum, b) => sum + result.awardPoints.get(b.teamKey)![SINGLE_AWARD_POINT_CEILING]!, 0);
     expect(impactBin).toBeGreaterThan(0);
   });
@@ -1620,13 +1451,7 @@ describe("the award ordering layer — the draw", () => {
     }
   });
 
-  it("reports the RESIDUAL table's fallback rung, because that is the table the points came from", () => {
-    const result = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), 20, 3);
-    const profile = profilesWithCounts(30).get(teamKey(1))!;
-    expect(result.awardSources.get(teamKey(1))).toBe(awardResidualRate(SEASON, profile.bucket, profile.rookieState).source);
-  });
-
-  it("is deterministic at one seed, and consumes exactly one more ledger value per team than the base-rate path", () => {
+  it("is deterministic at one seed, and consumes no randomness for a chance that is exactly zero", () => {
     const input = inputFor(30, { awardProfiles: profilesWithCounts(30) });
     const consumed = (i: DistrictLedgerEventInput, runs: number): number => {
       let total = 0;
@@ -1636,18 +1461,13 @@ describe("the award ordering layer — the draw", () => {
       return total;
     };
     expect(consumed(input, 5)).toBe(consumed(input, 5));
-
-    // Scored on ONE draw, deliberately. The bracket runs BEFORE the awards and
-    // its finals are best-of-three, so from draw two onward the extra award
-    // consumption shifts the stream and the bracket's own consumption stops
-    // being comparable. On draw one both runs enter the award step at the same
-    // stream position, so the difference is exactly the award step's.
-    //
-    // TWO consumptions per team on the ordering path (Impact, then the
-    // residual) against the base-rate path's ONE, so exactly one more per team.
-    // Not two more: a veteran cannot win Rookie All Star, so no randomness is
-    // consumed for it at all.
-    expect(consumed(input, 1) - consumed(inputFor(30), 1)).toBe(1 * 30);
+    // Scored on ONE draw: the bracket runs before the awards, so from draw two
+    // on a different award consumption shifts the bracket's own. A veteran
+    // field: Impact, the 8 point award and the judged award each carry a
+    // positive chance for every team, three consumptions per team; taking the
+    // judged slot away (count 0) takes exactly one consumption per team away.
+    const noJudged: AwardSlateInput = { ...input.awardSlate!, expected: { ...input.awardSlate!.expected, judged: 0, judgedRookie: 0 } };
+    expect(consumed(input, 1) - consumed({ ...input, awardSlate: noJudged }, 1)).toBe(30);
   });
 });
 
@@ -1786,7 +1606,7 @@ describe("simulateDistrictEvent — the playoffs already under way", () => {
       remainingMatches: [],
       playedElimMatches: throughUpperRoundTwo,
       // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about the bracket.
-      dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE,
+      awardSlate: NO_ELIGIBLE_DCMP_SLATE,
     });
     const result = simulateDistrictEvent(input, 10, 1);
     expect(result.playoffMilestones.size).toBe(0);
@@ -1893,7 +1713,7 @@ describe("simulateDistrictEvent — which route each team took", () => {
 
   it("carries the district championship weight into the possible range, from the single weight source", () => {
     // A dcmp tier run needs a DCMP award slate since 261014-i8i; this test is about selection points.
-    const routes = simulateDistrictEvent(inputFor(30, { tier: "dcmp", dcmpAwardSlate: NO_ELIGIBLE_DCMP_SLATE }), 20, 5).selectionRoutes.get(teamKey(1))!;
+    const routes = simulateDistrictEvent(inputFor(30, { tier: "dcmp", awardSlate: NO_ELIGIBLE_DCMP_SLATE }), 20, 5).selectionRoutes.get(teamKey(1))!;
     expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(districtSelectionPoints(SEASON, "dcmp", 0, 1));
     expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(16 * 3);
   });
@@ -2068,15 +1888,21 @@ describe("simulateDistrictEvent — award only teams", () => {
     expect(result.eventTotal.get(AWARD_ONLY)![8]).toBe(draws);
   });
 
-  it("puts the most decorated award only team at ordering position 1 and prices its Impact from that position", () => {
+  it("prices the most decorated award only team's Impact from the slate, in the same field as the roster (quick task 261014-qje)", () => {
     const awardProfiles = profilesWithCounts(30);
     awardProfiles.set(AWARD_ONLY, { bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 1000, priorImpactWins: 3 });
     const draws = 4000;
-    const result = simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), draws, 29);
-    expect(result.awardOrdering).toBe("applied");
+    const input = inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] });
+    const result = simulateDistrictEvent(input, draws, 29);
+    expect(result.awardOrdering).toBe("district-slate");
     const impactPoints = IMPACT_AWARD_POINTS * districtTierWeight(SEASON, TIER);
     const share = result.awardPoints.get(AWARD_ONLY)![impactPoints]! / draws;
-    expect(Math.abs(share - impactOrderingProbability(SEASON, 1).p)).toBeLessThan(0.03);
+    const awardField = [...input.baselines, { teamKey: AWARD_ONLY }];
+    const p = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: TIER, awardField, awardProfiles, awardSlate: input.awardSlate! }).get(AWARD_ONLY)!.p10;
+    // The class with prior Impact wins out prices every roster team at Impact.
+    const roster = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: TIER, awardField, awardProfiles, awardSlate: input.awardSlate! });
+    for (const baseline of input.baselines) expect(p).toBeGreaterThan(roster.get(baseline.teamKey)!.p10);
+    expect(Math.abs(share - p)).toBeLessThanOrEqual(4 * Math.sqrt((p * (1 - p)) / draws) + 1e-12);
   });
 
   it("refuses an empty, duplicated or roster overlapping key before any draw, naming every offender", () => {
@@ -2272,78 +2098,34 @@ describe("simulateDistrictEvent — short rosters (quick task 261007-4qr)", () =
 // eventAwardOutcomeOdds: the exact odds twin of the award draw (261014-i8i)
 // ---------------------------------------------------------------------------
 
-describe("eventAwardOutcomeOdds — the exact law of the shipped award draw (quick task 261014-i8i)", () => {
-  /** Thirty teams with both counts; teams 25 to 30 are rookies, so the Rookie All Star block is real. */
+describe("eventAwardOutcomeOdds — the exact law of the shipped award draw (quick tasks 261014-i8i and 261014-qje)", () => {
+  /** Thirty teams with both counts; teams 25 to 30 are rookies. */
   function mixedProfiles(): Map<string, DistrictAwardProfile> {
     const out = profilesWithCounts(30);
     for (let i = 25; i <= 30; i++) out.set(teamKey(i), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
     return out;
   }
   const field = baselinesFor(30);
+  const slate = defaultDistrictSlate(SEASON, field.map((baseline) => baseline.teamKey));
 
-  it("on the ordering path equals the composition p10 = pI + q(r10 + r15), p8 = (1 - pI) pR + q(r8 + r13), p5 = q r5, and sums to 1", () => {
+  it("equals slateAwardOutcomeOdds of the slate's own assignments, in award field order, and sums to 1", () => {
     const profiles = mixedProfiles();
-    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles });
-    const assignments = awardOrderingAssignments(SEASON, field, profiles)!;
-    expect(assignments).toBeDefined();
-    const at = (points: number): number => AWARD_POINT_SUPPORT.indexOf(points);
-    for (const assignment of assignments) {
-      const r = assignment.residualPmf;
-      const pI = assignment.impactProbability;
-      const pR = assignment.rookieAllStarProbability;
-      const q = (1 - pI) * (1 - pR);
-      const team = odds.get(assignment.teamKey)!;
-      expect(team.p10).toBeCloseTo(pI + q * (r[at(10)]! + r[at(15)]!), 12);
-      expect(team.p8).toBeCloseTo((1 - pI) * pR + q * (r[at(8)]! + r[at(13)]!), 12);
-      expect(team.p5).toBeCloseTo(q * r[at(5)]!, 12);
-      expect(team.p0).toBeCloseTo(q * r[at(0)]!, 12);
-      expect(team.p10 + team.p8 + team.p5 + team.p0).toBeCloseTo(1, 12);
-      expect(team.impact).toBe(pI);
-    }
+    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles, awardSlate: slate });
+    const assignments = slateAssignments(SEASON, field, profiles, slate);
     expect([...odds.keys()]).toEqual(field.map((baseline) => baseline.teamKey));
-  });
-
-  it("is the exact law of singleAwardPoints over every (impactWon, rookieAllStarWon, residual index) combination", () => {
-    const profiles = mixedProfiles();
-    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles });
-    for (const assignment of awardOrderingAssignments(SEASON, field, profiles)!) {
-      const law = new Map<number, number>();
-      for (const impactWon of [true, false]) {
-        for (const rookieAllStarWon of [true, false]) {
-          AWARD_POINT_SUPPORT.forEach((points, k) => {
-            const mass =
-              (impactWon ? assignment.impactProbability : 1 - assignment.impactProbability) *
-              (rookieAllStarWon ? assignment.rookieAllStarProbability : 1 - assignment.rookieAllStarProbability) *
-              (assignment.residualPmf[k] ?? 0);
-            const value = singleAwardPoints(impactWon, rookieAllStarWon, points);
-            law.set(value, (law.get(value) ?? 0) + mass);
-          });
-        }
-      }
-      expect([...law.keys()].every((value) => [0, 5, 8, 10].includes(value))).toBe(true);
+    assignments.forEach((assignment) => {
       const team = odds.get(assignment.teamKey)!;
-      expect(team.p10).toBeCloseTo(law.get(10) ?? 0, 12);
-      expect(team.p8).toBeCloseTo(law.get(8) ?? 0, 12);
-      expect(team.p5).toBeCloseTo(law.get(5) ?? 0, 12);
-      expect(team.p0).toBeCloseTo(law.get(0) ?? 0, 12);
-    }
+      expect(team).toEqual(slateAwardOutcomeOdds(assignment));
+      expect(team.p10 + team.p8 + team.p5 + team.p0).toBeCloseTo(1, 12);
+      expect(team.impact).toBe(team.p10);
+    });
   });
 
-  it("on the base rate path reads the folded pmf's own masses", () => {
-    const profiles = profilesFor(30);
-    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles });
-    const folded = foldStackedAwardPmf(awardBaseRate(SEASON, "none", "veteran").pmf);
-    const at = (points: number): number => AWARD_POINT_SUPPORT.indexOf(points);
-    for (const baseline of field) {
-      expect(odds.get(baseline.teamKey)).toEqual({ p10: folded[at(10)]!, p8: folded[at(8)]!, p5: folded[at(5)]!, p0: folded[at(0)]!, impact: folded[at(10)]! });
-    }
-  });
-
-  it("matches the draw's own award frequencies within 4 standard errors at 20,000 draws, on both paths", () => {
+  it("matches the draw's own award frequencies within 4 standard errors at 20,000 draws, with and without the counts", () => {
     const draws = 20_000;
     for (const profiles of [mixedProfiles(), profilesFor(30)]) {
       const input = inputFor(30, { awardProfiles: profiles });
-      const odds = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: TIER, awardField: input.baselines, awardProfiles: profiles });
+      const odds = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: TIER, awardField: input.baselines, awardProfiles: profiles, awardSlate: input.awardSlate! });
       const result = simulateDistrictEvent(input, draws, 7);
       for (const baseline of input.baselines) {
         const histogram = result.awardPoints.get(baseline.teamKey)!;
@@ -2365,7 +2147,7 @@ describe("eventAwardOutcomeOdds — the exact law of the shipped award draw (qui
   it("refuses a field with a missing profile exactly as the draw does", () => {
     const profiles = profilesFor(30);
     profiles.delete(teamKey(3));
-    expect(() => eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles })).toThrow(
+    expect(() => eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles, awardSlate: slate })).toThrow(
       MissingAwardProfileError
     );
   });
@@ -2385,7 +2167,8 @@ describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)
   /** Teams 1 to 4 eligible for Impact, 2 to 6 for EI, 25 and 26 for RAS; team 3 only half eligible for Impact. Everyone else ineligible. */
   const SLATE: DcmpAwardSlateInput = {
     role: "single",
-    expected: { impact: 1.8, engineeringInspiration: 1.6, rookieAllStar: 1, judged: 12 },
+    // Q-08 (quick task 261014-qje): five slot counts; no rookie only 5 point award here.
+    expected: { impact: 1.8, engineeringInspiration: 1.6, rookieAllStar: 1, judgedRookie: 0, judged: 12 },
     sources: { counts: "previousSeason", judged: "role" },
     eligibility: [
       { teamKey: teamKey(1), impact: 1, engineeringInspiration: 0, rookieAllStar: 0 },
@@ -2401,7 +2184,7 @@ describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)
   const ELIGIBLE = new Set(SLATE.eligibility.map((entry) => entry.teamKey));
 
   function dcmpInput(overrides: Partial<DistrictLedgerEventInput> = {}): DistrictLedgerEventInput {
-    return inputFor(30, { tier: "dcmp", awardProfiles: slateProfiles(), dcmpAwardSlate: SLATE, ...overrides });
+    return inputFor(30, { tier: "dcmp", awardProfiles: slateProfiles(), awardSlate: SLATE, ...overrides });
   }
 
   it("draws from the slate: per team frequencies match eventAwardOutcomeOdds within 4 standard errors at 20,000 draws", () => {
@@ -2415,7 +2198,7 @@ describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)
       tier: "dcmp",
       awardField: input.baselines,
       awardProfiles: input.awardProfiles,
-      dcmpAwardSlate: SLATE,
+      awardSlate: SLATE,
     });
     const weight = districtTierWeight(SEASON, "dcmp");
     for (const baseline of input.baselines) {
@@ -2469,23 +2252,23 @@ describe("simulateDistrictEvent — the DCMP award slate (quick task 261014-i8i)
     expect(result.awardPoints.get(teamKey(1))![30]).toBe(50);
   });
 
-  it("refuses a slate on a district tier event before any draw, in the draw and in the odds", () => {
-    const district = inputFor(30, { awardProfiles: slateProfiles(), dcmpAwardSlate: SLATE });
+  it("refuses a DCMP role slate on a district tier event before any draw, in the draw and in the odds", () => {
+    const district = inputFor(30, { awardProfiles: slateProfiles(), awardSlate: SLATE });
     expect(() => simulateDistrictEvent(district, 10, 1)).toThrow(DcmpAwardSlateOnDistrictTierError);
     expect(() => simulateDistrictEvent({ ...district, knownAwardPoints: new Map() }, 10, 1)).toThrow(DcmpAwardSlateOnDistrictTierError);
     expect(() =>
-      eventAwardOutcomeOdds({ eventKey: district.eventKey, season: SEASON, tier: "district", awardField: district.baselines, awardProfiles: district.awardProfiles, dcmpAwardSlate: SLATE })
+      eventAwardOutcomeOdds({ eventKey: district.eventKey, season: SEASON, tier: "district", awardField: district.baselines, awardProfiles: district.awardProfiles, awardSlate: SLATE })
     ).toThrow(DcmpAwardSlateOnDistrictTierError);
   });
 
   it("refuses a dcmp tier run with open awards and no slate before any draw, in the draw and in the odds", () => {
     const missing = inputFor(30, { tier: "dcmp", awardProfiles: slateProfiles() });
     let observed = 0;
-    expect(() => simulateDistrictEvent(missing, 10, 1, () => observed++)).toThrow(MissingDcmpAwardSlateError);
+    expect(() => simulateDistrictEvent(missing, 10, 1, () => observed++)).toThrow(MissingAwardSlateError);
     expect(observed).toBe(0);
     expect(() =>
       eventAwardOutcomeOdds({ eventKey: missing.eventKey, season: SEASON, tier: "dcmp", awardField: missing.baselines, awardProfiles: missing.awardProfiles })
-    ).toThrow(MissingDcmpAwardSlateError);
+    ).toThrow(MissingAwardSlateError);
     // Posted awards need no slate.
     const posted = simulateDistrictEvent({ ...missing, knownAwardPoints: new Map([[teamKey(1), 15]]) }, 10, 1);
     expect(posted.awardOrdering).toBe("posted");
@@ -2696,5 +2479,109 @@ describe("simulateDistrictEvent — the candidate random pick draft (pickPositio
     expect(PICK_STREAM_SALT).not.toBe(0);
     expect(PICK_STREAM_SALT).not.toBe(LEDGER_STREAM_SALT);
     expect(PICK_STREAM_SALT >>> 0).toBe(PICK_STREAM_SALT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The district award slate draw path (quick task 261014-qje)
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — the district award slate (quick task 261014-qje)", () => {
+  /** Thirty teams with both counts; teams 25 to 30 are rookies. */
+  function slateProfiles(): Map<string, DistrictAwardProfile> {
+    const out = profilesWithCounts(30);
+    for (let i = 25; i <= 30; i++) out.set(teamKey(i), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
+    return out;
+  }
+  /**
+   * Every field member listed (the district role refuses an absent one).
+   * Team 1 already won Impact at an earlier district event (Impact 0), team 2
+   * Engineering Inspiration (EI 0), team 25 Rookie All Star (RAS 0); team 3 is
+   * half eligible for Impact (an open earlier event).
+   */
+  const SLATE: AwardSlateInput = {
+    role: "district",
+    expected: { impact: 0.97, engineeringInspiration: 0.98, rookieAllStar: 0.9, judgedRookie: 0, judged: 11.7 },
+    sources: { counts: "role", judged: "role" },
+    eligibility: Array.from({ length: 30 }, (_, i) => {
+      const key = teamKey(i + 1);
+      return {
+        teamKey: key,
+        impact: i === 0 ? 0 : i === 2 ? 0.5 : 1,
+        engineeringInspiration: i === 1 ? 0 : 1,
+        rookieAllStar: i === 24 ? 0 : 1,
+      };
+    }).sort((a, b) => (a.teamKey < b.teamKey ? -1 : 1)),
+  };
+
+  function districtInput(overrides: Partial<DistrictLedgerEventInput> = {}): DistrictLedgerEventInput {
+    return inputFor(30, { awardProfiles: slateProfiles(), awardSlate: SLATE, ...overrides });
+  }
+
+  it("draws from the slate: per team frequencies match eventAwardOutcomeOdds within 4 standard errors at 20,000 draws", () => {
+    const draws = 20_000;
+    const input = districtInput();
+    const result = simulateDistrictEvent(input, draws, 13);
+    expect(result.awardOrdering).toBe("district-slate");
+    const odds = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: "district", awardField: input.baselines, awardProfiles: input.awardProfiles, awardSlate: SLATE });
+    const weight = districtTierWeight(SEASON, "district");
+    for (const baseline of input.baselines) {
+      const histogram = result.awardPoints.get(baseline.teamKey)!;
+      const team = odds.get(baseline.teamKey)!;
+      expect(team.p10 + team.p8 + team.p5 + team.p0).toBeCloseTo(1, 12);
+      for (const [points, p] of [
+        [10, team.p10],
+        [8, team.p8],
+        [5, team.p5],
+        [0, team.p0],
+      ] as const) {
+        const frequency = (histogram[points * weight] ?? 0) / draws;
+        const se = Math.sqrt(Math.max(p * (1 - p), 1e-12) / draws);
+        expect(Math.abs(frequency - p), `${baseline.teamKey} at ${String(points * weight)}`).toBeLessThanOrEqual(4 * se + 1e-12);
+      }
+    }
+  });
+
+  it("gives a team that already won an award at an earlier district event zero mass at that award's points", () => {
+    const result = simulateDistrictEvent(districtInput(), 5_000, 3);
+    const weight = districtTierWeight(SEASON, "district");
+    // Team 1 cannot win Impact again; team 2 (a veteran) cannot win EI again; team 25 (a rookie) cannot win RAS again.
+    expect(result.awardPoints.get(teamKey(1))![10 * weight] ?? 0).toBe(0);
+    expect(result.awardPoints.get(teamKey(2))![8 * weight] ?? 0).toBe(0);
+    expect(result.awardPoints.get(teamKey(25))![8 * weight] ?? 0).toBe(0);
+    // The rest of the field's head does win Impact.
+    expect(result.awardPoints.get(teamKey(4))![10 * weight]!).toBeGreaterThan(0);
+  });
+
+  it("reports the district slate disposition and each team's judged rung", () => {
+    const result = simulateDistrictEvent(districtInput(), 50, 3);
+    expect(result.awardOrdering).toBe("district-slate");
+    expect([...result.awardSources.keys()]).toEqual(baselinesFor(30).map((baseline) => baseline.teamKey));
+  });
+
+  it("without a slate a district tier run is refused before any draw: the per team model is gone (Q-12)", () => {
+    expect(() => simulateDistrictEvent(inputFor(30, { awardProfiles: slateProfiles(), awardSlate: undefined }), 50, 3)).toThrow(MissingAwardSlateError);
+    expect(() => eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: "district", awardField: baselinesFor(30), awardProfiles: slateProfiles() })).toThrow(
+      MissingAwardSlateError
+    );
+  });
+
+  it("refuses a role that does not match the tier before any draw", () => {
+    let observed = 0;
+    const atDcmp = inputFor(30, { tier: "dcmp", awardProfiles: slateProfiles(), awardSlate: SLATE });
+    expect(() => simulateDistrictEvent(atDcmp, 10, 1, () => observed++)).toThrow(DistrictAwardSlateOnDcmpTierError);
+    expect(() => eventAwardOutcomeOdds({ eventKey: "x", season: SEASON, tier: "dcmp", awardField: baselinesFor(30), awardProfiles: slateProfiles(), awardSlate: SLATE })).toThrow(
+      DistrictAwardSlateOnDcmpTierError
+    );
+    const dcmpRole: AwardSlateInput = { ...SLATE, role: "single" };
+    expect(() => simulateDistrictEvent(districtInput({ awardSlate: dcmpRole }), 10, 1, () => observed++)).toThrow(DcmpAwardSlateOnDistrictTierError);
+    // Refused even where the awards are posted.
+    expect(() => simulateDistrictEvent({ ...atDcmp, knownAwardPoints: new Map() }, 10, 1)).toThrow(DistrictAwardSlateOnDcmpTierError);
+    expect(observed).toBe(0);
+  });
+
+  it("needs no slate pricing where the awards are posted", () => {
+    const result = simulateDistrictEvent(districtInput({ knownAwardPoints: new Map([[teamKey(1), 10]]) }), 50, 3);
+    expect(result.awardOrdering).toBe("posted");
   });
 });

@@ -8,6 +8,7 @@ import {
   type DistrictLedgerEventInput,
   type SuppliedAlliance,
 } from "./ledgerSimulation.js";
+import { buildDistrictAwardSlate } from "./awardSlate.js";
 import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../algorithms/simulation/rankSimulation.js";
 
@@ -101,6 +102,9 @@ function fixedRankingInput(overrides: Partial<DistrictLedgerEventInput> = {}): D
     baselines,
     ratings,
     awardProfiles,
+    // Every district tier event whose awards are open carries an award slate
+    // since quick task 261014-qje (Q-01).
+    awardSlate: buildDistrictAwardSlate({ season: 2026, awardField: baselines.map((baseline) => ({ teamKey: baseline.teamKey })), eligibility: [] }),
     ...overrides,
   };
 }

@@ -13,9 +13,9 @@ import {
   addBinary,
   anyAwardChance,
   brierOf,
+  chanceWobble,
   classLabel,
   dcmpRolesByEventType,
-  districtGates,
   districtOddsDigest,
   emptyBinary,
   expectedAwardPoints,
@@ -24,19 +24,19 @@ import {
   IMPACT_ROW_TOLERANCE,
   LEGACY_REVIEW_EXCLUDED_TYPES,
   legacyReviewClass,
+  passBarGates,
   readScoreSnapshot,
   reliabilityBinIndex,
   REVIEW_CLASSES,
   SCORED_SEASONS,
   scoreSnapshot,
   scoreTeamEvents,
-  snapshotAcceptanceGates,
   tierReportLines,
   writeScoreSnapshot,
   type ScoredTeamEvent,
   type ScoreSnapshot,
 } from "./scoreAwardModel.js";
-import type { AwardInstance } from "./measureDistrictAwardBaseRates.js";
+import type { AwardInstance } from "./measureAwardSlate.js";
 
 function odds(p10: number, p8: number, p5: number, impact = p10): AwardOutcomeOdds {
   return { p10, p8, p5, p0: 1 - p10 - p8 - p5, impact };
@@ -50,6 +50,7 @@ function row(overrides: Partial<ScoredTeamEvent> & { teamKey: string }): ScoredT
     bucket: "none",
     rookieState: "veteran",
     reviewClass: "none",
+    decorationClass: "none",
     odds: odds(0.1, 0.1, 0.2),
     weight: 1,
     awardPoints: 0,
@@ -299,32 +300,13 @@ describe("the reliability bins", () => {
   });
 });
 
-/** Two district team events per review class at chance `p`, one won and one not, so each class happened 50%. */
-function classRows(p: number | Readonly<Record<string, number>>, impactShortfall = 0): ScoredTeamEvent[] {
-  const out: ScoredTeamEvent[] = [];
-  for (const label of REVIEW_CLASSES) {
-    const chance = typeof p === "number" ? p : p[label]!;
-    for (const won of [true, false]) {
-      out.push(
-        row({
-          teamKey: `frc${out.length + 1}`,
-          reviewClass: label,
-          odds: odds(0.05, 0, chance - 0.05, 0.05 - impactShortfall),
-          awardPoints: won ? 5 : 0,
-        })
-      );
-    }
-  }
-  return out;
-}
-
-function snapshotOf(rows: readonly ScoredTeamEvent[], label = "BEFORE"): ScoreSnapshot {
-  return scoreSnapshot(label, "2026-10-14T00:00:00.000Z", scoreTeamEvents(rows), districtOddsDigest(rows));
-}
-
 describe("the snapshot", () => {
-  it("round trips through a file", () => {
-    const snapshot = snapshotOf(classRows(0.8));
+  it("round trips through a file, the 261014-qje fields included", () => {
+    const snapshot = snapshotOf(barRows());
+    expect(snapshot.district.decorationClasses).toBeDefined();
+    expect(snapshot.district.rookieSeasons?.["2025"]).toBeDefined();
+    expect(snapshot.district.heldEarlier).toBeDefined();
+    expect(snapshot.dcmp.heldEarlier).toBeUndefined();
     const dir = mkdtempSync(join(tmpdir(), "score-award-model-"));
     try {
       const path = join(dir, "snapshot.json");
@@ -337,65 +319,178 @@ describe("the snapshot", () => {
     }
   });
 
-  it("carries the class map, the review class map, ten bins and the Impact row", () => {
-    const snapshot = snapshotOf(classRows(0.8));
-    expect(snapshot.district.n).toBe(8);
+  it("still parses a snapshot written before the 261014-qje fields (261014-mii)", () => {
+    const snapshot = snapshotOf(barRows());
+    const strip = ({ decorationClasses: _a, seasons: _b, rookieSeasons: _c, impactWon: _d, heldEarlier: _e, slots: _f, ...rest }: ScoreSnapshot["district"]) => rest;
+    const old = { ...snapshot, district: strip(snapshot.district), dcmp: strip(snapshot.dcmp) };
+    const dir = mkdtempSync(join(tmpdir(), "score-award-model-"));
+    try {
+      const path = join(dir, "old.json");
+      writeFileSync(path, JSON.stringify(old), "utf8");
+      expect(readScoreSnapshot(path)).toEqual(old);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("carries the class maps, ten bins, the Impact row, per season and rookie lines, the Impact Brier and the slot audit", () => {
+    const snapshot = snapshotOf(barRows());
+    expect(snapshot.district.n).toBe(32);
     expect(Object.keys(snapshot.district.reviewClasses).sort()).toEqual([...REVIEW_CLASSES].sort());
+    expect(Object.keys(snapshot.district.decorationClasses!).sort()).toEqual([...REVIEW_CLASSES].sort());
     expect(snapshot.district.reliability).toHaveLength(10);
-    expect(snapshot.district.reliability[8]!.n).toBe(8);
-    expect(snapshot.district.impactRow.said).toBeCloseTo(0.4, 12);
-    expect(snapshot.district.impactRow.realWins).toBe(0);
+    expect(Object.keys(snapshot.district.seasons!)).toEqual(["2025", "2026"]);
+    expect(snapshot.district.rookieSeasons!["2026"]!.n).toBe(4);
+    expect(snapshot.district.impactWon!.n).toBe(32);
+    expect(snapshot.district.slots!.real.judged).toBe(16);
   });
 });
 
-describe("the district gates against a BEFORE snapshot (A1 to A3)", () => {
-  const before = snapshotOf(classRows(0.8));
-  const gatesFor = (rows: ScoredTeamEvent[]) => districtGates(before, scoreTeamEvents(rows).get("district")!);
+/**
+ * THE PASS BAR FIXTURE: per season and review class, `n` district team events
+ * (the "none rookie" class rookies), the first `wins` of them won a 5 point
+ * award, priced at chance `p` (all of it 5 point mass). The first team event of
+ * "three or more" each season held Impact from an earlier week district event,
+ * priced at `heldImpactMass` of Impact. Two DCMP team events, one ineligible
+ * for every qualifying award, priced at `dcmpIneligibleMass` of Impact.
+ */
+interface BarSpec {
+  readonly p?: number | Readonly<Record<string, number>>;
+  readonly pBySeason?: Readonly<Record<number, Readonly<Record<string, number>>>>;
+  readonly n?: number;
+  readonly wins?: number;
+  readonly seasons?: readonly number[];
+  readonly impactShortfall?: number;
+  readonly heldImpactMass?: number;
+  readonly dcmpIneligibleMass?: number;
+  readonly dcmpWinnerChance?: number;
+}
 
-  it("pass when the Brier drops, every class gap shrinks on the same team events and the Impact row is the Impact draw", () => {
-    const gates = gatesFor(classRows(0.6));
-    expect(gates.map((gate) => gate.pass)).toEqual([true, true, true]);
-    expect(gates.map((gate) => gate.name.slice(0, 2))).toEqual(["A1", "A2", "A3"]);
+function barRows(spec: BarSpec = {}): ScoredTeamEvent[] {
+  const n = spec.n ?? 4;
+  const wins = spec.wins ?? n / 2;
+  const out: ScoredTeamEvent[] = [];
+  const noneHeld = { impact: false, engineeringInspiration: false, rookieAllStar: false };
+  for (const season of spec.seasons ?? [2025, 2026]) {
+    for (const label of REVIEW_CLASSES) {
+      const chance = spec.pBySeason?.[season]?.[label] ?? (typeof spec.p === "number" ? spec.p : spec.p?.[label] ?? 0.8);
+      for (let k = 0; k < n; k++) {
+        const held = label === "three or more" && k === 0;
+        const p10 = held ? spec.heldImpactMass ?? 0 : 0;
+        const won = k < wins;
+        out.push(
+          row({
+            season,
+            teamKey: `frc${String(out.length + 1)}`,
+            reviewClass: label,
+            decorationClass: label,
+            rookieState: label === "none rookie" ? "rookie" : "veteran",
+            odds: { p10, p8: 0, p5: chance - p10, p0: 1 - chance, impact: p10 - (spec.impactShortfall ?? 0) },
+            awardPoints: won ? 5 : 0,
+            heldEarlier: held ? { ...noneHeld, impact: true } : noneHeld,
+            ...(won ? { realSlot: "judged" as const } : {}),
+          })
+        );
+      }
+    }
+  }
+  const eligibleAll = { impact: true, engineeringInspiration: true, rookieAllStar: true };
+  const eligibleNone = { impact: false, engineeringInspiration: false, rookieAllStar: false };
+  const winner = spec.dcmpWinnerChance ?? 0.6;
+  out.push(
+    row({ teamKey: "frc900", tier: "dcmp", role: "single", weight: 3, odds: odds(winner, 0, 0.1), awardPoints: 30, wonImpact: true, eligible: eligibleAll }),
+    row({ teamKey: "frc901", tier: "dcmp", role: "single", weight: 3, odds: odds(spec.dcmpIneligibleMass ?? 0, 0, 0.1), awardPoints: 0, eligible: eligibleNone })
+  );
+  return out;
+}
+
+function snapshotOf(rows: readonly ScoredTeamEvent[], label = "BEFORE"): ScoreSnapshot {
+  return scoreSnapshot(label, "2026-10-14T00:00:00.000Z", scoreTeamEvents(rows), districtOddsDigest(rows));
+}
+
+function gatesOf(before: ScoreSnapshot, rows: readonly ScoredTeamEvent[]) {
+  const reports = scoreTeamEvents(rows);
+  return passBarGates(before, reports.get("district")!, reports.get("dcmp")!);
+}
+
+describe("the pass bar (quick task 261014-qje)", () => {
+  const before = snapshotOf(barRows());
+
+  it("prints seven gates, numbered 1 to 7, and passes them all on a better model", () => {
+    const gates = gatesOf(before, barRows({ p: 0.6, dcmpWinnerChance: 0.7 }));
+    expect(gates.map((gate) => gate.name.slice(0, 2))).toEqual(["1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 "]);
+    expect(gates.map((gate) => gate.pass)).toEqual([true, true, true, true, true, true, true]);
+    expect(gateLines(gates).every((line) => line.startsWith("GATE PASS: "))).toBe(true);
   });
 
-  it("A1 and A2 fail at the boundary: an equal Brier and an equal gap are not improvements", () => {
-    const gates = gatesFor(classRows(0.8));
-    expect(gates[0]!.pass).toBe(false);
-    expect(gates[1]!.pass).toBe(false);
-    expect(gates[1]!.detail).toContain("NOT SMALLER");
+  it("gate 1 is strict: an equal Brier fails", () => {
+    expect(gatesOf(before, barRows())[0]!.pass).toBe(false);
   });
 
-  it("A2 fails when one class's gap does not shrink, even though the Brier drops", () => {
-    const gates = gatesFor(classRows({ "three or more": 0.6, "one or two": 0.6, none: 0.8, "none rookie": 0.6 }));
-    expect(gates[0]!.pass).toBe(true);
-    expect(gates[1]!.pass).toBe(false);
+  it("gate 2 passes a class whose gap is exactly its chance wobble, even when wider than BEFORE", () => {
+    // n = 4, happened 50%: wobble = 2 sqrt(0.25 / 4) = 0.5. BEFORE gap 0.3; AFTER said 100%, gap exactly 0.5.
+    const one = snapshotOf(barRows({ seasons: [2026] }));
+    const gate = gatesOf(one, barRows({ seasons: [2026], p: 1 }))[1]!;
+    expect(chanceWobble(0.5, 4)).toBe(0.5);
+    expect(gate.pass).toBe(true);
+    expect(gate.detail).toContain("inside the wobble");
   });
 
-  it("A2 fails on a different n in any class: different team events make the comparison invalid", () => {
-    const rows = classRows(0.6);
-    const gates = gatesFor(rows.slice(0, rows.length - 1));
-    expect(gates[1]!.pass).toBe(false);
-    expect(gates[1]!.detail).toContain("n MISMATCH");
+  it("gate 2 fails a class whose gap equals the shipped gap and exceeds its wobble, and passes one strictly smaller", () => {
+    // n = 100 per class: wobble 0.1. BEFORE gap 0.3.
+    const big = snapshotOf(barRows({ seasons: [2026], n: 100 }));
+    const equal = gatesOf(big, barRows({ seasons: [2026], n: 100, p: { "three or more": 0.8, "one or two": 0.55, none: 0.55, "none rookie": 0.55 } }))[1]!;
+    expect(equal.pass).toBe(false);
+    expect(equal.detail).toContain("three or more: AFTER gap 30.00 points, wobble 10.00, BEFORE gap 30.00 (n=100) FAILS");
+    const smaller = gatesOf(big, barRows({ seasons: [2026], n: 100, p: { "three or more": 0.79, "one or two": 0.55, none: 0.55, "none rookie": 0.55 } }))[1]!;
+    expect(smaller.pass).toBe(true);
+    expect(smaller.detail).toContain("smaller than BEFORE");
   });
 
-  it("A3 passes within 1e-9 and fails beyond it", () => {
-    // Eight rows each short by a tenth of the tolerance: the sums differ by 8e-10, inside it.
-    const inside = gatesFor(classRows(0.6, IMPACT_ROW_TOLERANCE / 10));
-    expect(inside[2]!.pass).toBe(true);
-    const outside = gatesFor(classRows(0.6, 1e-6));
-    expect(outside[2]!.pass).toBe(false);
+  it("gate 2 fails on a different n, and on a BEFORE snapshot without the Q-09 class view", () => {
+    const rows = barRows({ p: 0.6 });
+    const dropped = rows.filter((entry) => entry.teamKey !== "frc1");
+    const mismatch = gatesOf(before, dropped)[1]!;
+    expect(mismatch.pass).toBe(false);
+    expect(mismatch.detail).toContain("n MISMATCH");
+    const { decorationClasses: _drop, ...district } = before.district;
+    const old = { ...before, district };
+    const missing = gatesOf(old, rows)[1]!;
+    expect(missing.pass).toBe(false);
+    expect(missing.detail).toContain("Q-09 decoration count three or more: missing BEFORE");
   });
 
-  it("the five gate run names A1 to A5 and adds the two DCMP gates", () => {
-    const eligibleAll = { impact: true, engineeringInspiration: true, rookieAllStar: true };
-    const dcmpRows = [
-      row({ teamKey: "frc90", tier: "dcmp", role: "single", weight: 3, odds: odds(0.6, 0.2, 0.1), awardPoints: 30, eligible: eligibleAll }),
-      row({ teamKey: "frc91", tier: "dcmp", role: "single", weight: 3, odds: odds(0, 0, 0.1), awardPoints: 0, eligible: eligibleAll }),
-    ];
-    const reports = scoreTeamEvents([...classRows(0.6), ...dcmpRows]);
-    const gates = snapshotAcceptanceGates(before, reports.get("district")!, reports.get("dcmp")!);
-    expect(gates.map((gate) => gate.name.slice(0, 2))).toEqual(["A1", "A2", "A3", "A4", "A5"]);
-    expect(gates.every((gate) => gate.pass)).toBe(true);
-    expect(gateLines(gates).every((line) => line.startsWith("GATE PASS: A"))).toBe(true);
+  it("gate 3 reads 2025 and 2026 each on its own: a worse gap in one season fails though the other improves", () => {
+    const worse2026 = barRows({ pBySeason: { 2025: { "none rookie": 0.6 }, 2026: { "none rookie": 0.95 } }, p: 0.6 });
+    const gate = gatesOf(before, worse2026)[2]!;
+    expect(gate.pass).toBe(false);
+    expect(gate.detail).toMatch(/2025: gap 30\.00 to 10\.00 points.*; 2026: gap 30\.00 to 45\.00 points.* FAILS/);
+    // No worse is enough: an equal gap and Brier pass.
+    expect(gatesOf(before, barRows({ p: { "three or more": 0.6, "one or two": 0.6, none: 0.6, "none rookie": 0.8 } }))[2]!.pass).toBe(true);
+    // A BEFORE without a season's rookie line fails.
+    const only2026 = snapshotOf(barRows({ seasons: [2026] }));
+    expect(gatesOf(only2026, barRows({ seasons: [2026], p: 0.6 }))[2]!.pass).toBe(false);
+  });
+
+  it("gate 4 passes within 1e-9 and fails beyond it", () => {
+    expect(gatesOf(before, barRows({ p: 0.6, impactShortfall: IMPACT_ROW_TOLERANCE / 100 }))[3]!.pass).toBe(true);
+    expect(gatesOf(before, barRows({ p: 0.6, impactShortfall: 1e-6 }))[3]!.pass).toBe(false);
+  });
+
+  it("gate 5 passes an equal Impact Brier and fails a worse one", () => {
+    expect(gatesOf(before, barRows({ p: 0.6 }))[4]!.pass).toBe(true);
+    const worse = barRows({ p: 0.6 }).map((entry) => (entry.tier === "district" && entry.teamKey === "frc2" ? { ...entry, odds: { ...entry.odds, impact: 0.5, p10: 0.5, p5: entry.odds.p5 - 0.5 } } : entry));
+    expect(gatesOf(before, worse)[4]!.pass).toBe(false);
+  });
+
+  it("gate 6 passes an equal DCMP Brier and fails a worse one", () => {
+    expect(gatesOf(before, barRows({ p: 0.6 }))[5]!.pass).toBe(true);
+    expect(gatesOf(before, barRows({ p: 0.6, dcmpWinnerChance: 0.5 }))[5]!.pass).toBe(false);
+  });
+
+  it("gate 7 fails on one unit of mass where an award cannot go, at either tier", () => {
+    expect(gatesOf(before, barRows({ p: 0.6 }))[6]!.pass).toBe(true);
+    expect(gatesOf(before, barRows({ p: 0.6, heldImpactMass: 1e-12 }))[6]!.pass).toBe(false);
+    expect(gatesOf(before, barRows({ p: 0.6, dcmpIneligibleMass: 1e-12 }))[6]!.pass).toBe(false);
   });
 });

@@ -17,6 +17,8 @@ import { CHAMP_CUTOFF_DEFAULT_SETTING } from "../packages/core/districts/hypothe
 import {
   backtestDistrict,
   coverageInBand,
+  districtDirFromArgv,
+  LOCAL_DISTRICT_DIR,
   gateVerdict,
   selectSetting,
   type BacktestSummary,
@@ -172,5 +174,19 @@ describe("selectSetting", () => {
   it("picks the default for an empty fit set", () => {
     expect(selectSetting([])).toBe(0);
     expect(selectSetting([score(0, 0, 0), score(0, 0, 0)])).toBe(0);
+  });
+});
+
+describe("--dir (quick task 261014-qje)", () => {
+  it("reads the district artifacts from the directory --dir names, and the default directory without it", () => {
+    expect(districtDirFromArgv([])).toBe(LOCAL_DISTRICT_DIR);
+    expect(districtDirFromArgv(["--check-history"])).toBe(LOCAL_DISTRICT_DIR);
+    expect(districtDirFromArgv(["--write-tuning", "--dir", "scratch/districts"])).toBe("scratch/districts");
+    expect(districtDirFromArgv(["--dir", "a/b", "--json"])).toBe("a/b");
+  });
+
+  it("refuses a --dir with no path after it rather than reading the default", () => {
+    expect(() => districtDirFromArgv(["--dir"])).toThrow(/--dir needs a directory path/);
+    expect(() => districtDirFromArgv(["--dir", "--json"])).toThrow(/--dir needs a directory path/);
   });
 });

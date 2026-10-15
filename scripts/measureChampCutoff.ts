@@ -12,7 +12,7 @@
  *     count, and per district code the DCMP judged award census.
  *
  *   npx tsx scripts/measureChampCutoff.ts --write-tuning
- *     Runs the pre-registered walk-forward selection over the K1 to K3 grid and
+ *     Runs the pre-registered walk-forward selection over the K2 and K3 grid and
  *     writes `packages/core/districts/champCutoffTuning.generated.ts`. Run it
  *     after `--write-history`.
  *
@@ -22,6 +22,12 @@
  *
  *   npx tsx scripts/measureChampCutoff.ts [--json]
  *     The backtest and its pre-registered GO / NO-GO gate.
+ *
+ * Every mode takes `--dir <path>` (quick task 261014-qje): read the district
+ * detail artifacts from that directory instead of `data/local-publish/districts`,
+ * for example a fresh `publishDistricts.ts --dry-run --local-out` compose in a
+ * scratch folder. The generated modules' Source line stays the default
+ * directory's name either way, so `--check-history` compares the same text.
  *
  * THE BROWSER'S OWN CODE, IN THE COMPONENT'S OWN ORDER. This script defines no
  * model: it calls `champTierEvents`, `buildDistrictTimeline`, the district
@@ -94,6 +100,7 @@ import {
   hypotheticalDcmpEstimates,
 } from "../apps/web/src/components/districts/champLedgerChances.js";
 import { predictedCutoff } from "../apps/web/src/components/districts/predictedCutoff.js";
+import { awardSlateMember } from "../apps/web/src/components/districts/districtRunAssembly.js";
 import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../apps/web/src/workers/simulationProtocol.js";
 
 /** 10-06's dry run wrote every published district season here. Read-only, gitignored. */
@@ -292,7 +299,7 @@ export function renderTuningModule(entries: readonly ChampCutoffTuningEntry[]): 
   ];
   for (const entry of entries) {
     lines.push(
-      `  { season: ${String(entry.season)}, setting: { weighting: ${JSON.stringify(entry.setting.weighting)}, countMode: ${JSON.stringify(entry.setting.countMode)}, spreadScale: ${String(entry.setting.spreadScale)} }, fitSeasons: ${JSON.stringify(entry.fitSeasons)}, fitCount: ${String(entry.fitCount)}, fitCoverage: ${entry.fitCoverage === null ? "null" : String(Number(entry.fitCoverage.toFixed(6)))}, fitMae: ${entry.fitMae === null ? "null" : String(Number(entry.fitMae.toFixed(6)))} },`
+      `  { season: ${String(entry.season)}, setting: { countMode: ${JSON.stringify(entry.setting.countMode)}, spreadScale: ${String(entry.setting.spreadScale)} }, fitSeasons: ${JSON.stringify(entry.fitSeasons)}, fitCount: ${String(entry.fitCount)}, fitCoverage: ${entry.fitCoverage === null ? "null" : String(Number(entry.fitCoverage.toFixed(6)))}, fitMae: ${entry.fitMae === null ? "null" : String(Number(entry.fitMae.toFixed(6)))} },`
     );
   }
   lines.push("];", "");
@@ -853,7 +860,7 @@ function weekEndPositions(timeline: ReturnType<typeof buildDistrictTimeline>): {
 }
 function gridIndexOf(setting: ChampCutoffSetting): number {
   return CHAMP_CUTOFF_TUNING_GRID.findIndex(
-    (entry) => entry.weighting === setting.weighting && entry.countMode === setting.countMode && entry.spreadScale === setting.spreadScale
+    (entry) => entry.countMode === setting.countMode && entry.spreadScale === setting.spreadScale
   );
 }
 
@@ -916,6 +923,10 @@ export function earlierPositionsPnw2026(artifact: DistrictArtifact, setting: Cha
         startMatchKey: startMatchKeyAtPosition(timeline, index, eventKey),
         conditionOnPlayedElims: false,
         tier: tierByEvent.get(eventKey) ?? "district",
+        // The award slate the browser's request carries at this position,
+        // either tier (quick task 261014-qje, Q-01): without one an open
+        // event's awards are refused and the event reads unavailable.
+        ...awardSlateMember(artifact, stageByEvent, tierByEvent.get(eventKey) ?? "district", { eventKey }),
       });
       if (!built.ok) continue;
       // PER EVENT FAILURE IS ISOLATED, as `runDistrictSimulationJob` isolates
@@ -988,7 +999,7 @@ function scoredRows(results: GridResults, pickIndex: (year: number) => number): 
 }
 
 function settingText(setting: ChampCutoffSetting): string {
-  return `${setting.weighting}/${setting.countMode}/${setting.spreadScale.toFixed(2)}`;
+  return `${setting.countMode}/${setting.spreadScale.toFixed(2)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1002,8 +1013,22 @@ function stripGeneratedDate(source: string): string {
     .join("\n");
 }
 
+/**
+ * The district artifact directory `argv` names with `--dir <path>`, or
+ * `LOCAL_DISTRICT_DIR` without it (quick task 261014-qje). A `--dir` with no
+ * path after it is refused rather than read as the default.
+ */
+export function districtDirFromArgv(argv: readonly string[]): string {
+  const index = argv.indexOf("--dir");
+  if (index === -1) return LOCAL_DISTRICT_DIR;
+  const dir = argv[index + 1];
+  if (dir === undefined || dir.startsWith("--")) throw new Error("measureChampCutoff: --dir needs a directory path after it");
+  return dir;
+}
+
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
-  const artifacts = loadDistrictArtifacts();
+  const districtDir = districtDirFromArgv(argv);
+  const artifacts = loadDistrictArtifacts(districtDir);
 
   if (argv.includes("--write-history")) {
     writeFileSync(HISTORY_MODULE, renderHistoryModule(buildDcmpHistory(artifacts)));
@@ -1070,7 +1095,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 
   console.log("");
   console.log("CHAMP CUTOFF BACKTEST: the simulated line at the end of each district season, walk-forward (quick task 260927-6bf)");
-  console.log(`  source: ${LOCAL_DISTRICT_DIR} (read-only, no network)`);
+  console.log(`  source: ${districtDir} (read-only, no network)`);
   console.log(`  draws ${String(SIMULATION_DRAWS)}, seed ${String(DEFAULT_SIMULATION_SEED)}; scored seasons ${SCORED_SEASONS.join(", ")}`);
   console.log("");
   console.log("PER DISTRICT (walk-forward tuned)");

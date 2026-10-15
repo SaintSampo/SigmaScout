@@ -232,14 +232,21 @@ describe("dcmpAwardCountDistribution — K2", () => {
 });
 
 describe("the tuning grid and the walk-forward tuning", () => {
-  it("is the pre-registered 20 settings in K1, K2, K3 order, the default first", () => {
-    expect(CHAMP_CUTOFF_TUNING_GRID).toHaveLength(20);
-    expect(CHAMP_CUTOFF_TUNING_GRID[0]).toEqual({ weighting: "uniform", countMode: "fixed", spreadScale: 1 });
+  it("is the pre-registered 10 settings in K2, K3 order, the default first, with no weighting knob (quick task 261014-qje, Q-11)", () => {
+    expect(CHAMP_CUTOFF_TUNING_GRID).toEqual([
+      { countMode: "fixed", spreadScale: 1 },
+      { countMode: "fixed", spreadScale: 1.15 },
+      { countMode: "fixed", spreadScale: 1.3 },
+      { countMode: "fixed", spreadScale: 1.5 },
+      { countMode: "fixed", spreadScale: 1.75 },
+      { countMode: "drawn", spreadScale: 1 },
+      { countMode: "drawn", spreadScale: 1.15 },
+      { countMode: "drawn", spreadScale: 1.3 },
+      { countMode: "drawn", spreadScale: 1.5 },
+      { countMode: "drawn", spreadScale: 1.75 },
+    ]);
     expect(CHAMP_CUTOFF_DEFAULT_SETTING).toBe(CHAMP_CUTOFF_TUNING_GRID[0]);
-    expect(CHAMP_CUTOFF_TUNING_GRID.slice(0, 5).map((setting) => setting.spreadScale)).toEqual([1, 1.15, 1.3, 1.5, 1.75]);
-    expect(CHAMP_CUTOFF_TUNING_GRID[5]).toEqual({ weighting: "uniform", countMode: "drawn", spreadScale: 1 });
-    expect(CHAMP_CUTOFF_TUNING_GRID[10]).toEqual({ weighting: "decoration", countMode: "fixed", spreadScale: 1 });
-    expect(CHAMP_CUTOFF_TUNING_GRID[19]).toEqual({ weighting: "decoration", countMode: "drawn", spreadScale: 1.75 });
+    for (const setting of CHAMP_CUTOFF_TUNING_GRID) expect(Object.keys(setting).sort()).toEqual(["countMode", "spreadScale"]);
   });
 
   it("selected 2019 on fit seasons before 2019 only, and every entry on seasons before it", () => {

@@ -17,12 +17,20 @@
  *  - events that carry at least one `event_awards_all` row;
  *  - fields of at least 11 teams.
  *
- * WALK FORWARD. Each team's profile is built the way the publisher builds it:
- * prior judged awards (`priorJudgedAwardCount`) and prior Impact wins
+ * WALK FORWARD. Each team's profile is built the way the publisher builds it
+ * (quick task 261014-qje, Q-09): the decoration count (`priorDecorationCount`,
+ * published as `priorJudgedAwards`) and prior Impact wins
  * (`priorImpactWinCount`) from seasons strictly before the event's own, and
  * the rookie state from the team's rookie year. The award tables themselves
  * are walk forward by construction (each season's tables were measured on
  * earlier seasons only).
+ *
+ * THE ONE AWARD SLATE (quick task 261014-qje, Q-01). Every district tier event
+ * is priced from the slate `buildDistrictAwardSlate` builds, with eligibility
+ * from `districtAwardEligibility` (the district's own teams, the corpus weeks,
+ * every award final, weights from the one award model, Q-11); every DCMP tier event
+ * from `buildDcmpAwardSlate` as below. Both reach `eventAwardOutcomeOdds`
+ * through its `awardSlate` field.
  *
  * ELIGIBILITY for the DCMP audits comes from the ONE core helper
  * (`dcmpAwardEligibility`) with the district's own district tier events and
@@ -56,15 +64,22 @@
  * `--write-snapshot` writes this run's scores as JSON: per tier n, said,
  * happened, Brier, flat guess, the class map, the review class map, ten
  * reliability bins, the Impact row sums, the DCMP audits and the district
- * digest. `--before` reads such a snapshot and replaces the three gates above
- * with five: A1 the district any award Brier is strictly lower than BEFORE; A2
- * in each of the review's four classes (frozen review rule,
- * `legacyReviewClass`) the gap between said and happened is strictly smaller
- * and n is equal; A3 the drawer's Impact row (sum of p10) equals the Impact
- * draw within 1e-9; A4 and A5 the two DCMP gates above. The digest gate does
- * not apply in that mode; both digests are printed. Every run also prints, per
- * tier, the review class map, the Impact row audit and the reliability bins.
- * Without `--before` the gates are exactly the three above.
+ * digest; since quick task 261014-qje also (optional fields, so an older
+ * snapshot still parses) the Q-09 decoration class map, any award per season,
+ * rookies per season, the Impact Brier, the district eligibility audit and the
+ * expected against real winners per award slot.
+ *
+ * `--before` reads such a snapshot and replaces the three gates above with the
+ * SEVEN PASS BAR GATES of quick task 261014-qje (`passBarGates`), fixed and
+ * approved by Jacob before any scoring: 1 the district any award Brier
+ * strictly below BEFORE; 2 every review class, under the frozen review rule
+ * and under the Q-09 count, inside its chance wobble or smaller than BEFORE; 3
+ * rookies in 2025 and in 2026, gap and Brier no worse; 4 the Impact row equals
+ * the Impact draw; 5 the district Impact Brier no worse; 6 the DCMP any award
+ * Brier no worse; 7 exactly zero where an award cannot go. Any missing BEFORE
+ * field and any changed team event count FAILS. The digest gate does not apply
+ * in that mode; both digests are printed. Without `--before` the gates are
+ * exactly the three above.
  *
  * Read only corpus, no network request, no environment variable. A snapshot is
  * the one file the scorer writes, and only when asked.
@@ -83,7 +98,7 @@ import {
 } from "../packages/corpus/db.js";
 import { decorationBucket, rookieStateFor, type DecorationBucket, type RookieState } from "../packages/core/districts/awardBaseRates.js";
 import { dcmpAwardEligibility, dcmpEligibilityChance, type DcmpEligibilityTeam } from "../packages/core/districts/dcmpAwardEligibility.js";
-import { buildDcmpAwardSlate, type DcmpAwardSlateInput } from "../packages/core/districts/dcmpAwardSlate.js";
+import { buildDcmpAwardSlate } from "../packages/core/districts/dcmpAwardSlate.js";
 import {
   eventAwardOutcomeOdds,
   type AwardOutcomeOdds,
@@ -91,8 +106,15 @@ import {
 } from "../packages/core/districts/ledgerSimulation.js";
 import type { DistrictTier } from "../packages/core/districts/pointModel.js";
 import { districtTierWeight } from "../packages/core/districts/qualPoints.js";
-import { priorImpactWinCount } from "./measureAwardOrderingTables.js";
-import { loadAwardInstances, loadRookieYears, priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
+import {
+  buildDistrictAwardSlate,
+  districtAwardEligibility,
+  highestAwardSlot,
+  type AwardSlateInput,
+  type AwardSlot,
+  type SlateEligibility,
+} from "../packages/core/districts/awardSlate.js";
+import { loadAwardInstances, loadRookieYears, priorDecorationCount, priorImpactWinCount, type AwardInstance } from "./measureAwardSlate.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -124,6 +146,13 @@ export interface ScoredTeamEvent {
    * reporting only, so a BEFORE and an AFTER run compare the same team events.
    */
   readonly reviewClass: string;
+  /**
+   * The team event's class under the Q-09 decoration count
+   * (`priorDecorationCount`), reporting only (quick task 261014-qje), so a
+   * BEFORE and an AFTER run compare the same team events under the new
+   * definition too.
+   */
+  readonly decorationClass: string;
   readonly odds: AwardOutcomeOdds;
   /** The tier weight the base scale odds are multiplied by. */
   readonly weight: number;
@@ -136,6 +165,14 @@ export interface ScoredTeamEvent {
   readonly eligible?: { readonly impact: boolean; readonly engineeringInspiration: boolean; readonly rookieAllStar: boolean };
   /** DCMP tier only: eligibility as the review read it, over every district tier event in the season. */
   readonly eligibleAnyDistrict?: { readonly impact: boolean; readonly engineeringInspiration: boolean; readonly rookieAllStar: boolean };
+  /**
+   * District tier only (quick task 261014-qje, Q-05): whether the team already
+   * held Impact, Engineering Inspiration or Rookie All Star from an EARLIER
+   * week district event that season, every award final.
+   */
+  readonly heldEarlier?: { readonly impact: boolean; readonly engineeringInspiration: boolean; readonly rookieAllStar: boolean };
+  /** The slot of the team's single highest award at this event (`highestAwardSlot`), or undefined for none. */
+  readonly realSlot?: AwardSlot;
 }
 
 // ───────────────────────────── pure accumulators ─────────────────────────────
@@ -262,6 +299,35 @@ export function emptyAudit(): EligibilityAudit {
   return { expected: 0, onIneligible: 0, realWinners: 0, winnersIneligible: 0, eligibleTeamEvents: 0, cellMassOnIneligible: 0, disagreementsWithAnyDistrict: 0 };
 }
 
+/**
+ * THE DISTRICT ELIGIBILITY AUDIT of one award (quick task 261014-qje, Q-05):
+ * team events holding the award from an earlier week district event that
+ * season, the award's mass on them (Impact: p10; Engineering Inspiration: a
+ * veteran's p8; Rookie All Star: a rookie's p8), and real repeat winners.
+ */
+export interface HeldEarlierAudit {
+  teamEvents: number;
+  mass: number;
+  repeatWinners: number;
+}
+
+export function emptyHeldEarlierAudit(): HeldEarlierAudit {
+  return { teamEvents: 0, mass: 0, repeatWinners: 0 };
+}
+
+/** Expected against real winners per award slot (district tier). The 5 point slots share one expected mass (`p5`). */
+export interface SlotWinnerAudit {
+  expected: { impact: number; engineeringInspiration: number; rookieAllStar: number; fivePoint: number };
+  real: Record<AwardSlot, number>;
+}
+
+export function emptySlotWinnerAudit(): SlotWinnerAudit {
+  return {
+    expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, fivePoint: 0 },
+    real: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judgedRookie: 0, judged: 0 },
+  };
+}
+
 /** One tier's whole report. */
 export interface TierReport {
   readonly tier: DistrictTier;
@@ -279,6 +345,18 @@ export interface TierReport {
   readonly impact: EligibilityAudit;
   readonly engineeringInspiration: EligibilityAudit;
   readonly rookieAllStar: EligibilityAudit;
+  /** The same any award accumulators keyed by the Q-09 decoration class (quick task 261014-qje). */
+  readonly byDecorationClass: Map<string, BinaryAccumulator>;
+  /** Any award per season. */
+  readonly bySeason: Map<number, BinaryAccumulator>;
+  /** Any award per season, rookie state rookie only. */
+  readonly rookieBySeason: Map<number, BinaryAccumulator>;
+  /** Did this team win Impact: the Impact draw (`odds.impact`) against the real Impact win. */
+  readonly impactWon: BinaryAccumulator;
+  /** District tier only: the earlier week holders of each award (Q-05). */
+  readonly heldEarlier: { impact: HeldEarlierAudit; engineeringInspiration: HeldEarlierAudit; rookieAllStar: HeldEarlierAudit };
+  /** Expected against real winners per award slot. */
+  readonly slots: SlotWinnerAudit;
 }
 
 export function emptyTierReport(tier: DistrictTier): TierReport {
@@ -297,7 +375,22 @@ export function emptyTierReport(tier: DistrictTier): TierReport {
     impact: emptyAudit(),
     engineeringInspiration: emptyAudit(),
     rookieAllStar: emptyAudit(),
+    byDecorationClass: new Map(),
+    bySeason: new Map(),
+    rookieBySeason: new Map(),
+    impactWon: emptyBinary(),
+    heldEarlier: { impact: emptyHeldEarlierAudit(), engineeringInspiration: emptyHeldEarlierAudit(), rookieAllStar: emptyHeldEarlierAudit() },
+    slots: emptySlotWinnerAudit(),
   };
+}
+
+function addKeyed<K>(map: Map<K, BinaryAccumulator>, key: K, p: number, y: 0 | 1): void {
+  let acc = map.get(key);
+  if (acc === undefined) {
+    acc = emptyBinary();
+    map.set(key, acc);
+  }
+  addBinary(acc, p, y);
 }
 
 function auditOne(
@@ -346,6 +439,36 @@ export function addTeamEvent(report: TierReport, row: ScoredTeamEvent): void {
   report.modelPoints += expectedAwardPoints(row.odds, row.weight);
   report.realPoints += row.awardPoints;
   report.census.set(row.awardPoints, (report.census.get(row.awardPoints) ?? 0) + 1);
+  addKeyed(report.byDecorationClass, row.decorationClass, pAny, y);
+  addKeyed(report.bySeason, row.season, pAny, y);
+  if (row.rookieState === "rookie") addKeyed(report.rookieBySeason, row.season, pAny, y);
+  addBinary(report.impactWon, row.odds.impact, row.wonImpact ? 1 : 0);
+  {
+    const rookie = row.rookieState === "rookie";
+    report.slots.expected.impact += row.odds.p10;
+    if (rookie) report.slots.expected.rookieAllStar += row.odds.p8;
+    else report.slots.expected.engineeringInspiration += row.odds.p8;
+    report.slots.expected.fivePoint += row.odds.p5;
+    if (row.realSlot !== undefined) report.slots.real[row.realSlot]++;
+    if (row.heldEarlier !== undefined) {
+      const held = row.heldEarlier;
+      if (held.impact) {
+        report.heldEarlier.impact.teamEvents++;
+        report.heldEarlier.impact.mass += row.odds.p10;
+        if (row.wonImpact) report.heldEarlier.impact.repeatWinners++;
+      }
+      if (held.engineeringInspiration) {
+        report.heldEarlier.engineeringInspiration.teamEvents++;
+        report.heldEarlier.engineeringInspiration.mass += rookie ? 0 : row.odds.p8;
+        if (row.wonEngineeringInspiration) report.heldEarlier.engineeringInspiration.repeatWinners++;
+      }
+      if (held.rookieAllStar) {
+        report.heldEarlier.rookieAllStar.teamEvents++;
+        report.heldEarlier.rookieAllStar.mass += rookie ? row.odds.p8 : 0;
+        if (row.wonRookieAllStar) report.heldEarlier.rookieAllStar.repeatWinners++;
+      }
+    }
+  }
   if (row.eligible !== undefined) {
     const rookie = row.rookieState === "rookie";
     auditOne(report.impact, row.odds.impact, row.odds.p10, row.wonImpact, row.eligible.impact, row.eligibleAnyDistrict?.impact);
@@ -452,10 +575,26 @@ function loadEventTypes(db: Corpus, season: number): Map<string, number> {
   return new Map(rows.map((row) => [row.event_key, row.event_type]));
 }
 
+/** Each event's TBA competition week for one season; null where the corpus holds none (quick task 261014-qje, Q-05). */
+export function loadEventWeeks(db: Corpus, season: number): Map<string, number | null> {
+  const rows = db.prepare(`SELECT event_key, week FROM events WHERE year = ?`).all(season) as { event_key: string; week: number | null }[];
+  return new Map(rows.map((row) => [row.event_key, row.week]));
+}
+
+/** Whether event `other` is strictly earlier than `event`: a smaller week, both known (Q-05). A null week is never earlier. */
+export function isEarlierWeek(weeks: ReadonlyMap<string, number | null>, other: string, event: string): boolean {
+  if (other === event) return false;
+  const a = weeks.get(other);
+  const b = weeks.get(event);
+  return a !== null && a !== undefined && b !== null && b !== undefined && a < b;
+}
+
 /** The corpus load the scorer runs on: every scored team event, with its odds from the shipped resolution. */
 export interface ScorerLoad {
   readonly rows: ScoredTeamEvent[];
   readonly unknownRookieStateTeamEvents: number;
+  /** District tier scored team events whose own event, or one of the team's other district tier events that season, has no week (quick task 261014-qje). */
+  readonly nullWeekTeamEvents: number;
 }
 
 export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SCORED_SEASONS): ScorerLoad {
@@ -476,7 +615,9 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
 
   const rows: ScoredTeamEvent[] = [];
   let unknownRookieStateTeamEvents = 0;
+  let nullWeekTeamEvents = 0;
   for (const season of seasons) {
+    const weeks = loadEventWeeks(db, season);
     const seasonInstances = instancesBySeason.get(season) ?? [];
     const eventsWithAwardRows = new Set(seasonInstances.map((instance) => instance.eventKey));
     const wonAt = new Map<string, Set<number>>();
@@ -509,9 +650,27 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
       anyDistrictWinners.get(instance.awardType)?.add(instance.teamKey);
     }
 
+    // THE PROFILES the publisher builds (quick task 261014-qje, Q-09): the
+    // decoration count `priorDecorationCount`, published as
+    // `priorJudgedAwards`, and the prior Impact wins.
+    const profileCache = new Map<string, DistrictAwardProfile>();
+    const profileOf = (teamKey: string): DistrictAwardProfile => {
+      let profile = profileCache.get(teamKey);
+      if (profile === undefined) {
+        const instances = instancesByTeam.get(teamKey) ?? [];
+        const priorJudgedAwards = priorDecorationCount(instances, teamKey, season);
+        const priorImpactWins = priorImpactWinCount(instances, teamKey, season);
+        const rookieState = rookieStateFor(rookieYears.get(teamKey) ?? null, season);
+        profile = { bucket: decorationBucket(priorJudgedAwards), rookieState, priorJudgedAwards, priorImpactWins };
+        profileCache.set(teamKey, profile);
+      }
+      return profile;
+    };
+
     // The per district reading, through the ONE core helper: each district's
     // own teams, their district tier events, every award final.
     const eligibilityByDistrict = new Map<string, ReturnType<typeof dcmpAwardEligibility>>();
+    const eligibilityTeamsByDistrict = new Map<string, DcmpEligibilityTeam[]>();
     const rowsByDistrict = new Map<string, RankingRow[]>();
     for (const row of rankingRows) {
       const list = rowsByDistrict.get(row.districtKey);
@@ -534,7 +693,21 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
         heldAwards: (seasonInstancesByTeam.get(teamKey) ?? []).map((instance) => ({ eventKey: instance.eventKey, awardType: instance.awardType })),
         districtEventKeys: [...districtEvents.get(teamKey)!],
       }));
-      eligibilityByDistrict.set(districtKey, dcmpAwardEligibility({ teams, awardFinal: () => true, weight: () => 1 }));
+      // Every award is final, so no open event exists and no weight changes a
+      // chance; the shipped profiles are passed all the same (Q-11).
+      eligibilityByDistrict.set(districtKey, dcmpAwardEligibility({ season, teams, awardFinal: () => true, profileOf: (teamKey) => profileOf(teamKey) }));
+      eligibilityTeamsByDistrict.set(districtKey, teams);
+    }
+
+    // Each team's district tier events, per district (quick task 261014-qje,
+    // Q-05): the earlier week holders the district eligibility reads.
+    const districtEventsByDistrictTeam = new Map<string, Set<string>>();
+    for (const row of rankingRows) {
+      if (row.tier !== "district") continue;
+      const key = `${row.districtKey}|${row.teamKey}`;
+      const set = districtEventsByDistrictTeam.get(key);
+      if (set === undefined) districtEventsByDistrictTeam.set(key, new Set([row.eventKey]));
+      else set.add(row.eventKey);
     }
 
     const dcmpKeys = new Set(rankingRows.filter((row) => row.tier === "dcmp").map((row) => row.eventKey));
@@ -558,24 +731,41 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
       else list.push(row);
     }
 
+    // THE DISTRICT ELIGIBILITY (Q-05): per district and event, the shipped
+    // helper over the district's teams, the corpus weeks, every award final,
+    // weights from the one award model (Q-11) through `profileOf`.
+    const districtEligibilityCache = new Map<string, Map<string, SlateEligibility>>();
+    const districtEligibilityAt = (districtKey: string, eventKey: string): Map<string, SlateEligibility> => {
+      const key = `${districtKey}|${eventKey}`;
+      let cached = districtEligibilityCache.get(key);
+      if (cached === undefined) {
+        const list = districtAwardEligibility({
+          season,
+          eventKey,
+          teams: eligibilityTeamsByDistrict.get(districtKey) ?? [],
+          weekOf: (other) => weeks.get(other) ?? null,
+          awardFinal: () => true,
+          profileOf,
+        });
+        cached = new Map(list.map((entry) => [entry.teamKey, entry] as const));
+        districtEligibilityCache.set(key, cached);
+      }
+      return cached;
+    };
+
     for (const [eventKey, field] of byEvent) {
       if (!eventsWithAwardRows.has(eventKey)) continue;
       if (field.length < MIN_SCORED_FIELD_SIZE) continue;
       const tier = field[0]!.tier;
       const weight = districtTierWeight(season, tier);
       const awardProfiles = new Map<string, DistrictAwardProfile>();
-      for (const row of field) {
-        const instances = instancesByTeam.get(row.teamKey) ?? [];
-        const priorJudgedAwards = priorJudgedAwardCount(instances, row.teamKey, season);
-        const priorImpactWins = priorImpactWinCount(instances, row.teamKey, season);
-        const rookieState = rookieStateFor(rookieYears.get(row.teamKey) ?? null, season);
-        awardProfiles.set(row.teamKey, { bucket: decorationBucket(priorJudgedAwards), rookieState, priorJudgedAwards, priorImpactWins });
-      }
+      for (const row of field) awardProfiles.set(row.teamKey, profileOf(row.teamKey));
+      const awardField = field.map((row) => ({ teamKey: row.teamKey }));
       const eligibility = tier === "dcmp" ? eligibilityByDistrict.get(field[0]!.districtKey) : undefined;
-      let dcmpAwardSlate: DcmpAwardSlateInput | undefined;
+      let awardSlate: AwardSlateInput;
       if (tier === "dcmp") {
         const districtKey = field[0]!.districtKey;
-        dcmpAwardSlate = buildDcmpAwardSlate({
+        awardSlate = buildDcmpAwardSlate({
           season,
           districtKey,
           cmpSlots: cmpSlotsByDistrict.get(districtKey) ?? 0,
@@ -583,19 +773,35 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
           target: { eventKey },
           eligibility: eligibility!,
         });
+      } else {
+        // Each team's eligibility from its OWN district's helper output.
+        const districtEligibility: SlateEligibility[] = [];
+        for (const row of field) {
+          const entry = districtEligibilityAt(row.districtKey, eventKey).get(row.teamKey);
+          if (entry !== undefined) districtEligibility.push(entry);
+        }
+        awardSlate = buildDistrictAwardSlate({ season, awardField, eligibility: districtEligibility });
       }
-      const odds = eventAwardOutcomeOdds({
-        eventKey,
-        season,
-        tier,
-        awardField: field.map((row) => ({ teamKey: row.teamKey })),
-        awardProfiles,
-        ...(dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate }),
-      });
+      const odds = eventAwardOutcomeOdds({ eventKey, season, tier, awardField, awardProfiles, awardSlate });
       for (const row of field) {
         const profile = awardProfiles.get(row.teamKey)!;
         if (profile.rookieState === "unknown") unknownRookieStateTeamEvents++;
         const won = wonAt.get(`${eventKey}|${row.teamKey}`) ?? new Set<number>();
+        let heldEarlier: ScoredTeamEvent["heldEarlier"];
+        if (tier === "district") {
+          const ownEvents = districtEventsByDistrictTeam.get(`${row.districtKey}|${row.teamKey}`) ?? new Set<string>();
+          if (weeks.get(eventKey) == null || [...ownEvents].some((other) => weeks.get(other) == null)) nullWeekTeamEvents++;
+          const earlier = new Set([...ownEvents].filter((other) => isEarlierWeek(weeks, other, eventKey)));
+          const heldTypes = new Set(
+            (seasonInstancesByTeam.get(row.teamKey) ?? []).filter((instance) => earlier.has(instance.eventKey)).map((instance) => instance.awardType)
+          );
+          heldEarlier = {
+            impact: heldTypes.has(IMPACT_AWARD_TYPE),
+            engineeringInspiration: heldTypes.has(ENGINEERING_INSPIRATION_AWARD_TYPE),
+            rookieAllStar: heldTypes.has(ROOKIE_ALL_STAR_AWARD_TYPE),
+          };
+        }
+        const realSlot = highestAwardSlot(won);
         const scored: ScoredTeamEvent = {
           season,
           tier,
@@ -605,12 +811,15 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
           bucket: profile.bucket,
           rookieState: profile.rookieState,
           reviewClass: legacyReviewClass(instancesByTeam.get(row.teamKey) ?? [], row.teamKey, season, profile.rookieState),
+          decorationClass: classLabel(decorationBucket(priorDecorationCount(instancesByTeam.get(row.teamKey) ?? [], row.teamKey, season)), profile.rookieState),
           odds: odds.get(row.teamKey)!,
           weight,
           awardPoints: row.awardPoints,
           wonImpact: won.has(IMPACT_AWARD_TYPE),
           wonEngineeringInspiration: won.has(ENGINEERING_INSPIRATION_AWARD_TYPE),
           wonRookieAllStar: won.has(ROOKIE_ALL_STAR_AWARD_TYPE),
+          ...(heldEarlier === undefined ? {} : { heldEarlier }),
+          ...(realSlot === undefined ? {} : { realSlot }),
           ...(eligibility === undefined
             ? {}
             : {
@@ -630,7 +839,7 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
       }
     }
   }
-  return { rows, unknownRookieStateTeamEvents };
+  return { rows, unknownRookieStateTeamEvents, nullWeekTeamEvents };
 }
 
 // ───────────────────────────── reporting ─────────────────────────────
@@ -695,6 +904,28 @@ export function tierReportLines(report: TierReport): string[] {
       .map(([points, count]) => `${String(points)} x${String(count)}`)
       .join(", ")} (${String(n)} team events)`
   );
+  lines.push(`  by decoration class, Q-09 count (said vs happened): ${classesLine(report.byDecorationClass)}`);
+  for (const [season, acc] of [...report.bySeason].sort((a, b) => a[0] - b[0])) lines.push(`  any award, ${String(season)}: ${anyAwardLine(acc)}`);
+  for (const [season, acc] of [...report.rookieBySeason].sort((a, b) => a[0] - b[0])) lines.push(`  rookies, ${String(season)}: ${anyAwardLine(acc)}`);
+  lines.push(
+    `  won Impact (the Impact draw against a real Impact win): said ${report.impactWon.sumP.toFixed(3)}, real ${String(report.impactWon.sumY)}, Brier ${report.impactWon.n === 0 ? "none" : brierOf(report.impactWon).toFixed(6)} (n=${String(report.impactWon.n)})`
+  );
+  const slots = report.slots;
+  lines.push(
+    `  expected vs real winners per award slot: Impact ${slots.expected.impact.toFixed(1)} vs ${String(slots.real.impact)}; ` +
+      `Engineering Inspiration (veteran p8) ${slots.expected.engineeringInspiration.toFixed(1)} vs ${String(slots.real.engineeringInspiration)}; ` +
+      `Rookie All Star (rookie p8) ${slots.expected.rookieAllStar.toFixed(1)} vs ${String(slots.real.rookieAllStar)}; ` +
+      `5 point (p5) ${slots.expected.fivePoint.toFixed(1)} vs ${String(slots.real.judgedRookie + slots.real.judged)} (judgedRookie ${String(slots.real.judgedRookie)}, judged ${String(slots.real.judged)})`
+  );
+  if (report.tier === "district") {
+    const held = report.heldEarlier;
+    lines.push(
+      `  district eligibility audit (held from an earlier week district event, every award final): ` +
+        `Impact ${String(held.impact.teamEvents)} team events, p10 mass ${held.impact.mass.toFixed(6)}, ${String(held.impact.repeatWinners)} repeat winner(s); ` +
+        `Engineering Inspiration ${String(held.engineeringInspiration.teamEvents)} team events, veteran p8 mass ${held.engineeringInspiration.mass.toFixed(6)}, ${String(held.engineeringInspiration.repeatWinners)} repeat winner(s); ` +
+        `Rookie All Star ${String(held.rookieAllStar.teamEvents)} team events, rookie p8 mass ${held.rookieAllStar.mass.toFixed(6)}, ${String(held.rookieAllStar.repeatWinners)} repeat winner(s)`
+    );
+  }
   if (report.tier === "dcmp") {
     lines.push(...auditLines("Impact", report.impact, "Impact award mass"));
     lines.push(...auditLines("Engineering Inspiration", report.engineeringInspiration, "veteran 8 point outcome mass"));
@@ -766,6 +997,24 @@ const AuditScoreSchema = z.object({
   cellMassOnIneligible: z.number(),
   disagreementsWithAnyDistrict: z.number().int(),
 });
+/** One binary score: n, said, happened and Brier, null on an empty accumulator. */
+const BinaryScoreSchema = z.object({
+  n: z.number().int().nonnegative(),
+  said: z.number().nullable(),
+  happened: z.number().nullable(),
+  brier: z.number().nullable(),
+});
+const HeldEarlierScoreSchema = z.object({ teamEvents: z.number().int().nonnegative(), mass: z.number(), repeatWinners: z.number().int().nonnegative() });
+const SlotWinnerScoreSchema = z.object({
+  expected: z.object({ impact: z.number(), engineeringInspiration: z.number(), rookieAllStar: z.number(), fivePoint: z.number() }),
+  real: z.object({
+    impact: z.number().int(),
+    engineeringInspiration: z.number().int(),
+    rookieAllStar: z.number().int(),
+    judgedRookie: z.number().int(),
+    judged: z.number().int(),
+  }),
+});
 const TierSnapshotSchema = z.object({
   n: z.number().int().nonnegative(),
   events: z.number().int().nonnegative(),
@@ -779,6 +1028,18 @@ const TierSnapshotSchema = z.object({
   reliability: z.array(ReliabilityBinScoreSchema),
   impactRow: z.object({ said: z.number(), impactDraw: z.number(), realWins: z.number().int() }),
   audits: z.object({ impact: AuditScoreSchema, engineeringInspiration: AuditScoreSchema, rookieAllStar: AuditScoreSchema }).optional(),
+  // ── quick task 261014-qje: OPTIONAL, so a snapshot written before them (261014-mii) still parses ──
+  /** The same classes under the Q-09 decoration count. */
+  decorationClasses: z.record(z.string(), ClassScoreSchema).optional(),
+  /** Any award per season, keyed by the season as a string. */
+  seasons: z.record(z.string(), BinaryScoreSchema).optional(),
+  /** Any award per season, rookie state rookie only. */
+  rookieSeasons: z.record(z.string(), BinaryScoreSchema).optional(),
+  /** Did this team win Impact: `said` is the summed Impact draw, `happened` the real Impact win rate. */
+  impactWon: BinaryScoreSchema.optional(),
+  /** District tier only: the earlier week holders of each award (Q-05). */
+  heldEarlier: z.object({ impact: HeldEarlierScoreSchema, engineeringInspiration: HeldEarlierScoreSchema, rookieAllStar: HeldEarlierScoreSchema }).optional(),
+  slots: SlotWinnerScoreSchema.optional(),
 });
 /** A scorer snapshot: what `--write-snapshot` writes and `--before` reads. */
 export const ScoreSnapshotSchema = z.object({
@@ -792,10 +1053,26 @@ export const ScoreSnapshotSchema = z.object({
 });
 export type ScoreSnapshot = z.infer<typeof ScoreSnapshotSchema>;
 type TierSnapshot = z.infer<typeof TierSnapshotSchema>;
+type BinaryScore = z.infer<typeof BinaryScoreSchema>;
 
 function classScores(byClass: ReadonlyMap<string, BinaryAccumulator>): Record<string, { n: number; said: number; happened: number }> {
   const out: Record<string, { n: number; said: number; happened: number }> = {};
   for (const [label, acc] of [...byClass].sort((a, b) => a[0].localeCompare(b[0]))) out[label] = { n: acc.n, said: acc.sumP / acc.n, happened: acc.sumY / acc.n };
+  return out;
+}
+
+function binaryScore(acc: BinaryAccumulator): BinaryScore {
+  return {
+    n: acc.n,
+    said: acc.n === 0 ? null : acc.sumP / acc.n,
+    happened: acc.n === 0 ? null : acc.sumY / acc.n,
+    brier: acc.n === 0 ? null : brierOf(acc),
+  };
+}
+
+function seasonScores(bySeason: ReadonlyMap<number, BinaryAccumulator>): Record<string, BinaryScore> {
+  const out: Record<string, BinaryScore> = {};
+  for (const [season, acc] of [...bySeason].sort((a, b) => a[0] - b[0])) out[String(season)] = binaryScore(acc);
   return out;
 }
 
@@ -826,6 +1103,14 @@ export function tierSnapshot(report: TierReport): TierSnapshot {
     ...(report.tier === "dcmp"
       ? { audits: { impact: auditScore(report.impact), engineeringInspiration: auditScore(report.engineeringInspiration), rookieAllStar: auditScore(report.rookieAllStar) } }
       : {}),
+    decorationClasses: classScores(report.byDecorationClass),
+    seasons: seasonScores(report.bySeason),
+    rookieSeasons: seasonScores(report.rookieBySeason),
+    impactWon: binaryScore(report.impactWon),
+    ...(report.tier === "district"
+      ? { heldEarlier: { impact: { ...report.heldEarlier.impact }, engineeringInspiration: { ...report.heldEarlier.engineeringInspiration }, rookieAllStar: { ...report.heldEarlier.rookieAllStar } } }
+      : {}),
+    slots: { expected: { ...report.slots.expected }, real: { ...report.slots.real } },
   };
 }
 
@@ -857,72 +1142,182 @@ export function readScoreSnapshot(path: string): ScoreSnapshot {
   return ScoreSnapshotSchema.parse(JSON.parse(readFileSync(path, "utf8")));
 }
 
-/** The tolerance A3 allows between the Impact row and the Impact draw. */
+/** The tolerance gate 4 allows between the Impact row and the Impact draw. */
 export const IMPACT_ROW_TOLERANCE = 1e-9;
 
-/**
- * THE DISTRICT GATES against a BEFORE snapshot (quick task 261014-mii, its
- * pre-registered acceptance):
- *  - A1: the district any award Brier is strictly lower than BEFORE;
- *  - A2: in each of the review's four classes under the frozen review rule,
- *    |said minus happened| is strictly smaller than BEFORE and n is EQUAL (a
- *    different n means different team events, which FAILS);
- *  - A3: the sum of p10 minus the sum of the Impact draw is 0 within 1e-9.
- */
-export function districtGates(before: ScoreSnapshot, district: TierReport): AcceptanceGate[] {
-  const after = tierSnapshot(district);
-  const gates: AcceptanceGate[] = [];
-  gates.push({
-    name: "A1 district any award Brier strictly lower than BEFORE",
-    pass: after.brier !== null && before.district.brier !== null && after.brier < before.district.brier,
-    detail: `BEFORE ${before.district.brier?.toFixed(6) ?? "none"} (n=${String(before.district.n)}), AFTER ${after.brier?.toFixed(6) ?? "none"} (n=${String(after.n)})`,
-  });
-  const details: string[] = [];
-  let a2 = true;
-  for (const label of REVIEW_CLASSES) {
-    const b = before.district.reviewClasses[label];
-    const a = after.reviewClasses[label];
-    if (b === undefined || a === undefined) {
-      a2 = false;
-      details.push(`${label}: missing ${b === undefined ? "BEFORE" : "AFTER"}`);
-      continue;
-    }
-    const gapBefore = Math.abs(b.said - b.happened);
-    const gapAfter = Math.abs(a.said - a.happened);
-    const sameN = a.n === b.n;
-    const shrinks = gapAfter < gapBefore;
-    if (!sameN || !shrinks) a2 = false;
-    details.push(
-      `${label}: gap ${(gapBefore * 100).toFixed(2)} to ${(gapAfter * 100).toFixed(2)} points` +
-        (sameN ? ` (n=${String(a.n)})` : ` (n MISMATCH: BEFORE ${String(b.n)}, AFTER ${String(a.n)})`) +
-        (shrinks ? "" : " NOT SMALLER")
-    );
-  }
-  gates.push({ name: "A2 every review class gap strictly smaller, same team events", pass: a2, detail: details.join("; ") });
-  const diff = district.impactRow.said - district.impactRow.impactDraw;
-  gates.push({
-    name: "A3 district Impact row equals the Impact draw",
-    pass: district.anyAward.n > 0 && Math.abs(diff) <= IMPACT_ROW_TOLERANCE,
-    detail:
-      `AFTER said ${district.impactRow.said.toFixed(6)}, Impact draw ${district.impactRow.impactDraw.toFixed(6)}, difference ${diff.toExponential(3)}, real Impact wins ${String(district.impactRow.realWins)}; ` +
-      `BEFORE said ${before.district.impactRow.said.toFixed(6)}, Impact draw ${before.district.impactRow.impactDraw.toFixed(6)}, real Impact wins ${String(before.district.impactRow.realWins)}`,
-  });
-  return gates;
-}
+/** The seasons gate 3 reads rookies in, each on its own. */
+export const PASS_BAR_ROOKIE_SEASONS: readonly number[] = [2025, 2026];
 
 /**
- * The five gates of a `--before` run: A1 to A3 against the snapshot, then the
- * two DCMP gates (A4 Brier below the flat guess, A5 zero mass on ineligible
- * team events). The digest gate does not apply: the AFTER digest differs by
- * design and is printed instead.
+ * A class's chance wobble: two standard errors of what happened,
+ * `2 sqrt(h (1 - h) / n)`, from the class's own happened rate and size.
  */
-export function snapshotAcceptanceGates(before: ScoreSnapshot, district: TierReport, dcmp: TierReport): AcceptanceGate[] {
-  const [dcmpBrier, zeroMass] = acceptanceGates(dcmp, "", undefined);
-  return [
-    ...districtGates(before, district),
-    { ...dcmpBrier!, name: `A4 ${dcmpBrier!.name}` },
-    { ...zeroMass!, name: `A5 ${zeroMass!.name}` },
-  ];
+export function chanceWobble(happened: number, n: number): number {
+  return n > 0 ? 2 * Math.sqrt((happened * (1 - happened)) / n) : 0;
+}
+
+const fmt = (value: number | null | undefined, digits = 6): string => (value === null || value === undefined ? "none" : value.toFixed(digits));
+const pts = (value: number): string => (value * 100).toFixed(2);
+
+/**
+ * THE PASS BAR (quick task 261014-qje), every gate against the BEFORE
+ * snapshot, fixed and approved by Jacob before any scoring. Any missing
+ * BEFORE field FAILS, and a changed team event count anywhere FAILS.
+ *
+ *  1. District any award Brier strictly below BEFORE.
+ *  2. Class calibration: in each of the four review classes, under the frozen
+ *     review rule AND under the Q-09 decoration count, the AFTER gap between
+ *     said and happened is at most the BEFORE class's chance wobble, or
+ *     strictly smaller than the BEFORE gap; n equal.
+ *  3. Rookies in 2025 and in 2026, each season on its own: gap and Brier no
+ *     worse than BEFORE; n equal.
+ *  4. The district Impact row equals the Impact draw within 1e-9.
+ *  5. The district Impact Brier (did this team win Impact) no worse than
+ *     BEFORE; n equal.
+ *  6. The DCMP any award Brier no worse than BEFORE; n equal.
+ *  7. Exactly zero where an award cannot go: DCMP Impact, Engineering
+ *     Inspiration and Rookie All Star on ineligible team events; district
+ *     Impact, Engineering Inspiration and Rookie All Star on a team that
+ *     already won that same award at an earlier week district event.
+ */
+export function passBarGates(before: ScoreSnapshot, district: TierReport, dcmp: TierReport): AcceptanceGate[] {
+  const after = tierSnapshot(district);
+  const afterDcmp = tierSnapshot(dcmp);
+  const gates: AcceptanceGate[] = [];
+
+  // 1
+  {
+    const b = before.district;
+    const sameN = after.n === b.n;
+    gates.push({
+      name: "1 district any award Brier strictly below BEFORE",
+      pass: sameN && after.brier !== null && b.brier !== null && after.brier < b.brier,
+      detail: `BEFORE ${fmt(b.brier)} (n=${String(b.n)}), AFTER ${fmt(after.brier)} (n=${String(after.n)})${sameN ? "" : " n MISMATCH"}`,
+    });
+  }
+
+  // 2
+  {
+    const details: string[] = [];
+    let pass = true;
+    const views = [
+      ["frozen review rule", before.district.reviewClasses, after.reviewClasses],
+      ["Q-09 decoration count", before.district.decorationClasses, after.decorationClasses],
+    ] as const;
+    for (const [viewName, beforeClasses, afterClasses] of views) {
+      for (const label of REVIEW_CLASSES) {
+        const b = beforeClasses?.[label];
+        const a = afterClasses?.[label];
+        if (b === undefined || a === undefined) {
+          pass = false;
+          details.push(`${viewName} ${label}: missing ${b === undefined ? "BEFORE" : "AFTER"}`);
+          continue;
+        }
+        const wobble = chanceWobble(b.happened, b.n);
+        const gapBefore = Math.abs(b.said - b.happened);
+        const gapAfter = Math.abs(a.said - a.happened);
+        const sameN = a.n === b.n;
+        const inside = gapAfter <= wobble;
+        const smaller = gapAfter < gapBefore;
+        const ok = sameN && (inside || smaller);
+        if (!ok) pass = false;
+        details.push(
+          `${viewName} ${label}: AFTER gap ${pts(gapAfter)} points, wobble ${pts(wobble)}, BEFORE gap ${pts(gapBefore)}` +
+            (sameN ? ` (n=${String(a.n)})` : ` (n MISMATCH: BEFORE ${String(b.n)}, AFTER ${String(a.n)})`) +
+            (ok ? (inside ? " inside the wobble" : " smaller than BEFORE") : " FAILS")
+        );
+      }
+    }
+    gates.push({ name: "2 class calibration, each class inside its chance wobble or smaller than BEFORE, same team events", pass, detail: details.join("; ") });
+  }
+
+  // 3
+  {
+    const details: string[] = [];
+    let pass = true;
+    for (const season of PASS_BAR_ROOKIE_SEASONS) {
+      const b = before.district.rookieSeasons?.[String(season)];
+      const a = after.rookieSeasons?.[String(season)];
+      if (b === undefined || a === undefined || b.said === null || b.happened === null || b.brier === null || a.said === null || a.happened === null || a.brier === null) {
+        pass = false;
+        details.push(`${String(season)}: missing ${b === undefined || b.brier === null ? "BEFORE" : "AFTER"}`);
+        continue;
+      }
+      const gapBefore = Math.abs(b.said - b.happened);
+      const gapAfter = Math.abs(a.said - a.happened);
+      const sameN = a.n === b.n;
+      const ok = sameN && gapAfter <= gapBefore && a.brier <= b.brier;
+      if (!ok) pass = false;
+      details.push(
+        `${String(season)}: gap ${pts(gapBefore)} to ${pts(gapAfter)} points, Brier ${fmt(b.brier)} to ${fmt(a.brier)}` +
+          (sameN ? ` (n=${String(a.n)})` : ` (n MISMATCH: BEFORE ${String(b.n)}, AFTER ${String(a.n)})`) +
+          (ok ? "" : " FAILS")
+      );
+    }
+    gates.push({ name: "3 rookies in 2025 and in 2026, gap and Brier no worse than BEFORE", pass, detail: details.join("; ") });
+  }
+
+  // 4
+  {
+    const diff = district.impactRow.said - district.impactRow.impactDraw;
+    gates.push({
+      name: "4 district Impact row equals the Impact draw",
+      pass: district.anyAward.n > 0 && Math.abs(diff) <= IMPACT_ROW_TOLERANCE,
+      detail:
+        `AFTER said ${district.impactRow.said.toFixed(6)}, Impact draw ${district.impactRow.impactDraw.toFixed(6)}, difference ${diff.toExponential(3)}, real Impact wins ${String(district.impactRow.realWins)}; ` +
+        `BEFORE said ${before.district.impactRow.said.toFixed(6)}, Impact draw ${before.district.impactRow.impactDraw.toFixed(6)}`,
+    });
+  }
+
+  // 5
+  {
+    const b = before.district.impactWon;
+    const a = after.impactWon!;
+    const sameN = b !== undefined && a.n === b.n;
+    gates.push({
+      name: "5 district Impact Brier (did this team win Impact) no worse than BEFORE",
+      pass: b !== undefined && sameN && b.brier !== null && a.brier !== null && a.brier <= b.brier,
+      detail:
+        b === undefined
+          ? `missing BEFORE; AFTER ${fmt(a.brier)} (n=${String(a.n)})`
+          : `BEFORE ${fmt(b.brier)} (n=${String(b.n)}), AFTER ${fmt(a.brier)} (n=${String(a.n)})${sameN ? "" : " n MISMATCH"}`,
+    });
+  }
+
+  // 6
+  {
+    const b = before.dcmp;
+    const sameN = afterDcmp.n === b.n;
+    gates.push({
+      name: "6 DCMP any award Brier no worse than BEFORE",
+      pass: sameN && afterDcmp.brier !== null && b.brier !== null && afterDcmp.brier <= b.brier,
+      detail: `BEFORE ${fmt(b.brier)} (n=${String(b.n)}), AFTER ${fmt(afterDcmp.brier)} (n=${String(afterDcmp.n)})${sameN ? "" : " n MISMATCH"}`,
+    });
+  }
+
+  // 7
+  {
+    const dcmpAudits = [
+      ["Impact", dcmp.impact],
+      ["Engineering Inspiration", dcmp.engineeringInspiration],
+      ["Rookie All Star", dcmp.rookieAllStar],
+    ] as const;
+    const held = [
+      ["Impact", district.heldEarlier.impact],
+      ["Engineering Inspiration", district.heldEarlier.engineeringInspiration],
+      ["Rookie All Star", district.heldEarlier.rookieAllStar],
+    ] as const;
+    const dcmpZero = dcmp.anyAward.n > 0 && dcmpAudits.every(([, audit]) => audit.onIneligible === 0 && audit.cellMassOnIneligible === 0);
+    const districtZero = district.anyAward.n > 0 && held.every(([, audit]) => audit.mass === 0);
+    gates.push({
+      name: "7 exactly zero where an award cannot go (DCMP ineligible team events; district earlier week holders of the same award)",
+      pass: dcmpZero && districtZero,
+      detail:
+        `DCMP ${dcmpAudits.map(([label, audit]) => `${label} ${String(audit.onIneligible)} award / ${String(audit.cellMassOnIneligible)} cell`).join(", ")}; ` +
+        `district ${held.map(([label, audit]) => `${label} ${String(audit.mass)} on ${String(audit.teamEvents)} holder team events`).join(", ")}`,
+    });
+  }
+  return gates;
 }
 
 async function main(): Promise<void> {
@@ -954,6 +1349,7 @@ async function main(): Promise<void> {
       console.log(``);
     }
     console.log(`team events with an unknown rookie state (priced as their own class): ${String(load.unknownRookieStateTeamEvents)}`);
+    console.log(`district tier team events touching a null week (never earlier, Q-05): ${String(load.nullWeekTeamEvents)}`);
     const digest = districtOddsDigest(load.rows);
     console.log(`DISTRICT TIER DIGEST: ${digest.digest} (${String(digest.lines)} team events)`);
     console.log(``);
@@ -970,7 +1366,7 @@ async function main(): Promise<void> {
       console.log(`BEFORE snapshot: ${beforePath!} (label ${before.label}, ${before.timestamp})`);
       console.log(`district digest BEFORE ${before.districtDigest}, AFTER ${digest.digest}`);
       console.log(``);
-      gates = snapshotAcceptanceGates(before, reports.get("district")!, reports.get("dcmp")!);
+      gates = passBarGates(before, reports.get("district")!, reports.get("dcmp")!);
     }
     for (const line of gateLines(gates)) console.log(line);
     if (gates.some((gate) => !gate.pass)) process.exitCode = 1;

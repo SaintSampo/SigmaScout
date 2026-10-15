@@ -1,19 +1,25 @@
 /**
- * The one DCMP award eligibility rule (quick task 261014-i8i). Pure, synthetic,
- * no corpus.
+ * The one DCMP award eligibility rule (quick task 261014-i8i) and its weights
+ * from the one award model (quick task 261014-qje, Q-11). Pure, synthetic, no
+ * corpus.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   dcmpAwardEligibility,
   dcmpEligibilityChance,
-  dcmpEntrantWeight,
+  eligibilityWeight,
   type DcmpEligibilityTeam,
 } from "./dcmpAwardEligibility.js";
-import { awardBaseRate, awardPointsBucketIndex } from "./awardBaseRates.js";
+import { hasAwardSlateTables, slateEntrantWeight } from "./awardSlate.js";
 import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "./ledgerSimulation.js";
 
+/** A season with slate tables at both tiers: weights are class lifts. */
 const SEASON = 2026;
+/** A season with no slate tables at either tier: weights are the audience (1 or 0). */
+const AUDIENCE_SEASON = 2019;
+
+const ROOKIE: DistrictAwardProfile = { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 };
 
 function team(teamKey: string, overrides: Partial<DcmpEligibilityTeam> = {}): DcmpEligibilityTeam {
   return { teamKey, rookie: false, heldAwards: [], districtEventKeys: [], ...overrides };
@@ -41,9 +47,10 @@ const FINAL = new Set(["2026wabon", "2026pncmp"]);
 
 describe("dcmpAwardEligibility", () => {
   const eligibility = dcmpAwardEligibility({
+    season: AUDIENCE_SEASON,
     teams: TEAMS,
     awardFinal: (key) => FINAL.has(key),
-    weight: (entry, awardType) => (awardType === 10 ? (entry.rookie ? 1 : 0) : awardType === 9 ? (entry.rookie ? 0 : 1) : 1),
+    profileOf: (teamKey) => (teamKey === "frc2" ? ROOKIE : ZERO_AWARD_PROFILE),
   });
 
   it("lists every award type in DCMP_DRAWN_AWARD_TYPES order", () => {
@@ -103,26 +110,67 @@ describe("dcmpEligibilityChance", () => {
   });
 });
 
-describe("dcmpEntrantWeight", () => {
-  const rookie: DistrictAwardProfile = { bucket: "none", rookieState: "rookie" };
-  const veteran: DistrictAwardProfile = { bucket: "three-or-more", rookieState: "veteran" };
+describe("the weights come from the one award model (quick task 261014-qje, Q-11)", () => {
+  const decorated: DistrictAwardProfile = { bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 6, priorImpactWins: 1 };
+  const plain: DistrictAwardProfile = { bucket: "none", rookieState: "veteran", priorJudgedAwards: 0, priorImpactWins: 0 };
+  const profiles = new Map<string, DistrictAwardProfile>([
+    ["frcHeld", decorated],
+    ["frcA", decorated],
+    ["frcB", plain],
+    ["frcR", ROOKIE],
+  ]);
+  const teams: DcmpEligibilityTeam[] = [
+    team("frcHeld", { heldAwards: [{ eventKey: "2026wfin", awardType: 0 }], districtEventKeys: ["2026wfin", "2026wopn"] }),
+    team("frcA", { districtEventKeys: ["2026wopn"] }),
+    team("frcB", { districtEventKeys: ["2026wopn"] }),
+    team("frcR", { rookie: true, districtEventKeys: ["2026wopn"] }),
+  ];
+  const run = (season: number) =>
+    dcmpAwardEligibility({ season, teams, awardFinal: (key) => key === "2026wfin", profileOf: (key) => profiles.get(key)! });
 
-  it("applies eligibility first: Rookie All Star rookies only, Engineering Inspiration veterans only", () => {
-    expect(dcmpEntrantWeight(veteran, 10, SEASON, "uniform")).toBe(0);
-    expect(dcmpEntrantWeight(rookie, 9, SEASON, "uniform")).toBe(0);
-    expect(dcmpEntrantWeight(rookie, 10, SEASON, "uniform")).toBe(1);
-    expect(dcmpEntrantWeight(veteran, 9, SEASON, "uniform")).toBe(1);
-    expect(dcmpEntrantWeight(ZERO_AWARD_PROFILE, 10, SEASON, "decoration")).toBe(0);
+  it("a held candidate weighs its DCMP tier class lift, an open event's entrant its district tier class lift", () => {
+    expect(hasAwardSlateTables(SEASON, "dcmp")).toBe(true);
+    expect(hasAwardSlateTables(SEASON, "district")).toBe(true);
+    const impact = run(SEASON)[0]!;
+    expect(impact.candidates).toEqual([{ teamKey: "frcHeld", weight: slateEntrantWeight(SEASON, "dcmp", 0, decorated) }]);
+    const entrants = new Map(impact.pendingEvents[0]!.entrants.map((entrant) => [entrant.teamKey, entrant.weight] as const));
+    expect(entrants.get("frcA")).toBe(slateEntrantWeight(SEASON, "district", 0, decorated));
+    expect(entrants.get("frcB")).toBe(slateEntrantWeight(SEASON, "district", 0, plain));
+    expect(entrants.get("frcA")).not.toBe(entrants.get("frcB"));
   });
 
-  it("weights by the base rate pmf mass at the award's points under decoration", () => {
-    const rate = awardBaseRate(SEASON, "three-or-more", "veteran");
-    expect(dcmpEntrantWeight(veteran, 0, SEASON, "decoration")).toBe(rate.pmf[awardPointsBucketIndex(10)!]);
-    expect(dcmpEntrantWeight(veteran, 9, SEASON, "decoration")).toBe(rate.pmf[awardPointsBucketIndex(8)!]);
+  it("an entrant already holding that award at a final district event weighs 0 at the open event; a cross award stays open", () => {
+    const [impact, engineeringInspiration] = run(SEASON);
+    expect(impact!.pendingEvents[0]!.entrants.find((entrant) => entrant.teamKey === "frcHeld")!.weight).toBe(0);
+    expect(engineeringInspiration!.pendingEvents[0]!.entrants.find((entrant) => entrant.teamKey === "frcHeld")!.weight).toBe(
+      slateEntrantWeight(SEASON, "district", 9, decorated)
+    );
   });
 
-  it("falls back to 1 for a season with no table", () => {
-    expect(dcmpEntrantWeight(veteran, 0, 1990, "decoration")).toBe(1);
+  it("a season with no slate tables weighs the audience: 1 inside it, 0 outside it", () => {
+    expect(hasAwardSlateTables(AUDIENCE_SEASON, "dcmp")).toBe(false);
+    expect(hasAwardSlateTables(AUDIENCE_SEASON, "district")).toBe(false);
+    const [impact, engineeringInspiration, rookieAllStar] = run(AUDIENCE_SEASON);
+    expect(impact!.candidates).toEqual([{ teamKey: "frcHeld", weight: 1 }]);
+    expect(impact!.pendingEvents[0]!.entrants).toEqual([
+      { teamKey: "frcHeld", weight: 0 },
+      { teamKey: "frcA", weight: 1 },
+      { teamKey: "frcB", weight: 1 },
+      { teamKey: "frcR", weight: 1 },
+    ]);
+    expect(engineeringInspiration!.pendingEvents[0]!.entrants.find((entrant) => entrant.teamKey === "frcR")!.weight).toBe(0);
+    expect(rookieAllStar!.pendingEvents[0]!.entrants.map((entrant) => entrant.weight)).toEqual([0, 0, 0, 1]);
+  });
+
+  it("eligibilityWeight applies the audience first at either tier: Rookie All Star rookies only, Engineering Inspiration veterans only", () => {
+    for (const season of [SEASON, AUDIENCE_SEASON]) {
+      for (const tier of ["district", "dcmp"] as const) {
+        expect(eligibilityWeight(season, tier, 10, ZERO_AWARD_PROFILE)).toBe(0);
+        expect(eligibilityWeight(season, tier, 9, ROOKIE)).toBe(0);
+        expect(eligibilityWeight(season, tier, 10, ROOKIE)).toBeGreaterThan(0);
+        expect(eligibilityWeight(season, tier, 0, ROOKIE)).toBeGreaterThan(0);
+      }
+    }
   });
 });
 

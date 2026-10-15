@@ -15,6 +15,7 @@ import {
   type DistrictAwardProfile,
   type DistrictLedgerEventInput,
 } from "./ledgerSimulation.js";
+import { buildDistrictAwardSlate } from "./awardSlate.js";
 import { maxEventPoints } from "./pointModel.js";
 import { pickPositionPmfForSeason } from "./pickDraft.js";
 
@@ -62,7 +63,7 @@ function remainingMatches(): SimMatchInput[] {
 }
 
 function inputFor(teamCount: number, overrides: Partial<DistrictLedgerEventInput> = {}): DistrictLedgerEventInput {
-  return {
+  const input: DistrictLedgerEventInput = {
     eventKey: "2026zztest",
     season: SEASON,
     tier: "district",
@@ -74,6 +75,12 @@ function inputFor(teamCount: number, overrides: Partial<DistrictLedgerEventInput
     awardProfiles: profilesFor(teamCount),
     ...overrides,
   };
+  // Every district tier event whose awards are open carries an award slate
+  // since quick task 261014-qje (Q-01): the season's counts over the award
+  // field, every team allowed every award.
+  if ("awardSlate" in overrides) return input;
+  const field = [...input.baselines.map((baseline) => baseline.teamKey), ...(input.awardOnlyTeams ?? [])].map((teamKey) => ({ teamKey }));
+  return { ...input, awardSlate: buildDistrictAwardSlate({ season: input.season, awardField: field, eligibility: [] }) };
 }
 
 /** The column of one team, as a histogram over point values of the given length. */

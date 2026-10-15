@@ -501,11 +501,15 @@ function seasonOverSeasonChanges(season: number, history: DcmpHistory): Record<D
 // The pre-registered tuning grid (Jacob, 2026-09-27)
 // ---------------------------------------------------------------------------
 
-/** K1: how the judged award candidates are weighted. */
-export type ChampCutoffWeighting = "uniform" | "decoration";
-
+/**
+ * One tuning setting. The judged award candidates' weighting (the old K1,
+ * uniform or decoration) is GONE since quick task 261014-qje (Q-11): the champ
+ * draws pick DCMP Impact, Engineering Inspiration and Rookie All Star winners
+ * with the one award model's own class weights (`dcmpAwardEligibility.ts`), so
+ * no separate champ weighting remains to tune.
+ */
 export interface ChampCutoffSetting {
-  readonly weighting: ChampCutoffWeighting;
+  /** K2: fixed or drawn qualifying award counts; the DCMP award slate reads the same mode. */
   readonly countMode: ChampCutoffCountMode;
   /** K3: `hypotheticalDcmpPart`'s spread scale. */
   readonly spreadScale: number;
@@ -515,15 +519,16 @@ export interface ChampCutoffSetting {
 export const CHAMP_CUTOFF_SPREAD_SCALES = [1.0, 1.15, 1.3, 1.5, 1.75] as const;
 
 /**
- * THE WHOLE GRID, fixed before any run and in its pre-registered order: K1,
- * then K2, then K3 ascending. The first entry is the untuned default. Nothing
- * outside it may be tuned; adding a knob is a new plan.
+ * THE WHOLE GRID, fixed before any run and in its pre-registered order: K2,
+ * then K3 ascending, 2 times 5 = 10 settings (quick task 261014-qje removed
+ * K1, Q-11). The first entry is the untuned default. Nothing outside it may be
+ * tuned; adding a knob is a new plan.
  */
-export const CHAMP_CUTOFF_TUNING_GRID: readonly ChampCutoffSetting[] = (["uniform", "decoration"] as const).flatMap((weighting) =>
-  (["fixed", "drawn"] as const).flatMap((countMode) => CHAMP_CUTOFF_SPREAD_SCALES.map((spreadScale) => ({ weighting, countMode, spreadScale })))
+export const CHAMP_CUTOFF_TUNING_GRID: readonly ChampCutoffSetting[] = (["fixed", "drawn"] as const).flatMap((countMode) =>
+  CHAMP_CUTOFF_SPREAD_SCALES.map((spreadScale) => ({ countMode, spreadScale }))
 );
 
-/** The untuned default: uniform weighting, fixed counts, no widening. */
+/** The untuned default: fixed counts, no widening. */
 export const CHAMP_CUTOFF_DEFAULT_SETTING: ChampCutoffSetting = CHAMP_CUTOFF_TUNING_GRID[0]!;
 
 /** One season's walk-forward selection, as `--write-tuning` recorded it. */
