@@ -44,17 +44,19 @@
  *      run 2026-09-25) — the captain rule's slot counts, the naive rule's score,
  *      the per round and pooled pick order agreement, the top 3 agreement and
  *      each round's no information floor.
- *   3. `pnpm measure:award-ordering-tables`
- *      (`npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
- *      2026-09-29 under the Impact first ordering, quick task 260929-imp) for
- *      the two Impact and Rookie All Star ordering figures. Their full statement, the
- *      remaining positions and every sample size live on
- *      `/methodology/awards`; this page states only the two that name the
- *      mechanism.
- *   4. `pnpm measure:district-award-base-rates`
- *      (`npx tsx scripts/measureDistrictAwardBaseRates.ts`, run 2026-09-25) —
- *      the award base rate tables. Their full statement lives on
- *      `/methodology/awards`; this page names only the registered season set.
+ *   3. `pnpm measure:award-slate`
+ *      (`npx tsx scripts/measureAwardSlate.ts`, quick task 261014-qje, run
+ *      2026-10-14; saved as `261014-qje-measure.txt` in that quick task's
+ *      directory) — the one award slate both tiers price from: the 2026
+ *      expected award counts per district event (DISTRICT TIER 2026 block:
+ *      Impact 0.9709, Engineering Inspiration 0.9806, Rookie All Star 0.9091,
+ *      other team awards 11.7087) and the point value cross check (29,871
+ *      district tier team events, 0 mismatches). The class weights and their
+ *      sample sizes live on `/methodology/awards`.
+ *   4. (retired) `pnpm measure:district-award-base-rates` and
+ *      `pnpm measure:award-ordering-tables` measured the per team award model
+ *      261014-qje removed; their figures (26.1%, 38.1%, the 0.022 of a point
+ *      fold cost) are history and are not quoted on the page.
  *   5. `npx vitest run packages/core/districts/pointFormulas.reconciliation.test.ts`
  *      (10-01) — the qualification, alliance selection and playoff point
  *      formulas reconciled against real values The Blue Alliance reports.
@@ -69,13 +71,16 @@
  *
  *   8. `pnpm measure:champ-cutoff`
  *      (`npx tsx scripts/measureChampCutoff.ts`, quick task 260927-6bf, re-run
- *      2026-10-05 on the district tier lock floor of quick task 261005-04t) —
- *      the Champ Locks simulated line's error at the end of each district
- *      season, walk forward over all 69 district seasons: 17.8 points against
- *      40.5 for the midpoint rule at the same position. Its likely range
- *      covered the published line in 49 of 69 seasons, short of the
- *      pre-registered 72% to 88% band. The range is shown anyway (Jacob,
- *      2026-09-27), so the page quotes that coverage. The 2026-09-27 run read
+ *      2026-10-14 by quick task 261014-qje on freshly composed artifacts after
+ *      the award draws moved onto the award slate; saved as
+ *      `261014-qje-champ-cutoff-after.txt`) — the Champ Locks simulated line's
+ *      error at the end of each district season, walk forward over all 69
+ *      district seasons: 17.58 points against 39.03 for the same position
+ *      naive line (the midpoint rule). Its likely range covered the published
+ *      line in 48 of 69 seasons (69.6%), short of the pre-registered 72% to 88%
+ *      band. The range is shown anyway (Jacob, 2026-09-27), so the page quotes
+ *      that coverage. Before 261014-qje the run read 17.8, 40.5 and 49 of 69.
+ *      The 2026-09-27 run read
  *      16.4, 41.0 and 49 of 69, on verdicts that already held championship
  *      points. On 2026-10-07, after quick task 261007-jvz's finality cascade,
  *      the run reproduced 18.2, 40.4 and 48 of 69 over 68 seasons exactly,
@@ -205,8 +210,8 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
         ],
         [
           "Awards",
-          "Set by the judged awards a team wins at the event. The chance and the typical amount come from measured base rates.",
-          "Stated on the Predicting awards page",
+          "Each team award a team wins at the event pays: 10 for Impact, 8 for Engineering Inspiration or Rookie All Star, and 5 for any other team award that pays points.",
+          "29,871 rows, 0 mismatches",
         ],
         [
           "District championship",
@@ -240,9 +245,9 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "Until the runs finish those two chips read Pending and no cutoff is printed. Where the runs fail or cannot be set up they read No call and no cutoff is printed.",
       "At the season start and after each competition week of 48 district seasons, 2023 to 2026, predicted only from the matches already played, the simulated line missed the cutoff the season settled on by 1.2 points on average over 205 positions, against 1.9 for the midpoint rule at the same positions. Its likely range held the settled cutoff at 179 of those 205 positions, 87%, where a range this wide should hold about 80%. The settled cutoff is the one this tab prints once every team has finished, not the line The Blue Alliance publishes, which ranks a different total.",
       "Once every team still racing for points has finished its season, nothing is drawn any more. The cutoff is then the midpoint of the last team inside the slots and the first team outside them, which is the midpoint rule. The midpoint rule also applies, with no likely range, where the runs left out a team whose season total could not be built, because they ranked a smaller field.",
-      "The Champ Locks tab reads its predicted cutoff the same way, except that each team's district points are drawn on their own. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are also drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
+      "The Champ Locks tab reads its predicted cutoff the same way, except that each team's district points are drawn on their own. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are also drawn and take their slots first, and the line is read from the teams left. The draws pick award winners the same way the award cells are priced.",
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
-      "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 17.8 points on average over 69 district seasons, against 40.5 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 49 of 69 seasons, 71%, where a range this wide should hold about 80%.",
+      "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 17.6 points on average over 69 district seasons, against 39.0 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 48 of 69 seasons, 70%, where a range this wide should hold about 80%.",
       "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
       "A rewound view predicts every match still ahead from the ratings and odds as they stood at that stop. An event whose schedule was not yet posted then is predicted over generated schedules, as an event that has not started is. A playoff stop, Round 1 to Round 5 or Finals, keeps the real result of every set played by then and predicts the rest.",
     ],
@@ -259,7 +264,10 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
           "Playoffs",
           "The eight alliance double elimination bracket, with every match still to be played priced from the two alliances' published ratings.",
         ],
-        ["Awards", "A draw from the base rate for the team's own count of prior judged awards and its rookie status."],
+        [
+          "Awards",
+          "Each event has an expected number of each award, shared among the teams that can win it by how teams like it have won before. District events and District Championships work the same way.",
+        ],
       ],
     },
   },
@@ -287,14 +295,16 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
   },
   {
     id: "award-base-rates",
-    heading: "Award base rates",
+    heading: "How awards are predicted",
     paragraphs: [
-      "The award cell is priced from a table of how often teams in the same position have earned district award points. The table for each season is built only from the seasons before it.",
-      "Impact and Rookie All Star are priced separately, by where a team sits in its event's field rather than by that table. The team with the most earlier Impact wins, ties broken by earlier judged awards, wins Impact 26.1% of the time, and the lowest numbered rookie wins Rookie All Star 38.1% of the time. The rest of the judged awards are drawn from a table with those two taken out.",
-      "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
-      "Two awards at one event are never a predicted outcome. The tables did measure teams that won Rookie All Star and a judged award, or Impact and one more, and that share of the mass is moved onto the higher award of the pair instead. The most it costs any 2026 rate is 0.022 of a point of expected award points, which buys an award cell that never offers an outcome a reader should not plan around.",
+      "Each event gives a known number of each award. The awards are shared among the teams that can win them. District events and District Championships are priced the same way.",
+      "The number of each award is how many an event gave on average in the most recent earlier season. Only the awards on FIRST's list for the season count, so an award FIRST retired adds nothing.",
+      "In 2026 a district event was expected to give 0.97 Impact awards, 0.98 Engineering Inspiration awards and 11.71 other team awards. An event with a rookie was expected to give 0.91 Rookie All Star awards.",
+      "Engineering Inspiration goes only to veterans, and Rookie All Star only to rookies. A team that won Impact, Engineering Inspiration or Rookie All Star at an earlier district event that season cannot win the same award at a later one. At a District Championship those three awards go only to teams that won the same award at a district event that season.",
+      "A team's share rests on how often teams with the same award record won before, in earlier seasons only. For Impact, earlier Impact wins count first and other earlier team awards second. An award record counts every team award that pays district points, won at any event in an earlier season.",
+      "The prediction gives a team at most one award at an event, its highest. The weights and their sample sizes are on the Predicting awards page.",
       "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
-      "A team with no published award profile is priced as a veteran with no prior judged awards.",
+      "A team with no published award profile is priced as a veteran with no earlier awards.",
       "One qualification slot is held back for every district event whose Impact award is still to come. The Impact winner at a district event takes a slot, so a team is never told it is Locked on a slot an award is about to claim. A slot held back this way returns to the points race as soon as that award is posted.",
     ],
   },
@@ -331,11 +341,11 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
         ["Declines are not modelled", "One captain slot in 3,880 went to a lower ranked team, at 2026milac."],
         [
           "The award draw does not depend on how a team did on the field",
-          "The base rate table covers judged awards only.",
+          "A team's share of an award reads only its earlier awards and whether it is a rookie.",
         ],
         [
-          "The district level award table is applied at the district championship too",
-          "That assumes the same earning rates at both tiers, and it has not been tested.",
+          "An award in its first season is priced like the other awards worth the same points",
+          "Its expected number is their average, and its winners follow their weights. From its second season it is measured on its own.",
         ],
         [
           "Under 24 teams, the simulation seats whole alliances from the top seed down and the rest forfeit",
@@ -355,7 +365,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
         ],
         [
           "An event whose awards are posted can still read as open",
-          "When the award rows are missing and no team earned award points, the award cell stays open at the base rate.",
+          "When the award rows are missing and no team earned award points, the award cell stays open at its predicted odds.",
         ],
         [
           "Awards are picked up for a day after an event's last match",

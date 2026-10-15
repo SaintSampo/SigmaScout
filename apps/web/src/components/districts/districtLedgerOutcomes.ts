@@ -171,7 +171,7 @@ const ONE_JUDGED_AWARD_POINTS = AWARD_POINT_SUPPORT[1]!;
  * THE 8 POINT ROW IS ROOKIE ALL STAR FOR A ROOKIE AND ENGINEERING INSPIRATION
  * FOR A VETERAN, never both. A veteran cannot win Rookie All Star, and no rookie
  * has won Engineering Inspiration at either tier in any corpus season 2016 to
- * 2026 (`measure:dcmp-award-slate` prints that census), so exactly one row owns
+ * 2026 (`measure:award-slate` prints that census), so exactly one row owns
  * the mass at 8 and it is never counted twice. `isRookie` is the artifact's own
  * `awardProfile.rookie` flag; where the artifact publishes no profile the caller
  * passes `false`, and the row reads Engineering Inspiration, the award a team

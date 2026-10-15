@@ -29,29 +29,30 @@
  * top pick figure is the R@1 column. State no number here that those do not
  * print.
  *
- * The district award base rate section's own figures come from a different
- * command, `pnpm measure:district-award-base-rates`
- * (`npx tsx scripts/measureDistrictAwardBaseRates.ts`, run 2026-09-25), and
- * are cross checked against the committed table literals in
- * `packages/core/districts/awardBaseRates.ts`.
+ * THE DISTRICT AWARD SECTION (id kept as `district-award-base-rates` so the
+ * anchor stays stable) describes the one award slate of quick task 261014-qje,
+ * `packages/core/districts/awardSlate.ts`, which prices district events and
+ * District Championships alike. Every figure in it comes from
+ * `pnpm measure:award-slate` (`npx tsx scripts/measureAwardSlate.ts`, run
+ * 2026-10-14, saved as `261014-qje-measure.txt` in that quick task's
+ * directory) and is cross checked against the committed
+ * `AWARD_SLATE_TABLES` literal:
  *
- * The Impact and Rookie All Star ORDERING figures in that same section come
- * from `pnpm measure:award-ordering-tables`
- * (`npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
- * 2026-09-29 by quick task 260929-imp), whose PRACTICAL ANSWER block prints
- * each one, and are cross checked against the committed literals in
- * `packages/core/districts/awardOrderingTables.ts`. The Impact ordering sorts
- * on prior Impact wins first, then prior judged awards (26.06% at position 1,
- * 197 of 756). The script also prints the one number ordering it replaced as a
- * REFERENCE ONLY line (17.99%, 136 of 756); that figure is deliberately NOT
- * stated on this page, because the site no longer uses it.
+ *   - the 2026 district counts per event (DISTRICT TIER 2026 block: impact
+ *     0.9709, engineeringInspiration 0.9806, rookieAllStar 0.9091 over events
+ *     with a rookie, judged 11.7087), from 2025's district events;
+ *   - the 2026 district class weights and their n (the same block's lifts by
+ *     cell, rounded to two places; the training seasons 2019, 2020 and 2022 to
+ *     2025);
+ *   - the 2026 DCMP judged count, 12 per division and per single championship
+ *     (DCMP TIER 2026 block, `counts, single` and `counts, division`);
+ *   - the registered seasons, 2023 to 2026 at both tiers.
  *
- * The District Championship paragraphs (quick task 261014-i8i) describe the
- * DCMP award slate, `packages/core/districts/dcmpAwardSlate.ts`. Their one
- * number, 12 judged awards per division or single championship in 2026, is
- * the 2026 judged anchor that `pnpm measure:dcmp-award-slate`
- * (`npx tsx scripts/measureDcmpAwardSlate.ts`, run 2026-10-14) printed and the
- * committed `DCMP_AWARD_SLATE_TABLES` literal carries.
+ * RETIRED with the per team model (261014-qje, Q-12), DO NOT RESTORE: the base
+ * rate table (`measure:district-award-base-rates`), the Impact and Rookie All
+ * Star ordering figures (`measure:award-ordering-tables`) and the separate
+ * DCMP slate measurement (`measure:dcmp-award-slate`). Their figures are
+ * history and are not quoted on the page.
  *
  * RETIRED BY PHASE 10, DO NOT RESTORE. `AWARDS_LEAD`'s second sentence used to
  * tell a reader that the site showed no award prediction anywhere yet. The
@@ -66,7 +67,7 @@
 export const AWARDS_PAGE_TITLE = "Predicting awards";
 
 export const AWARDS_LEAD =
-  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the tables at the foot of this page, the Champ Locks tab draws the District Championship's Impact, Engineering Inspiration and Rookie All Star winners when it sets its predicted cutoff, and no other page on the site shows an award prediction. The Champ Locks tab prices a team's award points at a District Championship from earlier championships.";
+  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the model at the foot of this page, the Champ Locks tab draws the District Championship's Impact, Engineering Inspiration and Rookie All Star winners when it sets its predicted cutoff, and no other page on the site shows an award prediction. The Champ Locks tab prices a team's award points at a District Championship from earlier championships.";
 
 export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"] as const;
 export type AwardsSectionId = (typeof AWARDS_SECTION_IDS)[number];
@@ -196,35 +197,37 @@ export const AWARDS_SECTIONS: readonly AwardsSection[] = [
   },
   {
     id: "district-award-base-rates",
-    heading: "District award base rates",
+    heading: "How district awards are predicted",
     paragraphs: [
-      "The District Locks ledger prices each team's award cell from a table of how often teams in the same position earned district award points. The table for a season is built only from the seasons before it.",
-      "Seven seasons carry a table: 2019, 2020, 2022, 2023, 2024, 2025 and 2026. The three earliest district seasons carry none, because fewer than three earlier district seasons exist for them.",
-      "Rookie status splits the table only where a team has never won a judged award. A rookie has no earlier season, so the two decorated buckets have no rookie cell to measure, and TBA reports a rookie year for every team here, so the three unknown rows are empty as well.",
-      "Impact and Rookie All Star are priced by a team's place in its event's field instead of by its bucket average. For Impact the field is ordered by earlier Impact wins, then by earlier judged awards. The team at the top of that order wins Impact 26.1% of the time, the second 14.4%, and everything from eleventh place down 0.4%. The lowest numbered rookie in the field wins Rookie All Star 38.1% of the time and the second lowest 28.6%.",
-      "Those two chances are layered on a table of the remaining judged awards, measured with the Impact and Rookie All Star points taken out, so neither award is counted twice. The 2026 ordering rests on 756 district events from the seasons before it. A team whose award record the site does not carry is priced from the base rates alone.",
-      "A District Championship is priced from earlier championships, not from these tables. Impact, Engineering Inspiration and Rookie All Star go only to teams that won the same award at a district event that season. A team that cannot win one of them reads 0% for it.",
-      "A championship played in divisions gives those three awards at its finals and its judged awards in each division. A championship played as one event gives both. How many of each comes from the district's own count the season before. In 2026 each division and each single championship was expected to give 12 judged awards. The teams most likely to get them are set by their earlier award record, measured from earlier seasons only.",
+      "The District Locks ledger and the Champ Locks tab price awards with one model, at district events and District Championships alike. Each event gives a known number of each award, and those awards are shared among the teams that can win them.",
+      "The model sorts the team awards that pay district points into slots. Impact pays 10 points and is open to every team. Engineering Inspiration pays 8 and goes only to veterans, and Rookie All Star pays 8 and goes only to rookies. Rookie Inspiration paid 5 and went only to rookies until FIRST dropped it after 2024. Every other team award that pays points is worth 5 and is open to every team.",
+      "The number of each award is how many an event gave on average in the most recent earlier season. Only the awards on FIRST's list for the season count, so an award FIRST dropped adds nothing. A new award is given the average of the other awards worth the same points until it has a season of its own.",
+      "In 2026 a district event was expected to give 0.97 Impact awards, 0.98 Engineering Inspiration awards and 11.71 other team awards. An event with a rookie was expected to give 0.91 Rookie All Star awards.",
+      "A team that won Impact, Engineering Inspiration or Rookie All Star at an earlier district event that season cannot win the same award at a later one.",
+      "A team's award record counts every team award that pays district points, won at any event in an earlier season. Dean's List, Woodie Flowers, Volunteer of the Year, Wildcard and Impact Finalist do not count.",
+      "A team's share of an award is set by a weight for teams with the same record, measured on earlier seasons only. A weight of 1 is an average team, and a weight of 2 wins twice as often. For Impact, earlier Impact wins count first and other earlier awards second. A record held by fewer than 100 team events uses a wider record instead.",
+      "The prediction gives a team at most one award at an event, its highest. The model covers the seasons 2023 to 2026.",
+      "A District Championship is priced by the same model, with its own numbers measured on earlier championships. Impact, Engineering Inspiration and Rookie All Star go only to teams that won the same award at a district event that season. A team that cannot win one of them reads 0% for it.",
+      "A championship played in divisions gives those three awards at its finals and its other team awards in each division. A championship played as one event gives both. The number of Impact, Engineering Inspiration and Rookie All Star awards comes from the district's own count the season before. In 2026 each division and each single championship was expected to give 12 other team awards. The teams most likely to get them are set by their earlier award record, measured from earlier seasons only.",
       "No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.",
     ],
     table: {
-      caption: "Season 2026, fit on 2016 to 2025",
-      head: [
-        "Prior judged awards and rookie status",
-        "Teams",
-        "Any award points",
-        "Distribution over 5, 8, 10, 13 and 15 or more points",
-      ],
+      caption: "Weights for 2026 district events, measured on 2019 to 2025",
+      head: ["Award", "Earlier awards", "Weight", "Team events"],
       rows: [
-        ["None, rookie", "2,042", "52.4%", "27.1%, 25.0%, 0.1%, 0.1%, 0.0%"],
-        ["None, veteran", "7,335", "19.9%", "17.2%, 1.1%, 1.4%, 0.1%, 0.1%"],
-        ["None, rookie year unknown", "0", "not scored", "not scored"],
-        ["One or two, rookie", "0", "not scored", "not scored"],
-        ["One or two, veteran", "6,349", "26.1%", "23.4%, 1.3%, 1.2%, 0.1%, 0.0%"],
-        ["One or two, rookie year unknown", "0", "not scored", "not scored"],
-        ["Three or more, rookie", "0", "not scored", "not scored"],
-        ["Three or more, veteran", "10,060", "61.6%", "48.4%, 5.3%, 7.4%, 0.2%, 0.2%"],
-        ["Three or more, rookie year unknown", "0", "not scored", "not scored"],
+        ["Impact", "No Impact win, no other award", "0.01", "4,301"],
+        ["Impact", "No Impact win, one or two other awards", "0.12", "4,542"],
+        ["Impact", "No Impact win, three or more other awards", "0.69", "6,172"],
+        ["Impact", "One or two Impact wins, three or more awards", "4.01", "1,331"],
+        ["Impact", "Three or more Impact wins", "7.53", "897"],
+        ["Engineering Inspiration", "None", "0.02", "3,107"],
+        ["Engineering Inspiration", "One or two", "0.29", "4,529"],
+        ["Engineering Inspiration", "Three or more", "1.76", "7,985"],
+        ["Rookie All Star", "Every rookie", "1.00", "1,013"],
+        ["Other team awards", "None, rookie", "0.31", "579"],
+        ["Other team awards", "None, veteran", "0.35", "3,069"],
+        ["Other team awards", "One or two", "0.59", "4,503"],
+        ["Other team awards", "Three or more", "1.54", "7,690"],
       ],
     },
   },

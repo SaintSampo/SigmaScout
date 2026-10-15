@@ -80,41 +80,49 @@ const REQUIRED_FIGURES = [
   "84.9%",
   "9.1%",
   "28.5%",
-  // --- District award base rates ------------------------------------------
-  // `pnpm measure:district-award-base-rates`
-  // (`npx tsx scripts/measureDistrictAwardBaseRates.ts`, run 2026-09-25),
-  // cross checked against the committed 2026 table literals in
-  // `packages/core/districts/awardBaseRates.ts`.
-  "2019, 2020, 2022, 2023, 2024, 2025 and 2026", // DISTRICT_AWARD_BASE_RATE_SEASONS
-  "2,042", // n, none|rookie
-  "52.4%", // 1 - pmf[0], none|rookie
-  "7,335", // n, none|veteran
-  "19.9%", // 1 - pmf[0], none|veteran
-  "6,349", // n, one-or-two|veteran
-  "26.1%", // 1 - pmf[0], one-or-two|veteran
-  "10,060", // n, three-or-more|veteran
-  "61.6%", // 1 - pmf[0], three-or-more|veteran
+  // --- The one award slate (quick task 261014-qje) -------------------------
+  // `pnpm measure:award-slate` (`npx tsx scripts/measureAwardSlate.ts`, run
+  // 2026-10-14, saved as `261014-qje-measure.txt`), cross checked against the
+  // committed `AWARD_SLATE_TABLES` literal in
+  // `packages/core/districts/awardSlate.ts`. DISTRICT TIER 2026 block: counts
+  // impact 0.9709, engineeringInspiration 0.9806, rookieAllStar 0.9091 (over
+  // events with a rookie), judged 11.7087; training seasons 2019, 2020, 2022,
+  // 2023, 2024, 2025. DCMP TIER 2026 block: single and division judged 12.
+  "0.97 Impact awards",
+  "0.98 Engineering Inspiration awards",
+  "11.71 other team awards",
+  "0.91 Rookie All Star awards",
+  "measured on 2019 to 2025",
+  "2023 to 2026", // the registered seasons at both tiers
+  "expected to give 12 other team awards",
+];
 
-  // --- The Impact and Rookie All Star ordering tables ----------------------
-  // `pnpm measure:award-ordering-tables`
-  // (`npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
-  // 2026-09-29 under the Impact first ordering, quick task 260929-imp). Every
-  // figure below is printed by that script's own PRACTICAL ANSWER block for
-  // season 2026, and cross checked against the committed literals in
-  // `packages/core/districts/awardOrderingTables.ts`.
-  "earlier Impact wins, then by earlier judged awards", // the Impact ordering itself
-  "Impact 26.1%", // Impact, position 1 (26.06% at full precision, 197 of 756)
-  "the second 14.4%", // Impact, position 2
-  "down 0.4%", // Impact, the pooled tail from position 11 down
-  "38.1%", // Rookie All Star, rookie position 1
-  "28.6%", // Rookie All Star, rookie position 2
-  "756 district events", // the 2026 table's own event count
-
-  // --- The District Championship slate (quick task 261014-i8i) -------------
-  // `pnpm measure:dcmp-award-slate` (`npx tsx scripts/measureDcmpAwardSlate.ts`,
-  // run 2026-10-14), cross checked against the committed 2026 judged anchors
-  // in `packages/core/districts/dcmpAwardSlate.ts` (single 12, division 12).
-  "expected to give 12 judged awards",
+/**
+ * The 2026 district class weights, by equality: [award, earlier awards,
+ * weight, team events]. Each weight is the DISTRICT TIER 2026 block's lift by
+ * cell rounded to two places, and each count is that cell's n. Impact
+ * none|none 0.0082 (4301), none|one-or-two 0.1226 (4542), none|three-or-more
+ * 0.6857 (6172), one-or-two|three-or-more 4.0130 (1331),
+ * three-or-more|three-or-more 7.5323 (897); Engineering Inspiration
+ * none|veteran 0.0204 (3107), one-or-two|veteran 0.2921 (4529),
+ * three-or-more|veteran 1.7645 (7985); Rookie All Star none|rookie 1.0000
+ * (1013); judged none|rookie 0.3053 (579), none|veteran 0.3534 (3069),
+ * one-or-two|veteran 0.5911 (4503), three-or-more|veteran 1.5374 (7690).
+ */
+const EXPECTED_WEIGHT_ROWS = [
+  ["Impact", "No Impact win, no other award", "0.01", "4,301"],
+  ["Impact", "No Impact win, one or two other awards", "0.12", "4,542"],
+  ["Impact", "No Impact win, three or more other awards", "0.69", "6,172"],
+  ["Impact", "One or two Impact wins, three or more awards", "4.01", "1,331"],
+  ["Impact", "Three or more Impact wins", "7.53", "897"],
+  ["Engineering Inspiration", "None", "0.02", "3,107"],
+  ["Engineering Inspiration", "One or two", "0.29", "4,529"],
+  ["Engineering Inspiration", "Three or more", "1.76", "7,985"],
+  ["Rookie All Star", "Every rookie", "1.00", "1,013"],
+  ["Other team awards", "None, rookie", "0.31", "579"],
+  ["Other team awards", "None, veteran", "0.35", "3,069"],
+  ["Other team awards", "One or two", "0.59", "4,503"],
+  ["Other team awards", "Three or more", "1.54", "7,690"],
 ];
 
 function tableStrings(where: string, table: AwardsTable | undefined): { where: string; text: string }[] {
@@ -247,11 +255,39 @@ describe("awardsContent figures", () => {
     const text = section.paragraphs.join("\n");
     expect(text).toContain("Impact, Engineering Inspiration and Rookie All Star go only to teams that won the same award at a district event that season.");
     expect(text).toContain("A team that cannot win one of them reads 0% for it.");
-    expect(text).toContain("A championship played in divisions gives those three awards at its finals and its judged awards in each division.");
+    expect(text).toContain("A championship played in divisions gives those three awards at its finals and its other team awards in each division.");
     expect(text).toContain("measured from earlier seasons only");
-    // The paragraphs sit after the ordering paragraphs and before the closing guarantee.
+    // The paragraphs sit after the district paragraphs and before the closing guarantee.
     const dcmpAt = section.paragraphs.findIndex((paragraph) => paragraph.startsWith("A District Championship is priced"));
-    expect(dcmpAt).toBeGreaterThan(section.paragraphs.findIndex((paragraph) => paragraph.startsWith("Those two chances")));
+    expect(dcmpAt).toBeGreaterThan(section.paragraphs.findIndex((paragraph) => paragraph.startsWith("The prediction gives a team at most one award")));
     expect(section.paragraphs[section.paragraphs.length - 1]).toBe("No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.");
+  });
+
+  it("describes the one award slate: slots, the season list, the award record and the no repeat rule (quick task 261014-qje)", () => {
+    const section = AWARDS_SECTIONS.find((entry) => entry.id === "district-award-base-rates")!;
+    expect(section.heading).toBe("How district awards are predicted");
+    expect(section.paragraphs.slice(0, 8)).toEqual([
+      "The District Locks ledger and the Champ Locks tab price awards with one model, at district events and District Championships alike. Each event gives a known number of each award, and those awards are shared among the teams that can win them.",
+      "The model sorts the team awards that pay district points into slots. Impact pays 10 points and is open to every team. Engineering Inspiration pays 8 and goes only to veterans, and Rookie All Star pays 8 and goes only to rookies. Rookie Inspiration paid 5 and went only to rookies until FIRST dropped it after 2024. Every other team award that pays points is worth 5 and is open to every team.",
+      "The number of each award is how many an event gave on average in the most recent earlier season. Only the awards on FIRST's list for the season count, so an award FIRST dropped adds nothing. A new award is given the average of the other awards worth the same points until it has a season of its own.",
+      "In 2026 a district event was expected to give 0.97 Impact awards, 0.98 Engineering Inspiration awards and 11.71 other team awards. An event with a rookie was expected to give 0.91 Rookie All Star awards.",
+      "A team that won Impact, Engineering Inspiration or Rookie All Star at an earlier district event that season cannot win the same award at a later one.",
+      "A team's award record counts every team award that pays district points, won at any event in an earlier season. Dean's List, Woodie Flowers, Volunteer of the Year, Wildcard and Impact Finalist do not count.",
+      "A team's share of an award is set by a weight for teams with the same record, measured on earlier seasons only. A weight of 1 is an average team, and a weight of 2 wins twice as often. For Impact, earlier Impact wins count first and other earlier awards second. A record held by fewer than 100 team events uses a wider record instead.",
+      "The prediction gives a team at most one award at an event, its highest. The model covers the seasons 2023 to 2026.",
+    ]);
+    expect(section.table?.caption).toBe("Weights for 2026 district events, measured on 2019 to 2025");
+    expect(section.table?.head).toEqual(["Award", "Earlier awards", "Weight", "Team events"]);
+    expect(section.table?.rows).toEqual(EXPECTED_WEIGHT_ROWS);
+  });
+
+  it("names no part of the retired per team award model in the district section", () => {
+    const section = AWARDS_SECTIONS.find((entry) => entry.id === "district-award-base-rates")!;
+    const text = [section.heading, ...section.paragraphs, ...tableStrings(section.id, section.table).map((entry) => entry.text)].join("\n");
+    expect(text).not.toMatch(/base rate/i);
+    expect(text).not.toMatch(/judged award/i);
+    expect(text).not.toMatch(/ordering|order of/i);
+    expect(text).not.toContain("26.1%");
+    expect(text).not.toContain("38.1%");
   });
 });

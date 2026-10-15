@@ -79,11 +79,17 @@ const REQUIRED_FIGURES = [
   // districtTierWeight: the DCMP weight is 3 in every registered season.
   "three times",
 
-  // --- the stacked-award fold (quick task 260925-uf8) ---------------------
-  // `npx vitest run packages/core/districts/awardOrderingTables.test.ts`, whose
-  // "costs at most the 0.022 of a point" case walks every 2026 rate and pins the
-  // ceiling this page states.
-  "0.022 of a point",
+  // --- `pnpm measure:award-slate` (quick task 261014-qje) -----------------
+  // `npx tsx scripts/measureAwardSlate.ts`, run 2026-10-14 and saved as
+  // `261014-qje-measure.txt`. Its DISTRICT TIER 2026 block prints the 2026
+  // expected counts per district event: impact 0.9709, engineeringInspiration
+  // 0.9806, rookieAllStar 0.9091 (over events with a rookie), judged 11.7087.
+  // Its DISTRICT POINT AWARD CENSUS checks 29871 team events with 0 mismatches.
+  "0.97 Impact awards",
+  "0.98 Engineering Inspiration awards",
+  "11.71 other team awards",
+  "0.91 Rookie All Star awards",
+  "29,871 rows, 0 mismatches",
 
   // --- `pnpm measure:selection-agreement` ---------------------------------
   // `npx tsx scripts/measureSelectionAgreement.ts --captain-seasons 2023-2026
@@ -136,29 +142,18 @@ const REQUIRED_FIGURES = [
   // share of exactly that many runs, so the page states the constant.
   "1,000 runs",
 
-  // --- `pnpm measure:award-ordering-tables` -------------------------------
-  // `npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
-  // 2026-09-29 under the Impact first ordering (quick task 260929-imp). Both
-  // figures are printed by that script's PRACTICAL ANSWER block for season
-  // 2026 and cross checked against the committed literals in
-  // `packages/core/districts/awardOrderingTables.ts`. Their full statement,
-  // the remaining positions and the sample sizes live on the Predicting awards
-  // page; this page states only the two that name the mechanism.
-  "earlier Impact wins, ties broken by earlier judged awards", // the Impact ordering itself
-  "Impact 26.1%", // Impact, position 1 in the Impact ordering (26.06%, 197 of 756)
-  "38.1%", // Rookie All Star, rookie position 1
-
   // --- `pnpm measure:champ-cutoff` ----------------------------------------
-  // `npx tsx scripts/measureChampCutoff.ts`, re-run 2026-10-07 after the
-  // rail's same week tie break let 2022isr score (fast task following quick
-  // task 261007-jvz; first on the district tier lock floor 2026-10-05, quick
-  // tasks 260927-6bf and 261005-04t). Its WALK-FORWARD TUNED LINES block:
-  // simulated MAE 17.8 and same position naive MAE 40.5, n = 69 with no
-  // season skipped; printed range coverage reads 49 of 69 (71.0%).
-  "17.8 points",
-  "40.5",
+  // `npx tsx scripts/measureChampCutoff.ts`, re-run 2026-10-14 by quick task
+  // 261014-qje on freshly composed artifacts after the award draws moved onto
+  // the award slate (saved as `261014-qje-champ-cutoff-after.txt`). Its
+  // WALK-FORWARD TUNED LINES block: simulated MAE 17.6 (gate line 2: 17.58)
+  // and same position naive MAE 39.0 (gate line 3: 39.03), n = 69 with no
+  // season skipped; printed range coverage reads 48 of 69 (69.6%). The run
+  // before it read 17.8, 40.5 and 49 of 69 (71.0%).
+  "17.6 points",
+  "39.0 for the midpoint rule",
   "69 district seasons",
-  "49 of 69 seasons, 71%",
+  "48 of 69 seasons, 70%",
 
   // --- `pnpm measure:district-cutoff` -------------------------------------
   // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-14 (quick task
@@ -189,7 +184,7 @@ const REQUIRED_FIGURES = [
 const EXPECTED_LIMITS = [
   "Declines are not modelled",
   "The award draw does not depend on how a team did on the field",
-  "The district level award table is applied at the district championship too",
+  "An award in its first season is priced like the other awards worth the same points",
   "Under 24 teams, the simulation seats whole alliances from the top seed down and the rest forfeit",
   "An event nobody has played is priced from each team's current rating over generated schedules",
   "A team with no result yet this season is rated as SPR rates a team it has not seen",
@@ -449,6 +444,53 @@ describe("districtLedgerContent: the weighted draft (261014-ol7)", () => {
     const section = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "the-alliance-selection-model")!;
     expect(section.table?.caption).toBe("Measured against the real draft");
     expect(section.table?.rows.map((row) => row[0])).toContain("Pick order, exact agreement, 2,256 turns in 2026");
+  });
+});
+
+describe("districtLedgerContent: the one award slate (261014-qje)", () => {
+  const section = () => DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "award-base-rates")!;
+
+  it("keeps the award section's id and states the slate, by equality", () => {
+    expect(section().heading).toBe("How awards are predicted");
+    expect(section().paragraphs).toEqual([
+      "Each event gives a known number of each award. The awards are shared among the teams that can win them. District events and District Championships are priced the same way.",
+      "The number of each award is how many an event gave on average in the most recent earlier season. Only the awards on FIRST's list for the season count, so an award FIRST retired adds nothing.",
+      "In 2026 a district event was expected to give 0.97 Impact awards, 0.98 Engineering Inspiration awards and 11.71 other team awards. An event with a rookie was expected to give 0.91 Rookie All Star awards.",
+      "Engineering Inspiration goes only to veterans, and Rookie All Star only to rookies. A team that won Impact, Engineering Inspiration or Rookie All Star at an earlier district event that season cannot win the same award at a later one. At a District Championship those three awards go only to teams that won the same award at a district event that season.",
+      "A team's share rests on how often teams with the same award record won before, in earlier seasons only. For Impact, earlier Impact wins count first and other earlier team awards second. An award record counts every team award that pays district points, won at any event in an earlier season.",
+      "The prediction gives a team at most one award at an event, its highest. The weights and their sample sizes are on the Predicting awards page.",
+      "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
+      "A team with no published award profile is priced as a veteran with no earlier awards.",
+      "One qualification slot is held back for every district event whose Impact award is still to come. The Impact winner at a district event takes a slot, so a team is never told it is Locked on a slot an award is about to claim. A slot held back this way returns to the points race as soon as that award is posted.",
+    ]);
+  });
+
+  it("states the award points in the categories table and the slate in the open categories table", () => {
+    const points = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "how-district-points-work")!;
+    expect(points.table?.rows.find((row) => row[0] === "Awards")).toEqual([
+      "Awards",
+      "Each team award a team wins at the event pays: 10 for Impact, 8 for Engineering Inspiration or Rookie All Star, and 5 for any other team award that pays points.",
+      "29,871 rows, 0 mismatches",
+    ]);
+    const open = DISTRICT_LEDGER_SECTIONS.find((entry) => entry.id === "how-open-categories-are-predicted")!;
+    expect(open.table?.rows.find((row) => row[0] === "Awards")).toEqual([
+      "Awards",
+      "Each event has an expected number of each award, shared among the teams that can win it by how teams like it have won before. District events and District Championships work the same way.",
+    ]);
+    expect(open.paragraphs.find((text) => text.startsWith("The Champ Locks tab reads its predicted cutoff"))).toBe(
+      "The Champ Locks tab reads its predicted cutoff the same way, except that each team's district points are drawn on their own. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are also drawn and take their slots first, and the line is read from the teams left. The draws pick award winners the same way the award cells are priced.",
+    );
+  });
+
+  it("names no part of the retired per team award model anywhere on the page", () => {
+    const pageText = allStrings()
+      .map((entry) => entry.text)
+      .join("\n");
+    expect(pageText).not.toMatch(/base rate/i);
+    expect(pageText).not.toMatch(/judged award/i);
+    expect(pageText).not.toContain("0.022");
+    expect(pageText).not.toContain("26.1%");
+    expect(pageText).not.toContain("38.1%");
   });
 });
 
