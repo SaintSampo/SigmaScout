@@ -422,20 +422,22 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
     expect(DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL).toBe("best guess");
   });
 
-  it("prints the best guess over its chance and what the finish pays", () => {
+  it("prints the best guess and its chance over what the finish pays (the chance moved up on 2026-10-15 to narrow the column)", () => {
     expect(districtLedgerPlayoffBestGuessLines({ id: "thirdOrFourth", chance: 0.36, pay: { kind: "values", values: [7, 13] } })).toEqual({
-      bold: "~3rd or 4th",
-      small: "36% · pays 7 or 13",
+      bold: "~3rd or 4th 36%",
+      small: "pays 7 or 13",
     });
     expect(districtLedgerPlayoffBestGuessLines({ id: "fifthToEighth", chance: 0.6, pay: { kind: "values", values: [0] } })).toEqual({
-      bold: "~5th to 8th",
-      small: "60% · pays 0",
+      bold: "~5th to 8th 60%",
+      small: "pays 0",
     });
   });
 
   it("never prints 100 percent and never a tilde: a near certain 1st reads 99%", () => {
     const lines = districtLedgerPlayoffBestGuessLines({ id: "first", chance: 1, pay: { kind: "values", values: [30] } });
-    expect(lines).toEqual({ bold: "~1st", small: "99% · pays 30" });
+    expect(lines).toEqual({ bold: "~1st 99%", small: "pays 30" });
+    // The tilde marks the finish, never the chance beside it.
+    expect(lines.bold).not.toMatch(/~\d+%/);
     expect(lines.small).not.toContain("~");
   });
 
@@ -580,7 +582,7 @@ describe("the secured line of an open Playoffs cell (quick task 261012-mw2)", ()
   it("prints at least, the points, a middle dot and then the cell's own small line unchanged", () => {
     expect(DISTRICT_LEDGER_SECURED_PREFIX).toBe("at least");
     expect(districtLedgerSecuredLine(60, "pays 90")).toBe("at least 60 · pays 90");
-    expect(districtLedgerSecuredLine(20, "45% · pays 20")).toBe("at least 20 · 45% · pays 20");
+    expect(districtLedgerSecuredLine(20, "pays 20")).toBe("at least 20 · pays 20");
     expect(districtLedgerSecuredLine(39, "likely 39 to 90")).toBe("at least 39 · likely 39 to 90");
     // The separator is the middle dot between two spaces, the one the Team cell's meta line already uses.
     expect(districtLedgerSecuredLine(60, "pays 90")).toBe(`at least 60 ${String.fromCharCode(0xb7)} pays 90`);

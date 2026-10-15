@@ -703,10 +703,11 @@ export function districtLedgerOutcomeRunCount(chance: number): number {
 
 /**
  * THE PLAYOFFS CELL'S TWO LINES (quick task 261014-i1c): the best guess finish
- * in bold, then that finish's chance and what it pays on the small line, for
- * example `~3rd or 4th` over `36% · pays 7 or 13`. The chance goes through
+ * and its chance in bold, then what it pays on the small line, for example
+ * `~3rd or 4th 36%` over `pays 7 or 13`. The chance goes through
  * `districtLedgerCellChance`, so it never reads 100% and never carries a
- * tilde.
+ * tilde. Until 2026-10-15 the chance sat on the small line (`36% · pays 7 or
+ * 13`); Jacob moved it up because that line made the Playoffs column too wide.
  *
  * A NOT PICKED BEST GUESS (quick task 261014-jfx) prints `~not picked` over
  * `3% on an alliance`, with no pays line. The small chance is the share of runs
@@ -730,8 +731,8 @@ export function districtLedgerPlayoffBestGuessLines(guess: DistrictPlayoffBestGu
     };
   }
   return {
-    bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX}${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS[guess.id]}`,
-    small: `${districtLedgerCellChance(guess.chance)} · ${districtLedgerPaysLine(guess.pay)}`,
+    bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX}${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS[guess.id]} ${districtLedgerCellChance(guess.chance)}`,
+    small: districtLedgerPaysLine(guess.pay),
   };
 }
 
@@ -742,7 +743,7 @@ export const DISTRICT_LEDGER_SECURED_PREFIX = "at least";
  * THE SECURED LINE of an open Playoffs cell (quick task 261012-mw2, D4): the
  * two words, the points rounded to a whole number and, where the cell has a
  * small line of its own, a middle dot between two spaces and then that line,
- * UNCHANGED. `at least 60 · 45% · pays 60`; with no line of its own,
+ * UNCHANGED. `at least 60 · pays 60`; with no line of its own,
  * `at least 60`.
  *
  * WHAT THE FIGURE IS: the playoff points the wins of the team's alliance have
@@ -753,8 +754,8 @@ export const DISTRICT_LEDGER_SECURED_PREFIX = "at least";
  * so it carries no percent sign. Lower case, and no hyphen or dash of any
  * kind, on the pays line's own precedent.
  *
- * WHAT COMES AFTER IT is the cell's own text (the best guess finish's chance
- * and what it pays, or a median fallback's likely range). This function does
+ * WHAT COMES AFTER IT is the cell's own text (what the best guess finish
+ * pays, or a median fallback's likely range). This function does
  * not read it, and the points in it are not netted of the figure: `pays 60` is
  * still what the placement pays in all.
  *

@@ -76,9 +76,9 @@ const PLUS_MINUS = String.fromCharCode(0x00b1);
 
 /**
  * Parses an open Playoffs cell's text content (the bold line then the small line,
- * concatenated) as the best guess grammar (quick task 261014-i1c): `best guess`
- * and a finish, an optional `at least <n> · ` prefix, a percent, ` · pays ` and
- * the pay text. Checks that the pay text is the named finish's pay at the tab's
+ * concatenated) as the best guess grammar (quick task 261014-i1c; the chance
+ * moved onto the bold line 2026-10-15): a tilde, a finish, a space and a
+ * percent, then an optional `at least <n> · ` prefix, `pays ` and the pay text. Checks that the pay text is the named finish's pay at the tab's
  * tier, built from `playoffPoints`, and returns the parts.
  *
  * THE NOT PICKED FORM (quick task 261014-jfx): `~not picked` over `<n>% on an
@@ -98,9 +98,9 @@ function parseBestGuess(text: string, tier: "district" | "dcmp"): { finish: stri
     expect(text).not.toContain("100%");
     return { finish: "not picked", secured: undefined, chance: Number(notPicked[1]) };
   }
-  const match = /^~(1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
+  const match = /^~(1st|2nd|3rd or 4th|5th to 8th) (\d+)%(?:at least (\d+) \u00b7 )?pays (.+)$/.exec(text);
   expect(match, text).not.toBeNull();
-  const [, finish, secured, chance, pays] = match!;
+  const [, finish, chance, secured, pays] = match!;
   const at = (placement: number): number => playoffPoints(2026, tier, placement);
   const expected: Readonly<Record<string, string>> = {
     "1st": String(at(1)),

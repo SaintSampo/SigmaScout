@@ -522,7 +522,9 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  *
  * ONE GRAMMAR (quick task 261008-3il): the chance first, then the outcome in
  * one or two words, and on the small line the points that outcome pays, from
- * `districtCellPay`, which reads the drawer's own outcome rows. `pricing` is
+ * `districtCellPay`, which reads the drawer's own outcome rows. The Playoffs
+ * best guess is the one exception since 2026-10-15: the finish first, then its
+ * chance, both in bold, so the small line is the pays line alone. `pricing` is
  * the row's season, tier and rookie flag; absent, the pays line is the cell's
  * own support.
  *

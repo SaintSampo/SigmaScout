@@ -260,35 +260,35 @@ function lines(cell: OpenCell, pricing?: DistrictCellPricing): { bold: string; s
 describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   it("names the finish with the most runs, third and fourth grouped, over its chance and what it pays", () => {
     // Third (20) and fourth (16) each lose to none (34); grouped they make 36.
-    expect(lines(TOP_FOUR, DISTRICT_2026)).toEqual({ bold: "~3rd or 4th", small: "36% · pays 7 or 13" });
-    expect(lines(FIFTH_TO_EIGHTH, DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "60% · pays 0" });
+    expect(lines(TOP_FOUR, DISTRICT_2026)).toEqual({ bold: "~3rd or 4th 36%", small: "pays 7 or 13" });
+    expect(lines(FIFTH_TO_EIGHTH, DISTRICT_2026)).toEqual({ bold: "~5th to 8th 60%", small: "pays 0" });
   });
 
   it("names 2nd and 1st once the bracket has ruled the lower finishes out", () => {
-    expect(lines(FINALIST, DISTRICT_2026)).toEqual({ bold: "~2nd", small: "45% · pays 20" });
-    expect(lines(WINNER, DISTRICT_2026)).toEqual({ bold: "~1st", small: "59% · pays 30" });
+    expect(lines(FINALIST, DISTRICT_2026)).toEqual({ bold: "~2nd 45%", small: "pays 20" });
+    expect(lines(WINNER, DISTRICT_2026)).toEqual({ bold: "~1st 59%", small: "pays 30" });
   });
 
   it("never names a finish the milestone rules out, even where its mass is the largest", () => {
     const missHeavy = { ...openFrom("2026walive:elim", "elim", { 0: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "finalist" } } as const satisfies OpenCell;
-    expect(lines(missHeavy, DISTRICT_2026).bold).toBe("~2nd");
+    expect(lines(missHeavy, DISTRICT_2026).bold).toMatch(/^~2nd \d+%$/);
     const thirdHeavy = { ...openFrom("2026walive:elim", "elim", { 13: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "winner" } } as const satisfies OpenCell;
-    expect(lines(thirdHeavy, DISTRICT_2026).bold).toBe("~2nd");
+    expect(lines(thirdHeavy, DISTRICT_2026).bold).toMatch(/^~2nd \d+%$/);
   });
 
   it("goes to the better finish on a tie", () => {
-    expect(lines(TIE_SECOND, DISTRICT_2026)).toEqual({ bold: "~2nd", small: "30% · pays 20" });
-    expect(lines(TIE_FIRST, DISTRICT_2026)).toEqual({ bold: "~1st", small: "40% · pays 30" });
+    expect(lines(TIE_SECOND, DISTRICT_2026)).toEqual({ bold: "~2nd 30%", small: "pays 20" });
+    expect(lines(TIE_FIRST, DISTRICT_2026)).toEqual({ bold: "~1st 40%", small: "pays 30" });
   });
 
   it("never prints 100 percent: a near certain win reads 99%", () => {
-    expect(lines(WINNER_SURE, DISTRICT_2026)).toEqual({ bold: "~1st", small: "99% · pays 30" });
+    expect(lines(WINNER_SURE, DISTRICT_2026)).toEqual({ bold: "~1st 99%", small: "pays 30" });
   });
 
   it("prices the DCMP row at its own tier", () => {
-    expect(lines(TOP_FOUR_DCMP, DCMP_2026)).toEqual({ bold: "~3rd or 4th", small: "36% · pays 21 or 39" });
-    expect(lines(FINALIST_DCMP, DCMP_2026)).toEqual({ bold: "~2nd", small: "45% · pays 60" });
-    expect(lines(WINNER_DCMP, DCMP_2026)).toEqual({ bold: "~1st", small: "59% · pays 90" });
+    expect(lines(TOP_FOUR_DCMP, DCMP_2026)).toEqual({ bold: "~3rd or 4th 36%", small: "pays 21 or 39" });
+    expect(lines(FINALIST_DCMP, DCMP_2026)).toEqual({ bold: "~2nd 45%", small: "pays 60" });
+    expect(lines(WINNER_DCMP, DCMP_2026)).toEqual({ bold: "~1st 59%", small: "pays 90" });
   });
 
   it("prints the median form with a likely range where no single finish describes the cell, with the distribution's own percentiles", () => {
@@ -323,10 +323,10 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
 
   it("keeps 5th to 8th where not picked is not past half, even when it is the single largest outcome", () => {
     // Not picked 40, picked but out 30, 3rd or 4th 15, 2nd 8, 1st 7.
-    expect(lines(playoffWith({ 0: 70, 7: 8, 13: 7, 20: 8, 30: 7 }, 40), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "30% · pays 0" });
+    expect(lines(playoffWith({ 0: 70, 7: 8, 13: 7, 20: 8, 30: 7 }, 40), DISTRICT_2026)).toEqual({ bold: "~5th to 8th 30%", small: "pays 0" });
     // Not picked is 40, short of half, so picked but out (also 40) names the cell.
-    expect(lines(playoffWith({ 0: 80, 7: 10, 13: 10 }, 40), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "40% · pays 0" });
-    expect(lines(playoffWith({ 0: 70, 13: 30 }, 20), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "50% · pays 0" });
+    expect(lines(playoffWith({ 0: 80, 7: 10, 13: 10 }, 40), DISTRICT_2026)).toEqual({ bold: "~5th to 8th 40%", small: "pays 0" });
+    expect(lines(playoffWith({ 0: 70, 13: 30 }, 20), DISTRICT_2026)).toEqual({ bold: "~5th to 8th 50%", small: "pays 0" });
   });
 
   it("prints a not picked small line that is whole percent words and nothing else", () => {
@@ -337,7 +337,7 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   });
 
   it("prints exactly what it printed before where the cell carries no route view", () => {
-    expect(lines(openFrom("2026walive:elim", "elim", { 0: 99, 7: 1 }, 30), DISTRICT_2026)).toEqual({ bold: "~5th to 8th", small: "99% · pays 0" });
+    expect(lines(openFrom("2026walive:elim", "elim", { 0: 99, 7: 1 }, 30), DISTRICT_2026)).toEqual({ bold: "~5th to 8th 99%", small: "pays 0" });
   });
 
   it("never prints not picked beside a secured figure above zero", () => {
@@ -400,11 +400,11 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   const NOTHING_TO_PAY = openFrom("2026walive:elim", "elim", { 0: 100 }, 30);
 
   it("prints at least N before the small line of a credited cell, bold line unchanged", () => {
-    expect(lines({ ...FINALIST, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "~2nd", small: "at least 20 · 45% · pays 20" });
-    expect(lines({ ...WINNER, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "~1st", small: "at least 20 · 59% · pays 30" });
+    expect(lines({ ...FINALIST, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "~2nd 45%", small: "at least 20 · pays 20" });
+    expect(lines({ ...WINNER, securedAtLeast: 20 }, DISTRICT_2026)).toEqual({ bold: "~1st 59%", small: "at least 20 · pays 30" });
     // The District Championship row, at its own tier: a finalist that has been on the field for every win.
-    expect(lines({ ...FINALIST_DCMP, securedAtLeast: 60 }, DCMP_2026)).toEqual({ bold: "~2nd", small: "at least 60 · 45% · pays 60" });
-    expect(lines({ ...TOP_FOUR, securedAtLeast: 13 }, DISTRICT_2026)).toEqual({ bold: "~3rd or 4th", small: "at least 13 · 36% · pays 7 or 13" });
+    expect(lines({ ...FINALIST_DCMP, securedAtLeast: 60 }, DCMP_2026)).toEqual({ bold: "~2nd 45%", small: "at least 60 · pays 60" });
+    expect(lines({ ...TOP_FOUR, securedAtLeast: 13 }, DISTRICT_2026)).toEqual({ bold: "~3rd or 4th 36%", small: "at least 13 · pays 7 or 13" });
   });
 
   it("prints it before the likely line of the median fallback", () => {
@@ -451,14 +451,14 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
 
   it("prints nothing for a value of zero, below zero, or one that rounds to zero: at least N only where N is above zero", () => {
     for (const secured of [0, -5, 0.4, Number.NaN]) {
-      expect(lines({ ...FINALIST, securedAtLeast: secured }, DISTRICT_2026)).toEqual({ bold: "~2nd", small: "45% · pays 20" });
+      expect(lines({ ...FINALIST, securedAtLeast: secured }, DISTRICT_2026)).toEqual({ bold: "~2nd 45%", small: "pays 20" });
       expect(lines({ ...NOTHING_TO_PAY, securedAtLeast: secured })).toEqual({ bold: "~0", small: "likely 0" });
     }
   });
 
   it("still never reads 100% on a credited cell's chance, and the secured line carries no tilde and no dash", () => {
     const credited = lines({ ...WINNER_SURE, securedAtLeast: 20 }, DISTRICT_2026);
-    expect(credited).toEqual({ bold: "~1st", small: "at least 20 · 99% · pays 30" });
+    expect(credited).toEqual({ bold: "~1st 99%", small: "at least 20 · pays 30" });
     const smalls = [
       credited.small,
       lines({ ...FINALIST_DCMP, securedAtLeast: 60 }, DCMP_2026).small,
@@ -479,10 +479,10 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   it("renders the credited cell's two lines in the table cell, in the two spans and classes every open cell has", () => {
     const { container } = inRow(<LedgerCell cell={{ ...FINALIST, securedAtLeast: 20 }} interaction={INTERACTION} pricing={DISTRICT_2026} />);
     const button = container.querySelector("button")!;
-    expect(button.textContent).toBe("~2ndat least 20 · 45% · pays 20");
+    expect(button.textContent).toBe("~2nd 45%at least 20 · pays 20");
     const spans = [...button.querySelectorAll("span")];
     expect(spans.map((span) => span.className)).toEqual([OPEN_CELL_BOLD_CLASS, OPEN_CELL_SMALL_CLASS]);
-    expect(spans.map((span) => span.textContent)).toEqual(["~2nd", "at least 20 · 45% · pays 20"]);
+    expect(spans.map((span) => span.textContent)).toEqual(["~2nd 45%", "at least 20 · pays 20"]);
     // The same element, class for class, as the uncredited cell: this line adds words and nothing else.
     const plain = inRow(<LedgerCell cell={FINALIST} interaction={INTERACTION} pricing={DISTRICT_2026} />).container.querySelector("button")!;
     expect(button.className).toBe(plain.className);
@@ -502,8 +502,8 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   it("renders the same two lines in the table cell", () => {
     const { container } = inRow(<LedgerCell cell={FINALIST} interaction={INTERACTION} pricing={DISTRICT_2026} />);
     const button = container.querySelector("button")!;
-    expect(button.textContent).toBe("~2nd45% · pays 20");
-    expect([...button.querySelectorAll("span")].map((span) => span.textContent)).toEqual(["~2nd", "45% · pays 20"]);
+    expect(button.textContent).toBe("~2nd 45%pays 20");
+    expect([...button.querySelectorAll("span")].map((span) => span.textContent)).toEqual(["~2nd 45%", "pays 20"]);
   });
 });
 
