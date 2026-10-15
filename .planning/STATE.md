@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-15T07:23:10.871Z"
+last_updated: "2026-10-15T07:43:39.592Z"
 last_activity: 2026-10-15
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -775,6 +775,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 339 | One award model for district events and DCMPs: per event award slots shared among teams who can win; Champ draws on the same model; version 2.0.0 | 2026-10-15 | d9af2dc1 | [261014-qje-one-award-model-for-district-events-and-](./quick/261014-qje-one-award-model-for-district-events-and-/) |
 | 340 | At Quals done the rank 1 team reads captain, alliance 1 again and a team ranked too low to captain loses the Captain row, from structural captain facts of a fixed ranking | 2026-10-15 | db550587 | [261015-3oo-rank-1-keeps-its-settled-captain-caption](./quick/261015-3oo-rank-1-keeps-its-settled-captain-caption/) |
 | 341 | Champ Locks bakes the DCMP at Now over the Locked plus In range field before the field is set, from a championship only as-of load cut at the latest district fold; the live district events stay on the Live assembly | 2026-10-15 | 915fa779 | [261014-j4i-champ-locks-bake-the-dcmp-over-the-locke](./quick/261014-j4i-champ-locks-bake-the-dcmp-over-the-locke/) |
+| 342 | Locks cutoff figures re-measured under award model 2.0.0 (1.2 vs 2.2, 184 of 205) and the 5 point award row renamed Other team award | 2026-10-15 | 409d205b | [261015-3g4-re-measure-the-locks-cutoff-figures-and-](./quick/261015-3g4-re-measure-the-locks-cutoff-figures-and-/) |
 
 ### Roadmap Evolution
 
