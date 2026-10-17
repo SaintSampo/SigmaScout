@@ -200,8 +200,9 @@ import {
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
 import { AsOfTickCapture, asOfVarsOf, capturesAsOf, writeAsOfFolds, type AsOfModelView } from "./asOfCapture.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
-import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeEventRosterEtag, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { foldedCutoffIndex, readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeEventRosterEtag, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
+import { lateBreakdownFactsFor, patchRowsWithLateBreakdowns, rowHasBreakdownGap, type LateBreakdownFacts } from "./lateBreakdownBackfill.js";
 import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefresh.js";
 import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./districtEventState.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
@@ -821,6 +822,107 @@ async function writeArtifactWithBootstrapRetry(
   await writeArtifactObject(env, counter, page, params, rebuildAsBootstrap());
 }
 
+/**
+ * THE LATE SCORE BREAKDOWN BACKFILL (quick task 261017-doy). Runs on every
+ * poll that returned a full match list, BEFORE the fold and the schedule-only
+ * pricing, so whatever those paths read back from R2 already carries the
+ * filled rows and preserves them through their own merges.
+ *
+ * Per live algorithm: one event artifact read; a write only when a played row
+ * at or before the fold cursor gained a ranking-point fact it was published
+ * without; then one read and one write per team on a filled row. Nothing is
+ * read when no folded match carries a breakdown, and nothing is normalized
+ * except the rows with a gap. See `lateBreakdownBackfill.ts` for why the gap
+ * exists and what is and is not written.
+ */
+async function runLateBreakdownBackfill(
+  env: Env,
+  counter: SubrequestCounter,
+  algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>,
+  window: LiveWindowEntry,
+  rawMatches: readonly TbaMatch[],
+  orderedMatchKeys: readonly string[],
+  cursor: Pick<EventCursor, "lastFoldedMatchKey">,
+  eventStartDateIso: string,
+  stamp: Stamp,
+  live: LiveTickContext
+): Promise<void> {
+  const eventKey = window.eventKey;
+  const cutoff = foldedCutoffIndex(cursor, orderedMatchKeys);
+  if (cutoff < 0) return;
+  const foldedKeys = new Set(orderedMatchKeys.slice(0, cutoff + 1));
+
+  // The prefilter: a folded match with no breakdown yet has nothing to give.
+  let anyFoldedBreakdown = false;
+  for (const raw of rawMatches) {
+    if (foldedKeys.has(raw.key) && raw.score_breakdown != null) {
+      anyFoldedBreakdown = true;
+      break;
+    }
+  }
+  if (!anyFoldedBreakdown) return;
+
+  // Algorithm-independent, so computed once per match key across the tier.
+  const factsCache = new Map<string, LateBreakdownFacts>();
+
+  for (const [algorithmId, algorithm] of algorithmModules) {
+    const eventParams = { page: "event" as const, eventKey, algorithmId, version: algorithm.version };
+    const existing = await readExistingEvent(env, counter, eventParams);
+    if (existing === undefined) continue;
+
+    const gapKeys = existing.matches.filter((row) => foldedKeys.has(row.matchKey) && rowHasBreakdownGap(row)).map((row) => row.matchKey);
+    if (gapKeys.length === 0) continue;
+
+    // The artifact's own resolved event type: `-1` (the failed-detail
+    // sentinel) when it carries none, which withholds the bonus flags and
+    // nothing else, exactly as the fold's own row builder would.
+    const eventType = existing.eventType ?? -1;
+    const uncomputed = gapKeys.filter((matchKey) => !factsCache.has(matchKey));
+    for (const [matchKey, facts] of lateBreakdownFactsFor(rawMatches, uncomputed, window.season, eventType, eventStartDateIso)) {
+      factsCache.set(matchKey, facts);
+    }
+
+    const patched = patchRowsWithLateBreakdowns(existing.matches, factsCache);
+    if (patched.patchedKeys.length === 0) continue;
+
+    await writeArtifactObject(env, counter, "event", eventParams, {
+      ...existing,
+      generation: stamp.generation,
+      computedAt: stamp.computedAt,
+      matches: patched.rows,
+    });
+    live.ingest.endpointChanged(eventKey, "breakdown-backfill", { detail: { algorithmId, matches: patched.patchedKeys.length } });
+    live.ingest.endpointPublished(eventKey, "breakdown-backfill");
+
+    const patchedSet = new Set(patched.patchedKeys);
+    const teamKeys = new Set<string>();
+    for (const row of patched.rows) {
+      if (!patchedSet.has(row.matchKey)) continue;
+      for (const teamKey of [...row.redTeams, ...row.blueTeams]) if (!isDemoTeamKey(teamKey)) teamKeys.add(teamKey);
+    }
+    for (const teamKey of [...teamKeys].sort()) {
+      const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: algorithm.version };
+      const existingTeam = await readExistingTeam(env, counter, teamParams);
+      if (existingTeam === undefined) continue;
+      let changed = false;
+      const events = existingTeam.events.map((event) => {
+        if (event.eventKey !== eventKey) return event;
+        const teamPatched = patchRowsWithLateBreakdowns(event.matches, factsCache);
+        if (teamPatched.patchedKeys.length === 0) return event;
+        changed = true;
+        return { ...event, matches: teamPatched.rows };
+      });
+      if (!changed) continue;
+      await writeArtifactObject(env, counter, "team", teamParams, {
+        ...existingTeam,
+        generation: stamp.generation,
+        computedAt: stamp.computedAt,
+        events,
+      });
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Per-event processing
 // ---------------------------------------------------------------------------
@@ -1428,6 +1530,18 @@ async function processEvent(
     // `test/matchSplit.test.ts` for the proof.
     const { orderedMatchKeys, newlyFolded, stillUpcoming } = splitEventMatches(rawMatches, approxStartDateIso, cursor);
     live.ingest.endpointChanged(eventKey, "matches", { lastModified: matchesLastModified, detail: { played: rawMatches.length - stillUpcoming.length, scheduled: stillUpcoming.length } });
+
+    // THE LATE SCORE BREAKDOWN BACKFILL (quick task 261017-doy), on every full
+    // match list and before either path below reads the artifacts back. A
+    // failure here costs the backfill alone: the fold and the pricing run
+    // regardless, and the next 200 retries it.
+    try {
+      await runLateBreakdownBackfill(env, counter, algorithmModules, window, rawMatches, orderedMatchKeys, cursor, approxStartDateIso, stamp, live);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(JSON.stringify({ msg: "late-breakdown-backfill-failed", eventKey, error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
+      live.ingest.failure(eventKey, "breakdown-backfill", error);
+    }
 
     // Unconditional since quick task 260923-3w4: this etag write used to sit
     // behind a `tryConsume` so it could never be the call that squeezed out an

@@ -202,11 +202,16 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
   // this component can actually observe.
   const [selection, setSelection] = useState<StartSelection | null>(null);
 
-  // The default start MATCH is computed ONCE, in a lazy initializer, and
-  // never re-applied. Recomputing it on every artifact change would move
-  // an unchosen start match the moment the first unplayed match became
-  // played, mid-event.
-  const [defaultMatchKey] = useState<string | null>(() => defaultStartMatchKey(qualRows));
+  // The default start MATCH follows the artifact while the reader has not
+  // chosen one (quick task 261017-doy). It used to be computed once, in a
+  // lazy initializer, so an unchosen start would not move mid-event. That is
+  // exactly what a reader watching a live event needs it to do: pinned at
+  // page load, every later Run re-simulated from a match that had since been
+  // played, as a rewind over the stored predictions, and the rank table never
+  // reflected the results coming in. The reader's OWN choice (`selection`
+  // above) is never moved by this; only the unchosen default tracks the
+  // first unplayed match, and on a fully played event the first match.
+  const defaultMatchKey = useMemo<string | null>(() => defaultStartMatchKey(qualRows), [qualRows]);
 
   // The default applies only until the reader chooses, and the sidecar
   // outranks the default match: whenever a baked result exists, the

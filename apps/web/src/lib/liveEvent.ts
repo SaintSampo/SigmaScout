@@ -57,12 +57,52 @@ export function eventArtifactScheduleIsCurrent(
   });
 }
 
-/** LD-3: poll only while there is something left to play and the schedule is current. Finished and stale events never poll. */
+/** The played-row facts the finished test reads. Every field is optional so a row shape that predates one of them still type-checks; a missing field reads as "not a decided final". */
+export interface PlayedRowShape extends ScheduledRow {
+  readonly compLevel?: string;
+  readonly setNumber?: number;
+  readonly actualWinner?: unknown;
+}
+
+/**
+ * Whether the artifact's played rows show the event is OVER: one colour holds
+ * two or more wins within a single finals set, the same rule the Worker's
+ * `eventPhase.ts` derives `complete` from. A finals set still at one win each,
+ * or no finals row at all, is not finished.
+ */
+export function eventArtifactLooksFinished(matches: readonly PlayedRowShape[]): boolean {
+  const finalsWins = new Map<number, { red: number; blue: number }>();
+  for (const row of matches) {
+    if (row.compLevel !== "f") continue;
+    if (row.actualWinner !== "red" && row.actualWinner !== "blue") continue;
+    const setNumber = row.setNumber ?? 1;
+    const wins = finalsWins.get(setNumber) ?? { red: 0, blue: 0 };
+    wins[row.actualWinner]++;
+    finalsWins.set(setNumber, wins);
+  }
+  for (const wins of finalsWins.values()) if (wins.red >= 2 || wins.blue >= 2) return true;
+  return false;
+}
+
+/**
+ * LD-3, widened by quick task 261017-doy: poll while the schedule is current
+ * and the event is not over. Finished and stale events never poll.
+ *
+ * "Something left to play" used to be read off `upcoming` alone, which went
+ * empty the moment the last qualification match was scored — and the page
+ * then stopped polling for the rest of the day, through alliance selection
+ * and the playoff schedule landing, until the reader reloaded. An empty
+ * `upcoming` now keeps polling until the finals are decided
+ * (`eventArtifactLooksFinished`); the 7-day currency rule bounds an event
+ * that never posts a playoff.
+ */
 export function shouldPollEventArtifact(
-  artifact: { readonly matches: readonly ScheduledRow[]; readonly upcoming: readonly ScheduledRow[]; readonly startDate?: string } | undefined,
+  artifact: { readonly matches: readonly PlayedRowShape[]; readonly upcoming: readonly ScheduledRow[]; readonly startDate?: string } | undefined,
   nowMs: number
 ): boolean {
-  return artifact !== undefined && artifact.upcoming.length > 0 && eventArtifactScheduleIsCurrent(artifact, nowMs);
+  if (artifact === undefined) return false;
+  if (!eventArtifactScheduleIsCurrent(artifact, nowMs)) return false;
+  return artifact.upcoming.length > 0 || !eventArtifactLooksFinished(artifact.matches);
 }
 
 /**

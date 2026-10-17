@@ -5,6 +5,7 @@ import {
   EVENT_POLL_INTERVAL_MS,
   districtEventStateFinished,
   districtEventStateStarted,
+  eventArtifactLooksFinished,
   eventArtifactScheduleIsCurrent,
   shouldPollDistrictArtifact,
   shouldPollEventArtifact,
@@ -42,8 +43,28 @@ describe("shouldPollEventArtifact", () => {
     expect(shouldPollEventArtifact(artifact([NOW - SCHEDULE_STALE_AFTER_MS]), NOW)).toBe(true);
   });
 
-  it("false for an empty upcoming, even with a current schedule", () => {
-    expect(shouldPollEventArtifact(artifact([], [NOW - 3_600_000]), NOW)).toBe(false);
+  it("true for an empty upcoming with a current schedule while the event is not over: the gap between the last qualification match and the playoff schedule (quick task 261017-doy)", () => {
+    expect(shouldPollEventArtifact(artifact([], [NOW - 3_600_000]), NOW)).toBe(true);
+  });
+
+  it("false for an empty upcoming once one colour has two wins in a finals set, true while the finals are still open", () => {
+    const final = (setNumber: number, actualWinner: "red" | "blue") => ({ compLevel: "f", setNumber, actualWinner, sortTime: NOW - 3_600_000 });
+    const decided = { matches: [final(1, "red"), final(1, "blue"), final(1, "red")], upcoming: [] };
+    expect(shouldPollEventArtifact(decided, NOW)).toBe(false);
+    expect(eventArtifactLooksFinished(decided.matches)).toBe(true);
+    const open = { matches: [final(1, "red"), final(1, "blue")], upcoming: [] };
+    expect(shouldPollEventArtifact(open, NOW)).toBe(true);
+    // Two wins split across different finals sets decide nothing.
+    const split = { matches: [final(1, "red"), final(2, "red")], upcoming: [] };
+    expect(shouldPollEventArtifact(split, NOW)).toBe(true);
+    // A decided final with a tiebreak replay back on the schedule polls again.
+    expect(shouldPollEventArtifact({ ...decided, upcoming: [{ sortTime: NOW + 600_000 }] }, NOW)).toBe(true);
+  });
+
+  it("false for a decided final whose schedule is stale, whatever upcoming holds", () => {
+    const final = (actualWinner: "red" | "blue") => ({ compLevel: "f", setNumber: 1, actualWinner, sortTime: NOW - 9 * DAY });
+    expect(shouldPollEventArtifact({ matches: [final("red"), final("red")], upcoming: [] }, NOW)).toBe(false);
+    expect(shouldPollEventArtifact({ matches: [{ compLevel: "qm", actualWinner: "red", sortTime: NOW - 9 * DAY }], upcoming: [] }, NOW)).toBe(false);
   });
 
   it("false when the latest sortTime is 8 days before now", () => {

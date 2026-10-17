@@ -296,15 +296,53 @@ describe("selection survives a refetch", () => {
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
   });
 
-  it("a selected key that disappears from a refetched artifact resolves to no selection, never a neighbouring row", () => {
-    const artifact1 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
+  it("a CHOSEN key that disappears from a refetched artifact resolves to no selection, never a neighbouring row", () => {
+    const artifact1 = baseArtifact({
+      upcoming: [
+        upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 }),
+        upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 }),
+      ],
+    });
     const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+    // The reader's own choice. An UNCHOSEN default now follows the refetched
+    // rows (quick task 261017-doy, the test below), so this case is only
+    // reachable through a deliberate selection.
+    fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "2" } });
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
 
     const artifact2 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm99", matchNumber: 99 })] });
     rerender(<SimulationTab artifact={artifact2} algorithmId="spr" season={2024} />);
     expect(screen.getByText(START_MATCH_PICKER_HINT)).toBeDefined();
-    expect(screen.queryByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeNull();
+    expect(screen.queryByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`)).toBeNull();
+  });
+
+  it("an UNCHOSEN default follows the live artifact: when the default row becomes played, the default moves to the next unplayed match (quick task 261017-doy)", () => {
+    const artifact1 = baseArtifact({
+      upcoming: [
+        upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 }),
+        upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 }),
+      ],
+    });
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="spr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+
+    const artifact2 = baseArtifact({
+      matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    rerender(<SimulationTab artifact={artifact2} algorithmId="spr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+
+    // Every match played: the unchosen default is the first match (the finished-event rewind).
+    const artifact3 = baseArtifact({
+      matches: [
+        playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 }),
+        playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 }),
+      ],
+    });
+    rerender(<SimulationTab artifact={artifact3} algorithmId="spr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
   });
 
   it("the default is not re-applied after a refetch: a user-chosen row stays selected even after the original default row becomes played", () => {
