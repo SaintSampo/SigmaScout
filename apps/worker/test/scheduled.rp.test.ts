@@ -155,8 +155,15 @@ import { officialDataStubResponse } from "./support/officialDataStubs.js";
  * reads the event's as-of INDEX and LOG and the season's as-of object from R2 and
  * writes all three back, for SPR only (72 + 3 + 3). None of the six is a D1
  * statement, so this test's claim, that RP costs no D1 subrequest, is untouched.
+ *
+ * MOVED TO 84 on purpose by quick task 261017-doy (baseline corrected by 261018-0n8):
+ * the late score breakdown backfill reads each open event's artifact once per live
+ * algorithm on every full match list whose folded matches carry a breakdown, so two
+ * open events times three algorithms is six R2 reads (78 + 6). The fixture rows carry
+ * no ranking-point facts to fill, so nothing is written. None of the six is a D1
+ * statement; RP still costs no D1 subrequest.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 78;
+const SUBREQUESTS_PER_LIVE_TICK = 84;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
