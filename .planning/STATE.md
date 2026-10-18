@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-15T19:51:13.636Z"
-last_activity: 2026-10-15
+last_updated: "2026-10-18T05:30:17.151Z"
+last_activity: 2026-10-18
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -780,6 +780,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 344 | Locks Playoffs cell prints its chance beside the best guess finish; the small line is the pays line alone, so the column narrows (fast task) | 2026-10-15 | 4f010db7 | — |
 | 345 | Fast: a rewound Locks stop keeps an event's alliance selection open at another event's stop until one of that event's playoff rows is at or before the stop; it was read as final from the last qualification instant, future knowledge | 2026-10-15 | 7c393251 | — |
 | 346 | Locks tab counts follow the table: the mounted ledger reports its Locked chip count, the other tab applies the field rule at Live (follow up to 261015-s1t) | 2026-10-15 | fdc3f12d | [261015-s1t-locks-tabs-segmented-switch-with-slot-counts](./quick/261015-s1t-locks-tabs-segmented-switch-with-slot-counts/) |
+| 347 | Deploy the Doyenne breakdown backfill Worker half (a6a395ba), fill 2026ncfay's 16 null RP rows via a one-row etag clear, fix the served max-age=14400 browser header on the data.sigmascout.org Cache Rule (now 60), runbook note | 2026-10-18 | 22cd6e82 | [261018-0n8-ship-doyenne-worker-half-and-fix-cache-ttl](./quick/261018-0n8-ship-doyenne-worker-half-and-fix-cache-ttl/) |
 
 ### Roadmap Evolution
 
