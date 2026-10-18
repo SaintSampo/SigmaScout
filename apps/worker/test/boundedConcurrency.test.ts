@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import { mapWithConcurrency } from "../src/boundedConcurrency.js";
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+describe("mapWithConcurrency", () => {
+  it("returns settled results in input order, whatever order the items finish in", async () => {
+    const delays = [30, 0, 15, 5];
+    const results = await mapWithConcurrency(delays, 4, async (ms, index) => {
+      await sleep(ms);
+      return `item-${index}`;
+    });
+    expect(results).toEqual([
+      { status: "fulfilled", value: "item-0" },
+      { status: "fulfilled", value: "item-1" },
+      { status: "fulfilled", value: "item-2" },
+      { status: "fulfilled", value: "item-3" },
+    ]);
+  });
+
+  it("never keeps more than the limit in flight", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const items = Array.from({ length: 10 }, (_, i) => i);
+    await mapWithConcurrency(items, 3, async (i) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await sleep(i % 2 === 0 ? 5 : 1);
+      inFlight--;
+      return i;
+    });
+    expect(maxInFlight).toBe(3);
+  });
+
+  it("starts items in input order", async () => {
+    const started: number[] = [];
+    await mapWithConcurrency([0, 1, 2, 3, 4], 2, async (i) => {
+      started.push(i);
+      await sleep(i === 0 ? 10 : 1);
+      return i;
+    });
+    expect(started).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("reports a rejection as { status: 'rejected' } without stopping the other items", async () => {
+    const boom = new Error("boom");
+    const ran: number[] = [];
+    const results = await mapWithConcurrency([0, 1, 2], 1, async (i) => {
+      ran.push(i);
+      if (i === 1) throw boom;
+      return i;
+    });
+    expect(ran).toEqual([0, 1, 2]);
+    expect(results).toEqual([
+      { status: "fulfilled", value: 0 },
+      { status: "rejected", reason: boom },
+      { status: "fulfilled", value: 2 },
+    ]);
+  });
+
+  it("resolves an empty list to []", async () => {
+    let calls = 0;
+    const results = await mapWithConcurrency([], 6, async () => {
+      calls++;
+      return 1;
+    });
+    expect(results).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("does not let a slow first item delay a fast second item from completing", async () => {
+    const completed: string[] = [];
+    await mapWithConcurrency(["slow", "fast"], 2, async (name) => {
+      await sleep(name === "slow" ? 30 : 0);
+      completed.push(name);
+      return name;
+    });
+    expect(completed).toEqual(["fast", "slow"]);
+  });
+
+  it("throws a plain Error when the limit is below 1", async () => {
+    await expect(mapWithConcurrency([1], 0, async (x) => x)).rejects.toThrow(Error);
+    await expect(mapWithConcurrency([1], -1, async (x) => x)).rejects.toThrow(/limit must be at least 1/);
+  });
+});
