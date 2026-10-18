@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapWithConcurrency } from "../src/boundedConcurrency.js";
+import { createSerialLock, mapWithConcurrency } from "../src/boundedConcurrency.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -81,5 +81,38 @@ describe("mapWithConcurrency", () => {
   it("throws a plain Error when the limit is below 1", async () => {
     await expect(mapWithConcurrency([1], 0, async (x) => x)).rejects.toThrow(Error);
     await expect(mapWithConcurrency([1], -1, async (x) => x)).rejects.toThrow(/limit must be at least 1/);
+  });
+});
+
+describe("createSerialLock", () => {
+  it("runs sections one at a time, in the order they were handed over, even when callers run concurrently", async () => {
+    const lock = createSerialLock();
+    const events: string[] = [];
+    let inside = 0;
+    let maxInside = 0;
+    await mapWithConcurrency(["a", "b", "c"], 3, (name) =>
+      lock.run(async () => {
+        inside++;
+        maxInside = Math.max(maxInside, inside);
+        events.push(`${name}:start`);
+        await sleep(name === "a" ? 20 : 1);
+        events.push(`${name}:end`);
+        inside--;
+        return name;
+      })
+    );
+    expect(maxInside).toBe(1);
+    expect(events).toEqual(["a:start", "a:end", "b:start", "b:end", "c:start", "c:end"]);
+  });
+
+  it("hands a rejecting section's error to its own caller and still runs the next section", async () => {
+    const lock = createSerialLock();
+    const boom = new Error("boom");
+    const first = lock.run(async () => {
+      throw boom;
+    });
+    const second = lock.run(async () => "ran");
+    await expect(first).rejects.toBe(boom);
+    await expect(second).resolves.toBe("ran");
   });
 });

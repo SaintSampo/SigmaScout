@@ -50,3 +50,26 @@ export async function mapWithConcurrency<T, R>(
   await Promise.all(lanes);
   return results;
 }
+
+/** Runs the sections handed to it one at a time, in the order they were handed over. */
+export interface SerialLock {
+  run<T>(section: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * A lock for the one part of a concurrent tick that must stay sequential: the
+ * per-event state read, fold and write, which reads and rewrites each
+ * algorithm's shared league row (quick task 261018-3ju). A section that
+ * rejects passes its rejection to its own caller and does not block the next
+ * section.
+ */
+export function createSerialLock(): SerialLock {
+  let tail: Promise<unknown> = Promise.resolve();
+  return {
+    run<T>(section: () => Promise<T>): Promise<T> {
+      const result = tail.then(section);
+      tail = result.catch(() => undefined);
+      return result;
+    },
+  };
+}

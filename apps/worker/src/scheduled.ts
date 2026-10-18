@@ -207,7 +207,7 @@ import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefres
 import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./districtEventState.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
-import { EVENT_CONCURRENCY, mapWithConcurrency } from "./boundedConcurrency.js";
+import { createSerialLock, EVENT_CONCURRENCY, mapWithConcurrency, type SerialLock } from "./boundedConcurrency.js";
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
@@ -930,6 +930,17 @@ async function runLateBreakdownBackfill(
 // Per-event processing
 // ---------------------------------------------------------------------------
 
+/**
+ * The tick's two serial locks (quick task 261018-3ju). Events run concurrently,
+ * but two objects are read and rewritten by every event: each algorithm's league
+ * row in `algorithm_state` (Phase A) and the as-of season object in R2. A section
+ * that touches either runs inside its lock, one event at a time.
+ */
+interface TickLocks {
+  readonly state: SerialLock;
+  readonly asOf: SerialLock;
+}
+
 interface TouchedTeamInfo {
   metrics: Record<string, TeamMetric>;
   matchDelta: number;
@@ -1481,6 +1492,8 @@ async function processEvent(
   matchDerivedState: Map<string, MatchDerivedEventState>,
   /** The tick's ingest log buffer (quick task 261004-uyc). */
   live: LiveTickContext,
+  /** The tick's two locks (quick task 261018-3ju): the sections that read and rewrite an object every event shares run inside them, one event at a time. */
+  locks: TickLocks,
   /**
    * A probe's already-paid-for `eventPreflight` result (`runProbes`), for a
    * PROMOTED event only. When supplied, `processEvent` counts NO subrequest for
@@ -1638,255 +1651,264 @@ async function processEvent(
       // succeed before any artifact write.
       const perAlgorithm = new Map<string, PerAlgorithmFold>();
 
-      for (const [algorithmId, algorithm] of algorithmModules) {
-        // The READ names every raw key plus the demo pseudo-team key
-        // (`stateScopeKeys`), so a demo match resumes what the offline
-        // publisher seeded: the pseudo-team row SPR and OPR predict a demo robot
-        // from, and the passenger-only row its level-2 beliefs ride in. Reading
-        // only `realTouchedTeams` restarted both from the prior on every tick
-        // (quick task 260918-wfc). Since 260923-3w6 the key list also covers the
-        // remaining schedule (`stateReadTeamKeys`), so Phase B can price it.
-        //
-        // Every accumulator below is resumed by `resumeAlgorithmState`, which
-        // holds this prefix's calls and their order (quick task 260925-uy5).
-        // Cold start still gets real keys only, so no demo key seeds a level-1
-        // `team` row.
-        const {
-          rows,
-          state: initialState,
-          sigma,
-          rpRuleModule,
-          rp,
-          rpMeanShift,
-        } = await resumeAlgorithmState({
-          db: env.DB,
-          counter,
-          algorithmId,
-          algorithm,
-          eventKey,
-          season: window.season,
-          stateReadTeamKeys,
-          coldStartTeamKeys: realTouchedTeams,
-        });
-
-        let state = initialState;
-        // One alliance's win-odds variance, one accessor for every played
-        // row. `rpFieldsFor` reads it; `displayBandFor` derives the published
-        // band from it.
-        const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
-          sigma === undefined ? undefined : sigma.bandVarianceFor(roster);
-        // The published Match Band, through the same helper the offline
-        // `SigmaScoutLayer` uses. OPR and EPA publish no Match Band.
-        const displayBandFor = (
-          view: { redTeams: readonly string[]; blueTeams: readonly string[] },
-          redWinOddsVariance: number | undefined,
-          blueWinOddsVariance: number | undefined
-        ): MatchBand => {
-          if (sigma === undefined) return {};
-          const red = sigmaMatchBandVariance(view.redTeams.length, redWinOddsVariance);
-          const blue = sigmaMatchBandVariance(view.blueTeams.length, blueWinOddsVariance);
-          return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
-        };
-
-        // Every team whose state this tick READ (`stateReadTeamKeys` covers the
-        // touched and scheduled teams); read by the partial-roster gate below.
-        // Loaded, not known: a loaded team with no RP belief is a debut team,
-        // which the RP cold-team prior prices from the season's population
-        // exactly as the offline layer does (quick task 260928-spa).
-        const rpLoadedTeams = new Set([...touchedTeams, ...scheduledTeams]);
-
-        // One accessor for this tick's played-row RP. Mirrors
-        // `SigmaScoutLayer.#rpFieldsFor`; change them together. Empty for EPA,
-        // whose own prediction already carries its RP odds (kept by the spread
-        // below, exactly as `foldPlayed` keeps them offline). An UPCOMING
-        // match's RP comes from `priceUpcomingRows` instead, which mirrors the
-        // same layer method — see `upcomingPricing.ts`.
-        const rpFieldsFor = (
-          view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
-          prediction: Prediction,
-          redBandVariance: number | undefined,
-          blueBandVariance: number | undefined
-        ): Partial<Prediction> => {
-          if (rp === undefined || rpRuleModule === undefined || rpMeanShift === undefined) return {};
-          if (!isRpEligibleEventType(view.eventType)) return {};
-          if (redBandVariance === undefined || blueBandVariance === undefined) return {};
-          // Partial-roster gate: the Worker loads state only for teams touched
-          // this tick, and `momentsFor` would price an unloaded team as if it
-          // had no history. Every played roster team is touched, so it guards
-          // played rows as defence in depth: an absent pmf, never a wrong one.
-          for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
-            if (!rpLoadedTeams.has(teamKey)) return {};
-          }
-
-          const pmf = analyticRpPmf({
-            // The mean shift applies per alliance, only to a fully-warm roster.
-            red: rpMeanShift.apply(rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance), rosterIsFullyWarm(rp, view.redTeams)),
-            blue: rpMeanShift.apply(rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance), rosterIsFullyWarm(rp, view.blueTeams)),
-            ruleModule: rpRuleModule,
-            eventType: view.eventType,
-            compLevel: view.compLevel,
-            pRedWin: prediction.pRedWin,
+      // ONE EVENT AT A TIME THROUGH THE STATE READ, FOLD AND WRITE (quick task
+      // 261018-3ju). Events now run concurrently, but every fold reads and writes
+      // each algorithm's single league row, so two events folding at once would
+      // both start from the same league row and the later write would drop the
+      // earlier event's contribution. The tick's state lock keeps this section
+      // sequential across events, exactly as the one-at-a-time walk was; the TBA
+      // requests before it and the artifact writes after it still overlap.
+      await locks.state.run(async () => {
+        for (const [algorithmId, algorithm] of algorithmModules) {
+          // The READ names every raw key plus the demo pseudo-team key
+          // (`stateScopeKeys`), so a demo match resumes what the offline
+          // publisher seeded: the pseudo-team row SPR and OPR predict a demo robot
+          // from, and the passenger-only row its level-2 beliefs ride in. Reading
+          // only `realTouchedTeams` restarted both from the prior on every tick
+          // (quick task 260918-wfc). Since 260923-3w6 the key list also covers the
+          // remaining schedule (`stateReadTeamKeys`), so Phase B can price it.
+          //
+          // Every accumulator below is resumed by `resumeAlgorithmState`, which
+          // holds this prefix's calls and their order (quick task 260925-uy5).
+          // Cold start still gets real keys only, so no demo key seeds a level-1
+          // `team` row.
+          const {
+            rows,
+            state: initialState,
+            sigma,
+            rpRuleModule,
+            rp,
+            rpMeanShift,
+          } = await resumeAlgorithmState({
+            db: env.DB,
+            counter,
+            algorithmId,
+            algorithm,
+            eventKey,
+            season: window.season,
+            stateReadTeamKeys,
+            coldStartTeamKeys: realTouchedTeams,
           });
 
-          // The five decomposition fields; winRp/tieRp come from the season's
-          // rule module, never hardcoded, and an absent decomposition stays absent.
-          const decomposition: Partial<Prediction> =
-            pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
-              ? {
-                  matchOutcomePmf: [pmf.outcome.pRedWin, pmf.outcome.pTie, pmf.outcome.pBlueWin],
-                  redOutcomeRp: [pmf.outcome.winRp, pmf.outcome.tieRp, 0],
-                  blueOutcomeRp: [0, pmf.outcome.tieRp, pmf.outcome.winRp],
-                  redBonusRpPmf: pmf.redBonusPmf,
-                  blueBonusRpPmf: pmf.blueBonusPmf,
-                }
-              : {};
-
-          return {
-            redRpPmf: pmf.redPmf,
-            blueRpPmf: pmf.bluePmf,
-            ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
-            ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
-            ...decomposition,
+          let state = initialState;
+          // One alliance's win-odds variance, one accessor for every played
+          // row. `rpFieldsFor` reads it; `displayBandFor` derives the published
+          // band from it.
+          const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
+            sigma === undefined ? undefined : sigma.bandVarianceFor(roster);
+          // The published Match Band, through the same helper the offline
+          // `SigmaScoutLayer` uses. OPR and EPA publish no Match Band.
+          const displayBandFor = (
+            view: { redTeams: readonly string[]; blueTeams: readonly string[] },
+            redWinOddsVariance: number | undefined,
+            blueWinOddsVariance: number | undefined
+          ): MatchBand => {
+            if (sigma === undefined) return {};
+            const red = sigmaMatchBandVariance(view.redTeams.length, redWinOddsVariance);
+            const blue = sigmaMatchBandVariance(view.blueTeams.length, blueWinOddsVariance);
+            return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
           };
-        };
 
-        /**
-         * The per-side `bonusFlags` `foldObservedRp` below already parsed, by
-         * match key — a pure pass-through to Phase B's `playedRowFactsFor`, so
-         * publishing the actual bonus flags costs no second breakdown parse
-         * against the tick's CPU budget. Nothing about the fold changes.
-         */
-        const observedBonusSides = new Map<string, ParsedBonusSides>();
+          // Every team whose state this tick READ (`stateReadTeamKeys` covers the
+          // touched and scheduled teams); read by the partial-roster gate below.
+          // Loaded, not known: a loaded team with no RP belief is a debut team,
+          // which the RP cold-team prior prices from the season's population
+          // exactly as the offline layer does (quick task 260928-spa).
+          const rpLoadedTeams = new Set([...touchedTeams, ...scheduledTeams]);
 
-        /** Folds one played match's OBSERVED threshold variables — the exact mirror of `SigmaScoutLayer.#foldObservedThresholds`, including its degrade-to-a-counted-skip try/catch. */
-        const foldObservedRp = (result: MatchResult, folds: boolean): void => {
-          if (rp === undefined || rpRuleModule === undefined) return;
-          if (!isRpEligibleEventType(result.eventType)) return;
-          if (!result.hasScoreBreakdown || result.scoreBreakdownRaw === null) return;
-          let redBonusFlags: Readonly<Record<string, boolean>> | undefined;
-          let blueBonusFlags: Readonly<Record<string, boolean>> | undefined;
-          for (const side of ["red", "blue"] as const) {
-            try {
-              const parsed = rpRuleModule.parse(JSON.parse(result.scoreBreakdownRaw), side, result.eventType);
-              // Captured BEFORE the fold, so a throwing fold cannot lose flags
-              // the offline publisher would still have published.
-              if (side === "red") redBonusFlags = parsed.bonusFlags;
-              else blueBonusFlags = parsed.bonusFlags;
-              // The flags above are an OBSERVATION and publish either way; only
-              // the belief fold is withheld from a match that does not fold.
-              if (folds) rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
-            } catch {
-              // A breakdown this season's module cannot parse contributes
-              // nothing rather than failing the tick.
+          // One accessor for this tick's played-row RP. Mirrors
+          // `SigmaScoutLayer.#rpFieldsFor`; change them together. Empty for EPA,
+          // whose own prediction already carries its RP odds (kept by the spread
+          // below, exactly as `foldPlayed` keeps them offline). An UPCOMING
+          // match's RP comes from `priceUpcomingRows` instead, which mirrors the
+          // same layer method — see `upcomingPricing.ts`.
+          const rpFieldsFor = (
+            view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
+            prediction: Prediction,
+            redBandVariance: number | undefined,
+            blueBandVariance: number | undefined
+          ): Partial<Prediction> => {
+            if (rp === undefined || rpRuleModule === undefined || rpMeanShift === undefined) return {};
+            if (!isRpEligibleEventType(view.eventType)) return {};
+            if (redBandVariance === undefined || blueBandVariance === undefined) return {};
+            // Partial-roster gate: the Worker loads state only for teams touched
+            // this tick, and `momentsFor` would price an unloaded team as if it
+            // had no history. Every played roster team is touched, so it guards
+            // played rows as defence in depth: an absent pmf, never a wrong one.
+            for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
+              if (!rpLoadedTeams.has(teamKey)) return {};
             }
-          }
-          observedBonusSides.set(result.matchKey, { red: redBonusFlags, blue: blueBonusFlags });
-        };
 
-        const newBands = new Map<string, { red?: number; blue?: number }>();
-        const newPredictions = new Map<string, Prediction>();
-        // The as-of capture (quick task 261005-5g0): reads only, around each match's fold steps below.
-        const asOf = capturesAsOf(algorithm) ? new AsOfTickCapture(asOfVarsOf(rpRuleModule)) : undefined;
-        const asOfView = (): AsOfModelView => ({ state, sigma, rp, meanShift: rpMeanShift });
-        for (const result of newlyFoldedResults) {
-          const asOfBefore = asOf?.before(result, asOfView());
-          const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
-          // Predict-before-update: read the win odds before folding this match,
-          // whose own result is not an admissible input to its band.
-          const redWinOddsVariance = winOddsVarianceFor(result.redTeams);
-          const blueWinOddsVariance = winOddsVarianceFor(result.blueTeams);
-          newBands.set(result.matchKey, displayBandFor(result, redWinOddsVariance, blueWinOddsVariance));
-          // RP from the pre-fold accumulator. The enriched prediction goes into
-          // `newPredictions`, never a parallel map, so every row builder sees it.
-          newPredictions.set(result.matchKey, {
-            ...prediction,
-            ...rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance),
-          });
-          // A preseason Week 0 match is PRICED above and never FOLDED
-          // (`foldsIntoRatings`), the same rule `SigmaScoutLayer.foldPlayed`
-          // applies offline. `update` and `foldMatch` gate themselves; the mean
-          // shift, the threshold fold and the talent have no gate of their own.
-          const folds = foldsIntoRatings(result.eventType);
-          state = algorithm.update(state, result);
-          sigma?.foldMatch(result, prediction);
-          // After the RP read and before the threshold fold, so the residual is
-          // taken against the mean the match was priced from.
-          if (folds && rp !== undefined) rpMeanShift?.observeMatch(rp, result);
-          foldObservedRp(result, folds);
-          // Talent from the post-update state, as `SigmaScoutLayer.foldPlayed`
-          // does: applying it before the fold would let a match inform its own prior.
-          if (folds && sigma !== undefined) {
-            const roster = [...result.redTeams, ...result.blueTeams];
-            const metrics = algorithm.teamMetrics(state, roster);
-            for (const teamKey of roster) {
-              const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
-              if (total !== undefined) sigma.observeTalent(teamKey, total);
+            const pmf = analyticRpPmf({
+              // The mean shift applies per alliance, only to a fully-warm roster.
+              red: rpMeanShift.apply(rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance), rosterIsFullyWarm(rp, view.redTeams)),
+              blue: rpMeanShift.apply(rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance), rosterIsFullyWarm(rp, view.blueTeams)),
+              ruleModule: rpRuleModule,
+              eventType: view.eventType,
+              compLevel: view.compLevel,
+              pRedWin: prediction.pRedWin,
+            });
+
+            // The five decomposition fields; winRp/tieRp come from the season's
+            // rule module, never hardcoded, and an absent decomposition stays absent.
+            const decomposition: Partial<Prediction> =
+              pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
+                ? {
+                    matchOutcomePmf: [pmf.outcome.pRedWin, pmf.outcome.pTie, pmf.outcome.pBlueWin],
+                    redOutcomeRp: [pmf.outcome.winRp, pmf.outcome.tieRp, 0],
+                    blueOutcomeRp: [0, pmf.outcome.tieRp, pmf.outcome.winRp],
+                    redBonusRpPmf: pmf.redBonusPmf,
+                    blueBonusRpPmf: pmf.blueBonusPmf,
+                  }
+                : {};
+
+            return {
+              redRpPmf: pmf.redPmf,
+              blueRpPmf: pmf.bluePmf,
+              ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
+              ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+              ...decomposition,
+            };
+          };
+
+          /**
+           * The per-side `bonusFlags` `foldObservedRp` below already parsed, by
+           * match key — a pure pass-through to Phase B's `playedRowFactsFor`, so
+           * publishing the actual bonus flags costs no second breakdown parse
+           * against the tick's CPU budget. Nothing about the fold changes.
+           */
+          const observedBonusSides = new Map<string, ParsedBonusSides>();
+
+          /** Folds one played match's OBSERVED threshold variables — the exact mirror of `SigmaScoutLayer.#foldObservedThresholds`, including its degrade-to-a-counted-skip try/catch. */
+          const foldObservedRp = (result: MatchResult, folds: boolean): void => {
+            if (rp === undefined || rpRuleModule === undefined) return;
+            if (!isRpEligibleEventType(result.eventType)) return;
+            if (!result.hasScoreBreakdown || result.scoreBreakdownRaw === null) return;
+            let redBonusFlags: Readonly<Record<string, boolean>> | undefined;
+            let blueBonusFlags: Readonly<Record<string, boolean>> | undefined;
+            for (const side of ["red", "blue"] as const) {
+              try {
+                const parsed = rpRuleModule.parse(JSON.parse(result.scoreBreakdownRaw), side, result.eventType);
+                // Captured BEFORE the fold, so a throwing fold cannot lose flags
+                // the offline publisher would still have published.
+                if (side === "red") redBonusFlags = parsed.bonusFlags;
+                else blueBonusFlags = parsed.bonusFlags;
+                // The flags above are an OBSERVATION and publish either way; only
+                // the belief fold is withheld from a match that does not fold.
+                if (folds) rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
+              } catch {
+                // A breakdown this season's module cannot parse contributes
+                // nothing rather than failing the tick.
+              }
             }
+            observedBonusSides.set(result.matchKey, { red: redBonusFlags, blue: blueBonusFlags });
+          };
+
+          const newBands = new Map<string, { red?: number; blue?: number }>();
+          const newPredictions = new Map<string, Prediction>();
+          // The as-of capture (quick task 261005-5g0): reads only, around each match's fold steps below.
+          const asOf = capturesAsOf(algorithm) ? new AsOfTickCapture(asOfVarsOf(rpRuleModule)) : undefined;
+          const asOfView = (): AsOfModelView => ({ state, sigma, rp, meanShift: rpMeanShift });
+          for (const result of newlyFoldedResults) {
+            const asOfBefore = asOf?.before(result, asOfView());
+            const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
+            // Predict-before-update: read the win odds before folding this match,
+            // whose own result is not an admissible input to its band.
+            const redWinOddsVariance = winOddsVarianceFor(result.redTeams);
+            const blueWinOddsVariance = winOddsVarianceFor(result.blueTeams);
+            newBands.set(result.matchKey, displayBandFor(result, redWinOddsVariance, blueWinOddsVariance));
+            // RP from the pre-fold accumulator. The enriched prediction goes into
+            // `newPredictions`, never a parallel map, so every row builder sees it.
+            newPredictions.set(result.matchKey, {
+              ...prediction,
+              ...rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance),
+            });
+            // A preseason Week 0 match is PRICED above and never FOLDED
+            // (`foldsIntoRatings`), the same rule `SigmaScoutLayer.foldPlayed`
+            // applies offline. `update` and `foldMatch` gate themselves; the mean
+            // shift, the threshold fold and the talent have no gate of their own.
+            const folds = foldsIntoRatings(result.eventType);
+            state = algorithm.update(state, result);
+            sigma?.foldMatch(result, prediction);
+            // After the RP read and before the threshold fold, so the residual is
+            // taken against the mean the match was priced from.
+            if (folds && rp !== undefined) rpMeanShift?.observeMatch(rp, result);
+            foldObservedRp(result, folds);
+            // Talent from the post-update state, as `SigmaScoutLayer.foldPlayed`
+            // does: applying it before the fold would let a match inform its own prior.
+            if (folds && sigma !== undefined) {
+              const roster = [...result.redTeams, ...result.blueTeams];
+              const metrics = algorithm.teamMetrics(state, roster);
+              for (const teamKey of roster) {
+                const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+                if (total !== undefined) sigma.observeTalent(teamKey, total);
+              }
+            }
+            asOf?.after(result, sortTimeByMatchKey.get(result.matchKey), asOfBefore, asOfView());
           }
-          asOf?.after(result, sortTimeByMatchKey.get(result.matchKey), asOfBefore, asOfView());
+
+          const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
+          // Same instant as `touchedMetrics`, read-only, zero subrequests; scoped
+          // to `realTouchedTeams` like its only consumer, the team artifact loop.
+          const touchedSigma = new Map<string, number>();
+          if (sigma !== undefined) {
+            for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
+          }
+          // The event row's live Sigma: `scoreFor`, never `sigmaFor`, so a scheduled
+          // team the accumulator has never seen gets no Sigma rather than the prior's.
+          const eventSigma: ReadonlyMap<string, number> =
+            sigma !== undefined
+              ? sigma.scoreFor([...new Set([...touchedTeams, ...scheduledTeams])].filter((teamKey) => !isDemoTeamKey(teamKey)))
+              : new Map<string, number>();
+
+          // What Phase B prices the remaining schedule from (quick task
+          // 260923-3w6), captured at end of fold so an upcoming match is priced
+          // from a state that has seen every played match. `upcomingModelOf` holds
+          // the `scoreByTeam()`-not-`bandVarianceFor` rule.
+          const upcomingModel = upcomingModelOf(algorithm, state, sigma, rpRuleModule, rp, rpMeanShift);
+
+          // Passengers ride back into the rows after `serializeState`, so no
+          // algorithm serializer knows they exist, at zero added subrequests.
+          let candidateRows = serializeState(algorithmId, algorithm.version, state, stamp);
+          if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
+          // The mean shift rides on the LEAGUE row.
+          if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
+          // So does the RP population summary (shape 17), which `foldObservedRp`
+          // has grown with every alliance this tick folded.
+          const rpPopulation = rp?.populationState();
+          if (rpPopulation !== undefined) candidateRows = withRpPopulation(candidateRows, rpPopulation);
+          if (sigma !== undefined) {
+            candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
+          }
+          // WRITE ONLY THE TEAMS THIS TICK ACTUALLY ADVANCED (quick task
+          // 260923-3w6). Phase A's read now covers every team on the remaining
+          // SCHEDULE so Phase B can price it, which means `serializeState` emits a
+          // row for each of them. None of those extra rows moved: `update()`, the
+          // Sigma fold, the talent observation and the RP fold all touch only the
+          // rosters of the matches just folded.
+          //
+          // They are not BYTE-identical to what D1 holds, though, and that is the
+          // trap this filter exists for. The publisher's passenger chain attaches
+          // Sigma beliefs BEFORE RP beliefs (`seedStateRows`) and the tick's
+          // attaches RP first, so the two produce the same `stateJson` object with
+          // a different KEY ORDER. Without this filter `selectChangedRows` would
+          // read every roster team as changed and rewrite it on every tick,
+          // stamping a fresh `generation`/`computedAt` onto state that never
+          // advanced. The league row (and OPR's event row) are not filtered: those
+          // DO move on every fold.
+          const advancedTeamKeys = new Set(stateScopeKeys(touchedTeams));
+          candidateRows = candidateRows.filter((row) => row.scopeKind !== "team" || advancedTeamKeys.has(row.scopeKey));
+          const changedRows = selectChangedRows(rows, candidateRows);
+
+          counter.spend(1);
+          await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
+
+          perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, eventSigma, observedBonusSides, upcomingModel, ...(asOf !== undefined ? { asOf } : {}) });
         }
-
-        const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
-        // Same instant as `touchedMetrics`, read-only, zero subrequests; scoped
-        // to `realTouchedTeams` like its only consumer, the team artifact loop.
-        const touchedSigma = new Map<string, number>();
-        if (sigma !== undefined) {
-          for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
-        }
-        // The event row's live Sigma: `scoreFor`, never `sigmaFor`, so a scheduled
-        // team the accumulator has never seen gets no Sigma rather than the prior's.
-        const eventSigma: ReadonlyMap<string, number> =
-          sigma !== undefined
-            ? sigma.scoreFor([...new Set([...touchedTeams, ...scheduledTeams])].filter((teamKey) => !isDemoTeamKey(teamKey)))
-            : new Map<string, number>();
-
-        // What Phase B prices the remaining schedule from (quick task
-        // 260923-3w6), captured at end of fold so an upcoming match is priced
-        // from a state that has seen every played match. `upcomingModelOf` holds
-        // the `scoreByTeam()`-not-`bandVarianceFor` rule.
-        const upcomingModel = upcomingModelOf(algorithm, state, sigma, rpRuleModule, rp, rpMeanShift);
-
-        // Passengers ride back into the rows after `serializeState`, so no
-        // algorithm serializer knows they exist, at zero added subrequests.
-        let candidateRows = serializeState(algorithmId, algorithm.version, state, stamp);
-        if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
-        // The mean shift rides on the LEAGUE row.
-        if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
-        // So does the RP population summary (shape 17), which `foldObservedRp`
-        // has grown with every alliance this tick folded.
-        const rpPopulation = rp?.populationState();
-        if (rpPopulation !== undefined) candidateRows = withRpPopulation(candidateRows, rpPopulation);
-        if (sigma !== undefined) {
-          candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
-        }
-        // WRITE ONLY THE TEAMS THIS TICK ACTUALLY ADVANCED (quick task
-        // 260923-3w6). Phase A's read now covers every team on the remaining
-        // SCHEDULE so Phase B can price it, which means `serializeState` emits a
-        // row for each of them. None of those extra rows moved: `update()`, the
-        // Sigma fold, the talent observation and the RP fold all touch only the
-        // rosters of the matches just folded.
-        //
-        // They are not BYTE-identical to what D1 holds, though, and that is the
-        // trap this filter exists for. The publisher's passenger chain attaches
-        // Sigma beliefs BEFORE RP beliefs (`seedStateRows`) and the tick's
-        // attaches RP first, so the two produce the same `stateJson` object with
-        // a different KEY ORDER. Without this filter `selectChangedRows` would
-        // read every roster team as changed and rewrite it on every tick,
-        // stamping a fresh `generation`/`computedAt` onto state that never
-        // advanced. The league row (and OPR's event row) are not filtered: those
-        // DO move on every fold.
-        const advancedTeamKeys = new Set(stateScopeKeys(touchedTeams));
-        candidateRows = candidateRows.filter((row) => row.scopeKind !== "team" || advancedTeamKeys.has(row.scopeKey));
-        const changedRows = selectChangedRows(rows, candidateRows);
-
-        counter.spend(1);
-        await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
-
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, eventSigma, observedBonusSides, upcomingModel, ...(asOf !== undefined ? { asOf } : {}) });
-      }
+      });
 
       live.ingest.matchesFolded(eventKey, matchArrivalFacts(rawMatchesUnknown, new Set(newlyFolded.map((m) => m.matchKey))));
-      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, live);
+      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, live, locks.asOf);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again. Unconditional since quick task 260923-3w4 —
@@ -1936,7 +1958,9 @@ async function runPhaseBAndReport(
   perAlgorithm: ReadonlyMap<string, PerAlgorithmFold>,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
   stamp: Stamp,
-  live: LiveTickContext
+  live: LiveTickContext,
+  /** The tick's as-of lock (quick task 261018-3ju): the as-of write below rewrites the season object every event shares, so it runs one event at a time. */
+  asOfLock: SerialLock
 ): Promise<EventOutcome> {
   try {
     // Algorithm-independent, so computed ONCE for the whole tick. The bonus
@@ -2131,13 +2155,19 @@ async function runPhaseBAndReport(
     if (info.asOf === undefined) continue;
     try {
       if (info.asOf.error !== undefined) throw info.asOf.error;
-      await writeAsOfFolds(env, counter, {
-        eventKey,
-        season: window.season,
-        vars: info.asOf.vars,
-        folds: info.asOf.folds,
-        stamp: { ...stamp, algorithmId, algorithmVersion: info.algorithm.version },
-      });
+      const asOf = info.asOf;
+      // Inside the as-of lock since quick task 261018-3ju: the season object is
+      // shared by every event, and its conditional put tolerates ONE conflict.
+      // Events folding at once would otherwise race each other into a second.
+      await asOfLock.run(() =>
+        writeAsOfFolds(env, counter, {
+          eventKey,
+          season: window.season,
+          vars: asOf.vars,
+          folds: asOf.folds,
+          stamp: { ...stamp, algorithmId, algorithmVersion: info.algorithm.version },
+        })
+      );
     } catch (asOfError) {
       console.warn(JSON.stringify({ msg: "asof-write-failed", eventKey, algorithmId, error: (asOfError instanceof Error ? asOfError.message : String(asOfError)).slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
     }
@@ -2558,20 +2588,27 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // Filled by `processEvent` for district member events only; consumed by
   // `runDistrictRefresh` below.
   const matchDerivedState = new Map<string, MatchDerivedEventState>();
+  // Phase A's state read, fold and write stay one event at a time, because every
+  // fold rewrites each algorithm's shared league row; so does the as-of write,
+  // because it rewrites the season object every event shares (see `processEvent`
+  // and `runPhaseBAndReport`).
+  const locks: TickLocks = { state: createSerialLock(), asOf: createSerialLock() };
 
   // UP TO `EVENT_CONCURRENCY` EVENTS FOLD AT ONCE (quick task 261018-3ju),
   // started in `orderedEventKeys` order, so the rotation still decides who goes
-  // first. Each event has its own fold claim and its own cursor rows, so two
-  // events never contend on a D1 row; the shared collectors are keyed per event
-  // (`matchDerivedState`, the ingest log) or merged synchronously
-  // (`touchedTeamsByAlgorithm`, see `runPhaseBAndReport`).
+  // first. Each event has its own fold claim and its own cursor rows, but every
+  // fold reads and rewrites each algorithm's shared league row, so Phase A's
+  // state read, fold and write run inside `locks.state`, one event at a time. The
+  // shared collectors are keyed per event (`matchDerivedState`, the ingest log)
+  // or merged synchronously (`touchedTeamsByAlgorithm`, see
+  // `runPhaseBAndReport`).
   const settled = await mapWithConcurrency(orderedEventKeys, EVENT_CONCURRENCY, async (eventKey) => {
     const window = liveEventByKey.get(eventKey);
     if (!window) return undefined;
     // A promoted event's preflight was already paid for by `runProbes` — hand
     // it straight to `processEvent`, which then makes no second TBA request.
     const preflight = probeResult.promoted.get(eventKey);
-    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, live, preflight);
+    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, live, locks, preflight);
     return { outcome, promoted: preflight !== undefined };
   });
 
