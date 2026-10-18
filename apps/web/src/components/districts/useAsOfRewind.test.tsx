@@ -216,6 +216,13 @@ describe("asOfRewindRefetchInterval (R1): an unavailable plan does not stick whi
     expect(asOfRewindRefetchInterval(ready, ARTIFACTS, liveNow)).toBe(false);
     expect(asOfRewindRefetchInterval(undefined, ARTIFACTS, liveNow)).toBe(false);
     expect(asOfRewindRefetchInterval(oneUnavailable, ARTIFACTS, finishedLater)).toBe(false);
-    expect(asOfRewindRefetchInterval(oneUnavailable, new Map([["2026waaa", ARTIFACTS.get("2026waaa")!]]), liveNow)).toBe(false);
+    // The fixture's 2026waaa holds ONE finals win, which since quick task 261017-doy reads as a
+    // final still in progress (best of three), so it is live an hour after its last row and polls.
+    // A decided final, two red wins in the set, is over and never polls.
+    const aaa = ARTIFACTS.get("2026waaa")!;
+    const f1m1 = aaa.matches.find((row) => row.compLevel === "f")!;
+    const decided = { ...aaa, matches: [...aaa.matches, { ...f1m1, matchKey: "2026waaa_f1m2", matchNumber: 2 }] };
+    expect(asOfRewindRefetchInterval(oneUnavailable, new Map([["2026waaa", aaa]]), liveNow)).toBe(EVENT_POLL_INTERVAL_MS);
+    expect(asOfRewindRefetchInterval(oneUnavailable, new Map([["2026waaa", decided]]), liveNow)).toBe(false);
   });
 });

@@ -33,7 +33,17 @@ function priced(matchKey: string, sortTime: number) {
   };
 }
 
-function eventArtifact(upcoming: unknown[]) {
+/** A played row: `priced` plus the outcome. `compLevel` and `setNumber` default to a qualification row. */
+function played(matchKey: string, sortTime: number, winner: "red" | "blue", compLevel = "qm", setNumber = 1) {
+  return { ...priced(matchKey, sortTime), compLevel, setNumber, actualWinner: winner, actualRedScore: 80, actualBlueScore: 70 };
+}
+
+/** The played rows of an event whose finals are decided: two red wins in finals set 1, the rule `eventArtifactLooksFinished` reads (quick task 261017-doy). */
+function decidedFinals(latestSortTime: number) {
+  return [played("2026test_qm1", latestSortTime - 7_200_000, "red"), played("2026test_f1m1", latestSortTime - 600_000, "red", "f"), played("2026test_f1m2", latestSortTime, "red", "f")];
+}
+
+function eventArtifact(upcoming: unknown[], matches: unknown[] = []) {
   return {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
@@ -42,7 +52,7 @@ function eventArtifact(upcoming: unknown[]) {
     algorithmVersion: "1.0.0+test",
     eventKey: "2026test",
     season: 2026,
-    matches: [],
+    matches,
     upcoming,
     teams: [],
   };
@@ -96,12 +106,22 @@ describe("event query polling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("a finished artifact (no upcoming matches) fetches once and never polls", async () => {
-    const fetchMock = mockFetch(eventArtifact([]));
+  it("a finished artifact (finals decided, no upcoming matches) fetches once and never polls", async () => {
+    const fetchMock = mockFetch(eventArtifact([], decidedFinals(NOW - 3_600_000)));
     renderEventQuery();
     await advance(0);
     await advance(EVENT_POLL_INTERVAL_MS * 3);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("every qualification match played and no playoff posted yet keeps polling (quick task 261017-doy)", async () => {
+    // The Doyenne gap: `upcoming` is empty but the event is not over, so alliance selection and the playoff schedule still have to arrive.
+    const fetchMock = mockFetch(eventArtifact([], [played("2026test_qm1", NOW - 7_200_000, "red"), played("2026test_qm2", NOW - 3_600_000, "blue")]));
+    renderEventQuery();
+    await advance(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await advance(EVENT_POLL_INTERVAL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("a stale artifact (latest scheduled match 8 days ago) never polls", async () => {
