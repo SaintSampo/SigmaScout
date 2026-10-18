@@ -652,6 +652,95 @@ describe("runTick — two concurrent live events", () => {
     expect(eventAPut).toBe(true);
     expect(eventBPut).toBe(true);
   });
+
+  it("a slow event no longer delays another: B's matches are observed well before A's slow response lands (quick task 261018-3ju)", async () => {
+    // Event A starts first (rotation offset 0, sorted order) and its `/matches`
+    // answer is held for 400 ms; event B answers at once. Walked one at a time,
+    // B could not be observed until A had finished. Run concurrently, B's
+    // request goes out one throttle interval (100 ms) after A's and is observed
+    // roughly 300 ms before A's. 400 ms rather than 250 ms leaves the assertion
+    // a margin over the TBA client's 100 ms spacing between request starts.
+    const SLOW_MS = 400;
+    const windowA: WindowFixture = { eventKey: "2026aaaa", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const windowB: WindowFixture = { eventKey: "2026bbbb", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const manifests = makeManifests([windowA, windowB]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const tbaEvents = new Map([
+      ["2026aaaa", twoMatchEventRecord("2026aaaa", "etag-a")],
+      ["2026bbbb", twoMatchEventRecord("2026bbbb", "etag-b")],
+    ]);
+    const stub = makeTbaFetchStub(tbaEvents) as unknown as (url: unknown, init?: { headers?: Record<string, string> }) => Promise<unknown>;
+    const slowStub = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+      if (/\/event\/2026aaaa\/matches$/.test(String(url))) await new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+      return stub(url, init);
+    });
+    vi.stubGlobal("fetch", slowStub);
+
+    let constructionCount = 0;
+    const { buildAlgorithmModules: realBuildAlgorithmModules } = await import("../src/scheduled.js");
+    const countingBuilder = (manifest: Parameters<typeof realBuildAlgorithmModules>[0], liveAlgorithmIds: Parameters<typeof realBuildAlgorithmModules>[1]) => {
+      constructionCount++;
+      return realBuildAlgorithmModules(manifest, liveAlgorithmIds);
+    };
+
+    const tick = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS, ingestClock: Date.now, buildAlgorithmModules: countingBuilder });
+
+    expect(tick.eventsAdvanced).toBe(2);
+    expect(tick.eventsFailed).toBe(0);
+    // The memoized promise: two events asking for the algorithm context at once still build the modules once.
+    expect(constructionCount).toBe(1);
+
+    const matchesObservedAt = (eventKey: string): number => {
+      const row = d1.ingestLog.rows.find((r) => r.eventKey === eventKey && r.kind === "endpoint" && r.subject === "matches");
+      expect(row, `${eventKey} matches endpoint row`).toBeDefined();
+      return Date.parse(row!.observedAt);
+    };
+    const observedA = matchesObservedAt("2026aaaa");
+    const observedB = matchesObservedAt("2026bbbb");
+    expect(observedA - observedB).toBeGreaterThanOrEqual(150);
+  });
+
+  it("two events folding at once leave the same state rows as folding them one after the other: no event's league or team update is lost (quick task 261018-3ju)", async () => {
+    // Every fold reads and rewrites each algorithm's league row, and these two
+    // fixture events share their teams too. The state write is held for 300 ms,
+    // so without the tick's state lock event B would read the state before A's
+    // write landed and its own write would erase A's contribution.
+    const windowA: WindowFixture = { eventKey: "2026aaaa", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const windowB: WindowFixture = { eventKey: "2026bbbb", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const algorithmIds = ["opr", "epa"];
+    const tbaEvents = () =>
+      new Map([
+        ["2026aaaa", twoMatchEventRecord("2026aaaa", "etag-a")],
+        ["2026bbbb", twoMatchEventRecord("2026bbbb", "etag-b")],
+      ]);
+    const stateJsonByRow = (d1: FakeD1Database): Record<string, string> =>
+      Object.fromEntries([...d1.algorithmState].map(([key, row]) => [key, row.state_json]).sort(([a], [b]) => a!.localeCompare(b!)));
+
+    // Reference: A alone in one tick, then B alone in the next, on one database.
+    const sequentialD1 = new FakeD1Database();
+    const sequentialR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const tickA = await runTick(makeEnv(makeManifests([windowA], algorithmIds), sequentialD1, sequentialR2), { nowMs: NOW_MS });
+    const tickB = await runTick(makeEnv(makeManifests([windowB], algorithmIds), sequentialD1, sequentialR2), { nowMs: NOW_MS });
+    expect(tickA.eventsAdvanced + tickB.eventsAdvanced).toBe(2);
+
+    // Both in ONE tick, with every state write held for 300 ms.
+    const concurrentD1 = new FakeD1Database();
+    const realBatch = concurrentD1.batch.bind(concurrentD1);
+    concurrentD1.batch = async (statements) => {
+      if (statements.some((stmt) => stmt.sql.includes("INSERT INTO algorithm_state"))) await new Promise((resolve) => setTimeout(resolve, 300));
+      return realBatch(statements);
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const tick = await runTick(makeEnv(makeManifests([windowA, windowB], algorithmIds), concurrentD1, new FakeR2Bucket()), { nowMs: NOW_MS });
+    expect(tick.eventsAdvanced).toBe(2);
+    expect(tick.eventsFailed).toBe(0);
+
+    const sequentialRows = stateJsonByRow(sequentialD1);
+    expect(Object.keys(sequentialRows).some((key) => key.includes("::league::"))).toBe(true);
+    expect(stateJsonByRow(concurrentD1)).toEqual(sequentialRows);
+  });
 });
 
 describe("runTick — algorithm module construction", () => {

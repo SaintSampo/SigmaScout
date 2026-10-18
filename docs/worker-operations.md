@@ -1487,6 +1487,38 @@ every finished season recomputes to the same artifact.
 
 ---
 
+## Events are processed concurrently inside a tick (quick task 261018-3ju, 2026-10-18)
+
+Until 2026-10-18 the tick walked live events one at a time, so its wall time grew with the number
+of live events and overlapping ticks set freshness, not the one-minute cron. On 2026-10-17, with 13
+offseason events live, the tick span (`tick_at` to the last `observed_at` in `ingest_log`) was
+median **143 s**, p90 **266 s**, max **530 s**.
+
+- **Four passes run up to `EVENT_CONCURRENCY` (6) events at once** through `mapWithConcurrency`
+  (`apps/worker/src/boundedConcurrency.ts`): the probe pass, the roster pass, the fold loop and the
+  live event pass. Six matches the Workers limit of six simultaneous open outbound connections per
+  invocation.
+- **Start order is unchanged.** Events still start in the rotated sorted order, and the rotation
+  offset still advances by `eventsAdvanced`.
+- **Per-event confinement is unchanged.** A failure stays inside its own event. Every tail counter
+  keeps its meaning; the fold tallies are taken after every event has settled, in start order.
+- **Two sections stay one event at a time.** Each fold reads and rewrites every algorithm's league
+  row in `algorithm_state`, so Phase A's state read, fold and write run inside a tick-wide lock. The
+  as-of write rewrites the season object every event shares, so it runs inside a second lock. The
+  TBA requests and the artifact reads and writes around them still overlap.
+- **The global rebuild and the district refresh run once**, after every event has settled, in the
+  same place in the tick as before.
+- **The TBA client keeps requests 100 ms apart across concurrent callers.** Callers take turns, each
+  measured from the previous request's actual start (`packages/ingest/tbaClient.ts`).
+- **The lazy algorithm context loads at most once per tick** through a memoized promise, so two
+  events asking at once still cost one manifest read, one module build and one tick-state read.
+- **A state generation mismatch in the roster pass** stops any event that has not started its roster
+  poll yet, and logs `roster-suspended` once, as the sequential walk's early return did.
+
+After: _measured on the next live window, see the quick task SUMMARY_
+
+---
+
 ## The ingest log (quick task 261004-uyc)
 
 The tick keeps a durable, queryable record of what it saw and when, in the D1 table `ingest_log`
