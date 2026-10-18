@@ -1842,6 +1842,45 @@ assets at all — offline, with no network.
 
 ---
 
+## Served cache headers (quick task 261018-0n8, 2026-10-18)
+
+Every artifact on `data.sigmascout.org` was served with `Cache-Control: public, max-age=14400` from
+2026-09-23 until 2026-10-18, although the Worker and the publisher both write `max-age=60`. The
+event page polls every 60 s, so during a live event the browser answered every poll from its own
+cache for four hours and the page showed matches from hours earlier until a hard reload. The edge
+was fine: the 2026-09-23 Cache Rule (host `data.sigmascout.org`, eligible for cache, Edge TTL
+override 60 s) kept the edge copy fresh. The browser header came from the zone's **Browser Cache
+TTL** setting, whose default of 4 hours overrides any origin `max-age` lower than itself, and the
+Cache Rule set no Browser TTL of its own, so the zone default applied.
+
+**The fix is a dashboard change, not code.** Caching → Cache Rules → the `data.sigmascout.org` rule →
+Browser TTL: "Respect origin TTL" (applied 2026-10-18). The zone-wide alternative, Caching →
+Configuration → Browser Cache TTL → "Respect Existing Headers", would also work but reaches
+`sigmascout.org` too, so the rule-scoped change is the one in place.
+
+**Check it with a GET, never a HEAD** (a HEAD never fills the edge cache and reports `DYNAMIC`):
+
+```bash
+curl -s -o /dev/null -D - -H "Origin: https://sigmascout.org" \
+  "https://data.sigmascout.org/v1/event/2026ncfay/spr@11.0.0+baseline.json" \
+  | grep -i "^cache-control\|^cf-cache-status"
+```
+
+Expect `cache-control: public, max-age=60` with `cf-cache-status` `MISS`, `HIT` or `REVALIDATED`.
+A `max-age=14400` here means the Browser TTL on the rule has been lost again. Worst-case staleness
+with both layers at 60 s is two minutes, inside the freshness target.
+
+The same deploy session shipped the late score breakdown backfill (quick task 261017-doy) two days
+after its commit reached `main`: the web half had gone out on push while the Worker half waited for
+the manual deploy above, and nothing flagged the gap. When a quick task touches `apps/worker`, its
+summary is not done until `wrangler deployments list` shows the new version at 100%. The backfill
+itself runs only on a tick whose matches poll returns a 200; a finished event that TBA no longer
+changes never gets one, so the 16 Doyenne rows were filled by clearing that event's `tba_etag` in
+`event_cursor` (one row), which made the next tick poll the full list. The cursor's
+`last_folded_match_key` stayed put, so nothing refolded; the ingest log recorded three
+`breakdown-backfill` rows, one per live algorithm, 18 matches each.
+---
+
 ## Replay rig (plan 04-07)
 
 `scripts/replayRig.ts` drives a real historical event through the deployed `sigmascout-worker`'s
