@@ -129,6 +129,26 @@ describe("tbaFetch", () => {
 
     expect(elapsed).toBeGreaterThanOrEqual(THROTTLE_INTERVAL_MS);
   });
+
+  it("spaces CONCURRENT requests the throttle interval apart, so callers started together never fire together", async () => {
+    // The Worker tick runs several events at once (quick task 261018-3ju). Each
+    // caller reserves its slot before sleeping, so three calls started in the
+    // same turn start one interval apart rather than all at once.
+    const startedAt: number[] = [];
+    fetchMock.mockImplementation(() => {
+      startedAt.push(Date.now());
+      return Promise.resolve(jsonResponse({ ok: true }));
+    });
+
+    await Promise.all([tbaFetch("/a", "key", undefined), tbaFetch("/b", "key", undefined), tbaFetch("/c", "key", undefined)]);
+
+    expect(startedAt).toHaveLength(3);
+    const sorted = [...startedAt].sort((a, b) => a - b);
+    // One millisecond of slack for `Date.now()` rounding against the timer's
+    // own clock; the bug this guards against put all three within ~0 ms.
+    expect(sorted[1]! - sorted[0]!).toBeGreaterThanOrEqual(THROTTLE_INTERVAL_MS - 1);
+    expect(sorted[2]! - sorted[1]!).toBeGreaterThanOrEqual(THROTTLE_INTERVAL_MS - 1);
+  });
 });
 
 describe("capability surface", () => {

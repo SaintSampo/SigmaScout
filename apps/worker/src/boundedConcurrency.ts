@@ -11,6 +11,16 @@
  * thrown, and never stops the remaining items from starting. Pure: no
  * Workers types, no clock, no I/O.
  */
+/**
+ * How many live events one tick processes at once, in each of the four
+ * per-event passes (probe, roster, fold, live event). Cloudflare Workers allow
+ * six simultaneous open outbound connections per invocation and queue the rest,
+ * so six events in flight is the natural match. Defined here, beside the
+ * runner, so `liveEventPass.ts` can import it without importing `scheduled.ts`
+ * (which imports `liveEventPass.ts`); `scheduled.ts` re-exports it.
+ */
+export const EVENT_CONCURRENCY = 6;
+
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,

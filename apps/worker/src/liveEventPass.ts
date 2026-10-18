@@ -55,6 +55,7 @@ import { parseLiveIngestState, serializeLiveIngestState, type LiveIngestState } 
 import { applyOfficialAlliances, applyOfficialRankings } from "./officialStandings.js";
 import { readEventCursors, writeEventCursor, type EventCursor } from "./stateStore.js";
 import { sortEventKeys, type SubrequestCounter } from "./subrequestCounter.js";
+import { EVENT_CONCURRENCY, mapWithConcurrency } from "./boundedConcurrency.js";
 import { pollEventAlliances, pollEventRankings, type TbaClientContext } from "./tbaPoll.js";
 import type { Env } from "./env.js";
 
@@ -153,7 +154,11 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
   let officialDataPolled = 0;
   let officialDataWritten = 0;
 
-  for (const eventKey of sortEventKeys(options.windows.map((w) => w.eventKey))) {
+  // Up to `EVENT_CONCURRENCY` events at once (quick task 261018-3ju), started in
+  // sorted order. The try/catch stays INSIDE the per-event function, so a throw
+  // is still confined to its own event, and the two counters are plain
+  // synchronous increments; every log row is keyed by event.
+  await mapWithConcurrency(sortEventKeys(options.windows.map((w) => w.eventKey)), EVENT_CONCURRENCY, async (eventKey) => {
     try {
       const stateKey = liveIngestCursorKey(eventKey);
       const stored = parseLiveIngestState(cursors.get(stateKey)?.lastFoldedMatchKey);
@@ -294,7 +299,7 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
 
       // ---- Persist the state once, and log a phase transition ----------------
       const stateText = serializeLiveIngestState(state);
-      if (stateText === serializeLiveIngestState(stored)) continue;
+      if (stateText === serializeLiveIngestState(stored)) return;
 
       // The remembered state is written BEFORE a phase row is logged: a write that
       // fails leaves the stored state unchanged, so the next tick derives the same
@@ -309,7 +314,7 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
         lastAdvancedAt: null,
         rosterEtag: null,
       });
-      if (state.phase === stored.phase) continue;
+      if (state.phase === stored.phase) return;
       live.ingest.phaseChanged(eventKey, stored.phase, state.phase);
 
       if (state.phase === "complete") {
@@ -321,6 +326,6 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
       console.warn(JSON.stringify({ msg: "live-event-pass-failed", eventKey, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) }));
       live.ingest.failure(eventKey, "live-event-pass", error);
     }
-  }
+  });
   return { officialDataPolled, officialDataWritten };
 }

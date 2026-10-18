@@ -207,6 +207,7 @@ import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefres
 import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./districtEventState.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
+import { EVENT_CONCURRENCY, mapWithConcurrency } from "./boundedConcurrency.js";
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
@@ -646,6 +647,8 @@ function toMatchResult(match: CorpusMatch, eventType: number, week: number | nul
 // ---------------------------------------------------------------------------
 
 export { mergeEventArtifact, mergeTeamSeasonArtifact, playedRowFactsFor, touchedEventTeamMetrics };
+/** Re-exported from `boundedConcurrency.ts`: the per-event concurrency every tick pass uses (quick task 261018-3ju). */
+export { EVENT_CONCURRENCY };
 export type { PlayedRowFacts };
 
 /** What Phase A hands Phase B for one algorithm. */
@@ -1078,19 +1081,23 @@ async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClient
   let eventsProbed = 0;
   let eventsFailed = 0;
 
-  for (const eventKey of ordered) {
+  // Up to `EVENT_CONCURRENCY` probes in flight (quick task 261018-3ju), started
+  // in sorted order. The try/catch stays INSIDE the per-event function, so a
+  // throw is still confined to its own probe and the two counters keep their
+  // meaning; `promoted` is keyed per event, so concurrent sets cannot collide.
+  await mapWithConcurrency(ordered, EVENT_CONCURRENCY, async (eventKey) => {
     try {
       const preflight = await eventPreflight(env, counter, tbaCtx, eventKey);
 
       eventsProbed++;
-      if (preflight.status === "not-modified") continue;
+      if (preflight.status === "not-modified") return;
 
       if (preflight.matches.length === 0) {
         if (preflight.etag !== undefined && preflight.etag !== preflight.cursor.tbaEtag) {
           counter.spend(1);
           await writeEventCursor(env.DB, { ...preflight.cursor, tbaEtag: preflight.etag, lastPolledAt: nowIso });
         }
-        continue;
+        return;
       }
 
       promoted.set(eventKey, { cursor: preflight.cursor, etag: preflight.etag, matches: preflight.matches, ...(preflight.lastModified !== undefined ? { lastModified: preflight.lastModified } : {}) });
@@ -1098,7 +1105,7 @@ async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClient
       eventsFailed++;
       console.warn(JSON.stringify({ msg: "probe-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
     }
-  }
+  });
 
   return { promoted, eventsProbed, eventsFailed };
 }
@@ -1341,10 +1348,18 @@ async function runRosterPass(
   // pins.
   let rostersPolled = 0;
   let rosterTeamsAppended = 0;
+  // Set by the first event to see a state-generation mismatch (quick task
+  // 261018-3ju). The sequential walk used to `return` from inside the loop at
+  // that point, so no later event was polled; with up to `EVENT_CONCURRENCY`
+  // events in flight, this flag stops any event that has not STARTED yet from
+  // polling, and an event already in flight that reaches `algorithmContext()`
+  // sees the same memoized mismatch and writes nothing either.
+  let suspended = false;
 
-  for (const eventKey of eventKeys) {
+  await mapWithConcurrency(eventKeys, EVENT_CONCURRENCY, async (eventKey) => {
+    if (suspended) return;
     const season = seasonByEventKey.get(eventKey);
-    if (season === undefined) continue;
+    if (season === undefined) return;
     try {
       const cachedEtag = cursors.get(eventKey)?.rosterEtag ?? undefined;
       counter.spend(1);
@@ -1352,7 +1367,7 @@ async function runRosterPass(
       rostersPolled++;
       // A 304 is the common case and costs nothing further — no parse, no state
       // read, no put, not even an etag write.
-      if (poll.status === "not-modified") continue;
+      if (poll.status === "not-modified") return;
 
       const etagChanged = poll.etag !== undefined && poll.etag !== cachedEtag;
       const roster = tbaEventTeamsSimpleResponseSchema.parse(poll.body);
@@ -1361,7 +1376,7 @@ async function runRosterPass(
           counter.spend(1);
           await writeEventRosterEtag(env.DB, eventKey, poll.etag ?? null, nowIso);
         }
-        continue;
+        return;
       }
 
       const { modules, mismatch } = await algorithmContext();
@@ -1369,8 +1384,11 @@ async function runRosterPass(
         // WRITE NOTHING AT ALL — not even the etag. A generation mismatch
         // suspends every live write, and consuming the etag while skipping the
         // write would strand the roster until TBA's own etag changed.
-        console.warn(JSON.stringify({ msg: "roster-suspended", reason: "state-generation-mismatch", eventKey }));
-        return { rostersPolled, rosterTeamsAppended };
+        // ONE warn line per tick, as the sequential walk's early return gave:
+        // only the first in-flight event to see the mismatch logs it.
+        if (!suspended) console.warn(JSON.stringify({ msg: "roster-suspended", reason: "state-generation-mismatch", eventKey }));
+        suspended = true;
+        return;
       }
 
       const rosterRows: RosterTeamRow[] = roster.map((team) => ({ teamKey: team.key, teamNumber: team.team_number, nickname: team.nickname ?? "" }));
@@ -1440,7 +1458,7 @@ async function runRosterPass(
     } catch (err) {
       console.warn(JSON.stringify({ msg: "roster-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
     }
-  }
+  });
 
   return { rostersPolled, rosterTeamsAppended };
 }
@@ -2021,7 +2039,16 @@ async function runPhaseBAndReport(
       // deleted sidecar write and, before it, the team-artifact write were.
       const isOfficial = isOfficialEventType(eventType);
       const compositeKey = touchedTeamsCompositeKey(algorithmId, window.season);
-      const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
+      // THIS EVENT'S OWN feed, merged into the shared map only after the team
+      // loop below finishes (quick task 261018-3ju). Events now run
+      // concurrently, and the loop awaits a read and a write per team: reading
+      // the shared season map here and setting it back after the loop would let
+      // two events sharing an algorithm and season each start from a fresh map,
+      // and the later `set` would drop the earlier event's teams. `metrics` is
+      // left `undefined` when this tick produced none, so the merge can fall back
+      // to what an earlier event already recorded, exactly as the sequential
+      // walk's `?? prior?.metrics` did.
+      const eventFeed = new Map<string, { metrics: Record<string, TeamMetric> | undefined; matchDelta: number }>();
 
       // THE TEAM ARTIFACT WRITE IS BACK (quick task 260923-3w6), one read and one
       // write per touched team per algorithm, exactly as it was before 260917-jr4
@@ -2064,14 +2091,27 @@ async function runPhaseBAndReport(
         // `runGlobalRebuild`'s teams-of-the-year feed, gated on officialness and
         // summing this team's newly-folded match count. Unchanged.
         if (!isOfficial) continue;
-        const prior = seasonMap.get(teamKey);
-        seasonMap.set(teamKey, {
-          metrics: info.touchedMetrics[teamKey] ?? prior?.metrics ?? {},
-          matchDelta: (prior?.matchDelta ?? 0) + teamMatches.length,
+        const priorInEvent = eventFeed.get(teamKey);
+        eventFeed.set(teamKey, {
+          metrics: info.touchedMetrics[teamKey] ?? priorInEvent?.metrics,
+          matchDelta: (priorInEvent?.matchDelta ?? 0) + teamMatches.length,
         });
       }
 
-      if (isOfficial) touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
+      // SYNCHRONOUS from here to the `set`: no `await`, so no other event's
+      // merge can interleave. A throw in the loop above still lands nothing
+      // from this algorithm (metrics replace, `matchDelta` adds).
+      if (isOfficial) {
+        const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
+        for (const [teamKey, entry] of eventFeed) {
+          const prior = seasonMap.get(teamKey);
+          seasonMap.set(teamKey, {
+            metrics: entry.metrics ?? prior?.metrics ?? {},
+            matchDelta: (prior?.matchDelta ?? 0) + entry.matchDelta,
+          });
+        }
+        touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
+      }
     }
     live.ingest.eventPublished(eventKey);
   } catch (phaseBError) {
@@ -2346,9 +2386,16 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // DECLARED ABOVE THE FIRST EARLY RETURN since quick task 261009-tx6, with its
   // body unchanged: the idle return now hands the district pass a suspension
   // check that resolves this same memoized context.
-  let tickAlgorithmContext: TickAlgorithmContext | undefined;
-  const algorithmContext = async (): Promise<TickAlgorithmContext> => {
-    if (tickAlgorithmContext !== undefined) return tickAlgorithmContext;
+  //
+  // THE IN-FLIGHT PROMISE IS CACHED, NOT THE RESOLVED VALUE (quick task
+  // 261018-3ju). The roster pass and the fold loop now run several events at
+  // once, so two events can ask for the context before the first load has
+  // finished; caching only the value would let both pass the "not loaded yet"
+  // check and load twice. A load that REJECTS is dropped from the cache, so a
+  // later caller retries exactly as a sequential caller did when nothing had
+  // been memoized; callers already awaiting the failed load share its rejection.
+  let tickAlgorithmContext: Promise<TickAlgorithmContext> | undefined;
+  const loadAlgorithmContext = async (): Promise<TickAlgorithmContext> => {
     subrequests.spend(1);
     const manifest = await loadAlgorithmsManifest(env);
     const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
@@ -2359,8 +2406,16 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     const { meta, baselineGenerationByAlgorithm } = await readTickState(env.DB, liveAlgorithmModuleIds);
 
     const mismatch = detectStateGenerationMismatch(manifest.generation, liveAlgorithmModuleIds, baselineGenerationByAlgorithm);
-    tickAlgorithmContext = { manifest, modules, meta, baselineGenerationByAlgorithm, mismatch };
-    return tickAlgorithmContext;
+    return { manifest, modules, meta, baselineGenerationByAlgorithm, mismatch };
+  };
+  const algorithmContext = (): Promise<TickAlgorithmContext> => {
+    if (tickAlgorithmContext !== undefined) return tickAlgorithmContext;
+    const loading = loadAlgorithmContext();
+    tickAlgorithmContext = loading;
+    loading.catch(() => {
+      if (tickAlgorithmContext === loading) tickAlgorithmContext = undefined;
+    });
+    return loading;
   };
 
   // What the two idle call sites hand the district pass in place of the
@@ -2504,16 +2559,39 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // `runDistrictRefresh` below.
   const matchDerivedState = new Map<string, MatchDerivedEventState>();
 
-  for (const eventKey of orderedEventKeys) {
+  // UP TO `EVENT_CONCURRENCY` EVENTS FOLD AT ONCE (quick task 261018-3ju),
+  // started in `orderedEventKeys` order, so the rotation still decides who goes
+  // first. Each event has its own fold claim and its own cursor rows, so two
+  // events never contend on a D1 row; the shared collectors are keyed per event
+  // (`matchDerivedState`, the ingest log) or merged synchronously
+  // (`touchedTeamsByAlgorithm`, see `runPhaseBAndReport`).
+  const settled = await mapWithConcurrency(orderedEventKeys, EVENT_CONCURRENCY, async (eventKey) => {
     const window = liveEventByKey.get(eventKey);
-    if (!window) continue;
-
+    if (!window) return undefined;
     // A promoted event's preflight was already paid for by `runProbes` — hand
     // it straight to `processEvent`, which then makes no second TBA request.
     const preflight = probeResult.promoted.get(eventKey);
-    if (preflight) eventsPromoted++;
-
     const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, live, preflight);
+    return { outcome, promoted: preflight !== undefined };
+  });
+
+  // THE TALLIES, SYNCHRONOUSLY AND IN `orderedEventKeys` ORDER, after every
+  // event has settled, so the counters mean exactly what they meant when the
+  // loop was sequential. `processEvent` catches its own failures and returns
+  // `failed`, so a `rejected` result should not happen; if one does, it is
+  // rethrown here, after every other event has settled. A throw used to abort
+  // the tick at that event and leave the rest unprocessed; now the rest have
+  // already run, and the tick still aborts before the global rebuild, the
+  // district pass, the live event pass and `writeTickMeta`, as it did before.
+  let rejection: { reason: unknown } | undefined;
+  for (const result of settled) {
+    if (result.status === "rejected") {
+      rejection ??= { reason: result.reason };
+      continue;
+    }
+    if (result.value === undefined) continue;
+    const { outcome, promoted } = result.value;
+    if (promoted) eventsPromoted++;
     if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/failed
     // BEFORE `eventsConsidered++`, so every existing counter keeps the meaning
     // it had before this outcome existed — and the rotation offset keeps
@@ -2530,6 +2608,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
       eventsFailed++;
     }
   }
+  if (rejection !== undefined) throw rejection.reason;
 
   // EVERY TICK THAT TOUCHED A TEAM, since quick task 260923-3w4. This used to
   // fire on a 10-minute `GLOBAL_REBUILD_INTERVAL_MS` or on an event completing

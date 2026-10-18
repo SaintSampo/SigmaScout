@@ -63,12 +63,28 @@ export class TbaRequestCounter {
 
 let lastRequestAt = 0;
 
-async function throttle(): Promise<void> {
-  const elapsed = Date.now() - lastRequestAt;
-  if (elapsed < THROTTLE_INTERVAL_MS) {
-    await new Promise((resolve) => setTimeout(resolve, THROTTLE_INTERVAL_MS - elapsed));
-  }
-  lastRequestAt = Date.now();
+/**
+ * Callers take turns (quick task 261018-3ju). The Worker's tick now runs
+ * several events at once, and the old read-sleep-then-write version let
+ * concurrent callers all read the same stale `lastRequestAt` and fire together.
+ * Each caller now reserves its turn synchronously by chaining onto the previous
+ * caller's, and measures its wait from the previous caller's ACTUAL start, so a
+ * timer that fires late under load cannot squeeze the next gap below the
+ * interval (a precomputed time slot can). A sequential caller waits exactly as
+ * before; N concurrent callers start at least `THROTTLE_INTERVAL_MS` apart.
+ */
+let throttleQueue: Promise<void> = Promise.resolve();
+
+function throttle(): Promise<void> {
+  const turn = throttleQueue.then(async () => {
+    const elapsed = Date.now() - lastRequestAt;
+    if (elapsed < THROTTLE_INTERVAL_MS) {
+      await new Promise((resolve) => setTimeout(resolve, THROTTLE_INTERVAL_MS - elapsed));
+    }
+    lastRequestAt = Date.now();
+  });
+  throttleQueue = turn;
+  return turn;
 }
 
 export async function tbaFetch(
