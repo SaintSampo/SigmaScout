@@ -11,6 +11,10 @@ domain, so page traffic never touches this Worker.
 
 Deployed at `https://sigmascout-worker.jrw4561.workers.dev`. Read path: `https://sigmascout.org`.
 
+Since 2026-10-19 the Worker also answers TBA webhooks at
+`https://sigmascout-worker.jrw4561.workers.dev/tba-webhook`. See "Push instead of poll: TBA
+webhooks" below.
+
 > **Plan change, 2026-09-22: the account is on Workers Paid.** Per-invocation CPU is 30 s (was
 > 10 ms) and subrequests are 10,000 (was 50); D1 is 50M row writes/month (was 100k/day). R2's free
 > tier is separate and unchanged. (KV rose from 1,000 writes/day to 1M/month too, and is now
@@ -46,6 +50,12 @@ npx wrangler deployments list        # a current deployment at 100%
 The deploy output must print `schedule: * * * * *` and list **two** bindings — `DB` (D1) and
 `ARTIFACTS` (R2). If a binding is missing, stop: the tick will fail every minute against a binding
 that is not there.
+
+**Since quick task 261019-ooj the deploy output also prints the workers.dev URL**,
+`https://sigmascout-worker.jrw4561.workers.dev`, because `workers_dev = true` is set in
+`apps/worker/wrangler.toml`. The Worker's `fetch` entry is the TBA webhook handler and nothing
+else. There are no routes and no custom domain. The webhook needs the `TBA_WEBHOOK_SECRET` secret
+(see "Secrets"); without it every webhook is answered 503.
 
 **There were THREE bindings until 2026-09-23.** `MANIFEST` (KV) was the "small, hot live-windows
 manifest pointer" half of the original design, and nothing in this repository ever wrote a value to
@@ -83,6 +93,50 @@ Confirm by **name only** — this never prints a value:
 ```bash
 npx wrangler secret list
 ```
+
+### `TBA_WEBHOOK_SECRET` (quick task 261019-ooj)
+
+`TBA_WEBHOOK_SECRET` is the second Worker secret. TBA signs every webhook body with it, and the
+Worker checks that signature (`X-TBA-HMAC`) before it does anything. The same value lives in three
+places: the gitignored `.env`, the Worker secret, and the webhook entry on the TBA account page.
+Never echo it, and never paste it anywhere but the TBA webhook form.
+
+Generate it straight into `.env` without printing it, from the repo root. The `grep -q ||` writes
+nothing if a value is already there. The leading `\n` keeps the new line separate if `.env` has no
+final newline.
+
+```bash
+grep -q '^TBA_WEBHOOK_SECRET=' .env || printf '\nTBA_WEBHOOK_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+```
+
+Confirm it by length only (64 for `openssl rand -hex 32`):
+
+```bash
+v=$(grep -E '^TBA_WEBHOOK_SECRET=' .env | cut -d= -f2- | tr -d '\r'); [ -n "$v" ] && echo "OK (len=${#v})"; unset v
+```
+
+Set it on the Worker the same way as `TBA_API_KEY`:
+
+```bash
+cd apps/worker
+S=$(grep -E '^TBA_WEBHOOK_SECRET=' ../../.env | cut -d= -f2- | tr -d '\r')
+printf '%s' "$S" | npx wrangler secret put TBA_WEBHOOK_SECRET
+unset S
+```
+
+Copy it for the TBA form without printing it, from the repo root:
+
+```bash
+grep -E '^TBA_WEBHOOK_SECRET=' .env | cut -d= -f2- | tr -d '\r\n' | clip     # Windows, Git Bash
+grep -E '^TBA_WEBHOOK_SECRET=' .env | cut -d= -f2- | tr -d '\r\n' | pbcopy   # macOS
+```
+
+Paste it into the TBA form, then copy something else so the secret does not sit on the clipboard.
+
+**Rotating it means changing both sides:** the Worker secret and the TBA webhook entry. Until both
+match, every webhook is answered 401. TBA can delete a webhook that keeps answering non-200, so do
+the two steps back to back, and check afterwards that the webhook is still listed on the TBA
+account page. Re-add it if it is gone.
 
 Standing rule: no key ever appears in `wrangler.toml`, a log line, a published artifact, a commit
 message, or a test assertion. See `scripts/secrets-boundary.test.ts`, which enforces the local half
@@ -1596,6 +1650,133 @@ Before, same slice (2026-10-17 00:00Z to the 2026-10-18 07:47Z deploy, ticks wit
 
 ---
 
+## Push instead of poll: TBA webhooks (quick task 261019-ooj, 2026-10-19)
+
+The cron still runs every minute, exactly as before. Webhooks are an extra, faster path for the
+events TBA tells us about. If webhooks stop arriving, the site falls back to the cron and loses
+nothing but speed.
+
+### Why
+
+After 261018-3ju the tick span median is 4 s, but the time from TBA's `post_result_time` to the
+page's `published_at` is still median 122 s, p90 200 s. The cron polls once a minute, and TBA's API
+serves `/matches` from a cache of up to 61 s. Polling cannot close that gap. A webhook arrives when
+TBA has the change.
+
+### The protocol in brief
+
+- TBA sends a POST with an `X-TBA-HMAC` header: the hex HMAC-SHA256 of the raw body, keyed with
+  the shared secret. The Worker compares it in constant time. `X-TBA-Checksum` is deprecated and
+  ignored.
+- The body is `{"message_type": "...", "message_data": {...}}`.
+- Three message types are acted on: `match_score`, `schedule_updated` and `alliance_selection`.
+  Each names an `event_key`.
+- `verification` and `ping` are answered. Every other type is answered 200 and ignored.
+- TBA waits at most 10 s for an answer, and it can delete a webhook that answers non-200 or times
+  out. So the handler answers at once and runs the work afterwards, in `ctx.waitUntil`.
+
+### Status codes
+
+The checks run in this order: path, method, secret, size, signature, JSON, message type. The first
+that applies answers. Error answers are short fixed text and never echo the request.
+
+| Status | Body | When |
+|---|---|---|
+| 200 | `{"accepted":true}` | A signed `match_score`, `schedule_updated` or `alliance_selection` with a valid event key. A one-event tick starts. |
+| 200 | `{"accepted":false}` | A signed `verification`, `ping`, or any other message type. No tick. |
+| 401 | text | `X-TBA-HMAC` is missing or wrong. |
+| 400 | text | The body is not JSON, has no `message_type`, is a `verification` with no key, or is an acted-on message whose `event_key` is missing or not a TBA event key (four digits, then lowercase letters and digits). |
+| 405 | text, `Allow: POST` | Not a POST. |
+| 404 | text | Any path other than `/tba-webhook`. |
+| 413 | text | The body is over 1 MiB, by its `Content-Length` or by the bytes read. |
+| 503 | text | `TBA_WEBHOOK_SECRET` is not set, or is empty, on the deployed Worker. |
+
+### The one-event tick
+
+An accepted webhook runs
+`runTick(env, { onlyEventKeys: [eventKey], trigger: "webhook", deadlineMs: <arrival> + 20 s })`.
+
+- It filters the live windows to that one event before anything else reads them: before the idle
+  exit, the event lease and every pass. No other event is polled or written.
+- It drops the 24 hour recently-ended district watch for that tick. Its district pass only sees the
+  named event's own district, if the event is live and in one.
+- It never writes the tick meta row. The rotation offset belongs to the cron. A one-event tick would
+  reset it to 0 every time.
+- A key with no live window logs `webhook-event-not-live` and costs one manifest read and no TBA
+  request. With the firehose subscription this is the common case for events outside a live
+  window.
+- The tick ends with a `tick` line that carries `"trigger":"webhook"` and `eventKey`. A cron tick's
+  line carries no `trigger` field, exactly as before.
+
+### Running beside the cron
+
+A webhook tick and a cron tick can run at the same moment. The 261019-oim leases cover this, as
+the code stands:
+
+- **The same event.** Whichever tick leases the event first processes it. The other skips it,
+  logs `events-in-flight`, and counts it in `eventsSkippedInFlight`. If the webhook tick is the one
+  that skips, the next cron poll picks up the change within a minute. A tick whose every window is
+  held returns at once and runs no district pass.
+- **Different events.** Each Phase A section (the state read, fold and write) first waits for the
+  D1 fold lease, the `#fold` row in `event_lease`, polling every 250 ms. So each algorithm's
+  league row is read and rewritten by one invocation at a time, exactly as inside one tick. A
+  webhook tick waits only until its deadline, 20 s after the webhook arrived. If the lease is
+  still held then, the event fails with `FoldLeaseTimeoutError`, its claim is reverted, and the
+  next cron tick folds the same matches.
+- **What is still not guarded.** A team page shared by two invocations, and the `teams/{year}`
+  feed, are read, merged and written with no cross-invocation lock. That needs one team at two
+  live events at once, folding in two overlapping invocations. It is rare, and it is the same gap
+  261019-oim names for two cron ticks.
+- **Two webhooks for one event in quick succession.** The second tick usually finds the event
+  leased by the first and skips it. The first may have polled TBA before the second result
+  landed. The next cron poll catches that within a minute.
+
+### Registering the webhook (operator steps, in this order)
+
+1. **Set the secret.** Follow "Secrets" above: generate `TBA_WEBHOOK_SECRET` into `.env`, then
+   `wrangler secret put` it. Do this before step 3. A webhook that answers 503 can be deleted by
+   TBA.
+2. **Deploy.** Run `npx wrangler deploy` from `apps/worker` (or `pnpm worker:deploy` from the repo
+   root). Note the workers.dev hostname it prints. It should be
+   `sigmascout-worker.jrw4561.workers.dev`.
+3. **Add the webhook on TBA.** Sign in at https://www.thebluealliance.com/account and add a
+   webhook. The URL is `https://<that hostname>/tba-webhook`. The secret is the same value as
+   `TBA_WEBHOOK_SECRET` (copy it with the `clip` or `pbcopy` line in "Secrets").
+4. **Verify it.** TBA posts a `verification` message as soon as the webhook is added. Run
+   `npx wrangler tail sigmascout-worker --format json`, find the `tba-webhook-verification` line,
+   and read its `verificationKey` field. Enter that key on the TBA account page. The key is a
+   one-time activation code, not a secret.
+5. **Subscribe to the firehose.** On the account's myTBA page, Subscriptions tab, choose
+   "Subscribe to all events this year". If the form offers notification types, pick at least match
+   score, schedule updated and alliance selection. Use a separate TBA account that is not linked
+   to a phone, because every notification also goes to the account's phones. The subscription
+   lasts one season, so redo it every January.
+6. **See it work.** During a live event, the tail shows `tba-webhook-accepted` and then a `tick`
+   line with `"trigger":"webhook"` and the same `eventKey`.
+
+### Caveats
+
+- **(a) TBA's API cache.** A webhook tick polls `/matches` like the cron does, and can still hit
+  TBA's cache and see nothing new. It then does nothing (a 304, or an unchanged list), and the next
+  cron poll catches up. So the gain must be measured from `ingest_log` with
+  `pnpm live:report <eventKey>` after the next live event, not assumed.
+
+  After: _measured on the next live window, see the quick task SUMMARY_
+- **(b) The 30 s `waitUntil` cap, mitigated.** Cloudflare cancels `waitUntil` work 30 s after the
+  response and logs "waitUntil() tasks did not complete within the allowed time after invocation
+  end and have been cancelled." The cron path has no such cap. The webhook tick stops taking new
+  fold sections 20 s after the response: `tick-deadline-skip` when it reaches a fold claim after
+  that, or `FoldLeaseTimeoutError` when a cron tick holds the fold lease past it. A cron tick
+  folds the same matches within a minute. A Phase A section that has already started finishes
+  well inside the remaining 10 s, since a one-event tick takes about 4 s. What is left: a tick
+  cancelled between the state write and the artifact writes leaves those artifacts stale until the
+  event's next match. Watch `durationMs` on `trigger:"webhook"` tick lines, and that Cloudflare
+  message.
+- **(c) More rebuilds.** Each folding webhook tick also runs the touched-teams rebuild. Folding
+  ticks become one per posted result, not at most one per minute.
+
+---
+
 ## The ingest log (quick task 261004-uyc)
 
 The tick keeps a durable, queryable record of what it saw and when, in the D1 table `ingest_log`
@@ -1763,7 +1944,11 @@ cd apps/worker
 npx wrangler tail sigmascout-worker --format json
 ```
 
-Every invocation emits exactly one structured line:
+A cron invocation emits exactly one structured line, a `tick` line with no `trigger` field. A
+webhook invocation (quick task 261019-ooj) emits one `tba-webhook-*` line at once and, when the
+webhook was accepted, a `tick` line with `"trigger":"webhook"` and `eventKey` when its tick ends.
+The webhook lines are listed in a table at the end of this section. A cron tick line looks like
+this:
 
 ```json
 {"msg":"tick","ok":true,"durationMs":152,"eventsConsidered":0,"eventsAdvanced":0,
@@ -1800,6 +1985,21 @@ matches) — see "Before an event: probed automatically, and what ingest + repub
 you" above. A failing tick logs `"ok":false` with an `error` field and is recorded as a failed
 invocation in the dashboard.
 
+The webhook lines (quick task 261019-ooj). None of them ever carries the request body, the
+`X-TBA-HMAC` value or the secret.
+
+| Line | Level | Meaning |
+|---|---|---|
+| `tba-webhook-accepted` (`messageType`, `eventKey`) | log | A signed `match_score`, `schedule_updated` or `alliance_selection`. Answered 200 and a one-event tick started. |
+| `tba-webhook-ignored` (`messageType`) | log | A signed message of a type the Worker does not act on. Answered 200, no tick. |
+| `tba-webhook-ping` | log | A signed `ping`. Answered 200, no tick. |
+| `tba-webhook-verification` (`verificationKey`) | log | A signed `verification`. The key to enter on the TBA account page. Answered 200, no tick. |
+| `tba-webhook-rejected` (`reason`) | warn | Refused, no tick. `reason` is `hmac` (401), `size` (413), `malformed` (400: not JSON, no `message_type`, or a `verification` with no key) or `event_key` (400). |
+| `tba-webhook-secret-missing` | warn | `TBA_WEBHOOK_SECRET` is not set on the deployed Worker. Answered 503. |
+| `webhook-event-not-live` (`eventKey`, `trigger`) | log | The webhook's event has no live window right now. The tick did nothing beyond its one manifest read. |
+| `tick-deadline-skip` (`eventKey`) | log | A webhook tick reached a fold claim 20 s or more after the webhook arrived, so it took no claim. The next cron tick folds the same matches. |
+| `tick` with `"trigger":"webhook"` and `eventKey` | log, or error when `"ok":false` | The webhook tick's end line, with the same fields as a cron tick line. |
+
 Retained logs, CPU time and subrequest counts are in the dashboard under **Workers & Pages →
 sigmascout-worker → Observability**. Observability is enabled at `head_sampling_rate = 1.0` in
 `wrangler.toml`; at ~1,440 events/day sampling would save nothing worth the blind spots.
@@ -1834,6 +2034,9 @@ above. An observation your model says is impossible is the most valuable one you
 | Earned district points not moving on `/districts` during a live district weekend | The district refresh pass is not seeing the district as live, is failing on it, or has nothing published to merge into | Read `districtsConsidered`, `districtsRefreshed`, `districtsUnchanged` and `districtsFailed` on the tick line, in that order. `districtsConsidered: 0` on EVERY tick of a live district event means no member event's window carries a `districtKey` — the live-windows manifest predates phase 10 or has gone stale, so re-run `pnpm publish:seasons`. (`0` on most ticks and `1` on the minutes that are a multiple of 5 is the healthy shape for a district that only has an event in its 24 hour watch.) A `district-pass-suspended` warn means a state generation mismatch is holding the pass back, and a `district-cursor-read-failed` warn means its D1 read failed that tick. Non-zero considered with `districtsFailed` above zero: grep the tail for `district-refresh-failed` and `district-artifact-missing` (the Worker never CREATES a district artifact, so a district the offline publisher has not published yet fails every tick). All considered and all unchanged is the healthy answer when TBA's rankings have genuinely not moved |
 | An `upcoming-pricing-failed` warn line in the tail | The tick could not price the event's remaining schedule — the priced row failed `EventUpcomingMatchSchema` (a pmf that does not sum, a band that is not finite). The event's state is durable in D1; its artifacts lag until the next tick | Read the truncated `error` field and the `upcoming` count on the line. It is a model-output problem, not a config one: the offline publisher would fail the same parse on the same state, so reproduce it with a replay rather than by redeploying |
 | The page was late, or a result took a long time to show | Anything between TBA posting the result and the artifact landing: TBA itself, the cron cadence, a tick that skipped the event, a Phase B write that failed | Run `pnpm live:report <eventKey>` and read the median and worst post to published delay by phase, then the gaps and the failures (see "The ingest log" above). A large `Last-Modified` to observed lag is TBA or the cron; a `phase-b` failure row is the artifact write; a gap is a tick that never saw the event |
+| Every webhook answered 401, with `tba-webhook-rejected` and `reason: "hmac"` | The secret differs between the Worker and the TBA webhook entry | Re-set both from `.env`: `wrangler secret put` it again (see "Secrets"), and paste the same value into the TBA webhook entry. Then check the webhook is still listed on the TBA account page, because TBA can delete one that keeps answering non-200 |
+| Webhooks answered 503, with `tba-webhook-secret-missing` | `TBA_WEBHOOK_SECRET` is not set on the deployed Worker | Set it as "Secrets" says. `npx wrangler secret list` shows the name once it is there |
+| Cron ticks fine during a live event, but no `tba-webhook-` lines at all | TBA deleted the webhook after non-200 answers, or the firehose subscription lapsed (it lasts one season) | Check the TBA account page: is the webhook listed and verified? Is "Subscribe to all events this year" still on? Re-add whichever is missing (see "Registering the webhook") |
 
 ---
 
