@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-18T07:50:41.588Z"
-last_activity: 2026-10-18
+last_updated: "2026-10-19T18:50:47.871Z"
+last_activity: 2026-10-19
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -783,6 +783,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 347 | Deploy the Doyenne breakdown backfill Worker half (a6a395ba), fill 2026ncfay's 16 null RP rows via a one-row etag clear, fix the served max-age=14400 browser header on the data.sigmascout.org Cache Rule (now 60), runbook note | 2026-10-18 | 22cd6e82 | [261018-0n8-ship-doyenne-worker-half-and-fix-cache-ttl](./quick/261018-0n8-ship-doyenne-worker-half-and-fix-cache-ttl/) |
 | 348 | Fix the two web polling tests 261017-doy left red in CI (finished means finals decided; fixtures only, no web code) and push main | 2026-10-18 | 56d3f52c | [261018-253-fix-the-doyenne-web-tests-and-push](./quick/261018-253-fix-the-doyenne-web-tests-and-push/) |
 | 349 | Process live events concurrently inside a Worker tick: probe, roster, fold and live passes run up to 6 events at once; TBA throttle made concurrency safe; league-row fold serialized | 2026-10-18 | 04996326 | [261018-3ju-concurrent-tick-events](./quick/261018-3ju-concurrent-tick-events/) |
+| 350 | Teams table first row hidden on Safari: virtualized rows now in-flow with spacer rows (WebKit ignores a positioned tbody) | 2026-10-19 | d36b68e8 | [261019-7qs-safari-teams-first-row](./quick/261019-7qs-safari-teams-first-row/) |
 
 ### Roadmap Evolution
 
