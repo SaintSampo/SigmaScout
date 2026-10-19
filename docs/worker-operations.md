@@ -1537,7 +1537,12 @@ After (2026-10-18 12:49Z to 2026-10-19 13:58Z, 435 ticks, never more than 4 even
 
 No tick in the After window had 5 or more events live, so the busy-tick slices have no After yet. 25 of the 435 ticks still ran past 60 s, which is why quick task 261019-oim adds the lease.
 
-Before, same slice: _orchestrator fills in_
+Before, same slice (2026-10-17 00:00Z to the 2026-10-18 07:47Z deploy, ticks with 1 to 4 events only; the 143 s figure above is the all-ticks median on a 13-event day, so this is the like-for-like comparison):
+
+| Slice | n | median | p90 | max |
+|---|---|---|---|---|
+| tick span, ticks with 1 to 4 events | 856 | 5 s | 92 s | 176 s |
+| post_result_time to published_at, folded matches in those ticks | 122 | 180 s | 271 s | 407 s |
 
 ---
 

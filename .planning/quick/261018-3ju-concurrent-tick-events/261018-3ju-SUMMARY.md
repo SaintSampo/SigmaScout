@@ -156,7 +156,21 @@ seconds):
 
 Deployed as Worker version 9d2c0b8d-4ca9-4934-943e-64ae71636775 at 2026-10-18 07:47Z.
 
-After: pending (orchestrator fills in after the next live window)
+After (measured by the orchestrator 2026-10-19 from `ingest_log`, 2026-10-18 12:49Z to 2026-10-19 13:58Z, 435 ticks; never more than 4 events were live in any tick, so the 5 to 9 and 10 to 12 slices have no After yet):
+
+| Slice | n | median | p90 | max |
+|---|---|---|---|---|
+| tick span, all ticks (1 to 4 events) | 435 | 4 s | 47 s | 85 s |
+| post_result_time to published_at, folded matches | 141 | 122 s | 200 s | 1573 s |
+
+Before, same slice (2026-10-17 00:00Z to the 2026-10-18 07:47Z deploy, ticks with 1 to 4 events only; the 143 s figure above is the all-ticks median on a 13-event day, so this is the like-for-like comparison):
+
+| Slice | n | median | p90 | max |
+|---|---|---|---|---|
+| tick span, ticks with 1 to 4 events | 856 | 5 s | 92 s | 176 s |
+| post_result_time to published_at, folded matches in those ticks | 122 | 180 s | 271 s | 407 s |
+
+The headline "median tick 4 s, was 143 s" compares the After window with the all-ticks Before median; on the matched 1 to 4 event slice the median was already 5 s and the gain is in the tail (p90 92 s to 47 s, max 176 s to 85 s) and in publish latency (median 180 s to 122 s). 25 of the 435 After ticks still ran past 60 s and overlapped the next cron invocation, which quick task 261019-oim closes with a D1 lease.
 
 ## Self-Check: PASSED
 
