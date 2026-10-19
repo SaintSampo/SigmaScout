@@ -161,6 +161,18 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
 
   const isLoading = status === "loading";
   const virtualItems = isLoading ? [] : rowVirtualizer.getVirtualItems();
+  // Rows stay in normal table flow; two spacer rows hold the place of the
+  // rows above and below the rendered window so the scroll extent still
+  // equals the virtualizer's total size. The earlier layout positioned each
+  // row absolutely inside a `position: relative` `<tbody>`, which WebKit does
+  // not honor as a containing block (bugs.webkit.org/show_bug.cgi?id=240961):
+  // on Safari the rows resolved against the scroll container instead, so
+  // the first row rendered underneath the sticky header and every row sat
+  // one header-height too high.
+  const firstVirtual = virtualItems[0];
+  const lastVirtual = virtualItems[virtualItems.length - 1];
+  const paddingTop = firstVirtual ? firstVirtual.start : 0;
+  const paddingBottom = lastVirtual ? rowVirtualizer.getTotalSize() - lastVirtual.end : 0;
 
   return (
     <div
@@ -262,11 +274,13 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
             </TableRow>
           ))}
         </TableHeader>
-        <TableBody style={{ height: isLoading ? undefined : rowVirtualizer.getTotalSize(), position: "relative" }}>
+        <TableBody>
           {isLoading ? (
             <SkeletonRows rows={SKELETON_ROW_COUNT} columns={columns.length} />
           ) : (
-            virtualItems.map((virtualRow) => {
+            <>
+            {paddingTop > 0 && <tr aria-hidden="true" data-testid="teams-spacer-top" style={{ height: paddingTop }} />}
+            {virtualItems.map((virtualRow) => {
               const row = tableRows[virtualRow.index];
               if (!row) return null;
               return (
@@ -274,7 +288,10 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                   key={row.id}
                   data-testid="teams-row"
                   data-team-number={row.original.teamNumber}
-                  style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                  // Fixed row height keeps every row exactly the size the
+                  // virtualizer estimated, so the spacers above and below
+                  // line up with `virtualRow.start`/`end`.
+                  style={{ height: ROW_HEIGHT_PX }}
                 >
                   {row.getAllCells().map((cell) => {
                     const pinned = cell.column.getIsPinned();
@@ -285,19 +302,12 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                         data-pinned={pinned ? "true" : "false"}
                         className={cellClassName(cell.column.id)}
                         style={{
-                          // A `<tr>` with `position: absolute` (this table's
-                          // row virtualizer) is blockified by the CSS
-                          // Display spec, which disconnects its `<td>`s from
-                          // the real table's column grid: each virtualized
-                          // row's cells get rebuilt into their own anonymous
-                          // one-row table, where `auto` sizing applies
-                          // regardless of `tableLayout: "fixed"` above.
-                          // Pairing `width` with an EQUAL `minWidth`/
-                          // `maxWidth` forces an exact box size that
-                          // survives that anonymous auto-layout table.
-                          // HEADER cells stay in normal table flow and don't
-                          // need this, but carry the same pair for defense
-                          // in depth.
+                          // Rows are in normal table flow under
+                          // `tableLayout: "fixed"`, so `width` alone would
+                          // do; the EQUAL `minWidth`/`maxWidth` pair is kept
+                          // for defense in depth (it was load-bearing when
+                          // rows were absolutely positioned and blockified
+                          // out of the column grid).
                           width: cell.column.getSize(),
                           minWidth: cell.column.getSize(),
                           maxWidth: cell.column.getSize(),
@@ -317,7 +327,9 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                   <TableCell aria-hidden="true" style={{ padding: 0 }} />
                 </TableRow>
               );
-            })
+            })}
+            {paddingBottom > 0 && <tr aria-hidden="true" data-testid="teams-spacer-bottom" style={{ height: paddingBottom }} />}
+            </>
           )}
         </TableBody>
       </table>
