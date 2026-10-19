@@ -239,11 +239,14 @@ class FakeR2Bucket {
   puts: { key: string; body: string }[] = [];
   /** Set to make every `put` reject, modelling an R2/network failure AFTER the subrequest has already been counted. */
   rejectPutsWith: Error | null = null;
+  /** Awaited at the very top of `put`, before anything lands, so a test can hold a write in flight (quick task 261019-oim). */
+  beforePut: ((key: string) => Promise<void>) | undefined = undefined;
   private readonly store = new Map<string, string>();
 
   constructor(private readonly sharedLog: SharedLogEntry[] = []) {}
 
   async put(key: string, body: string): Promise<void> {
+    if (this.beforePut !== undefined) await this.beforePut(key);
     this.putCallCount++;
     if (this.rejectPutsWith !== null) throw this.rejectPutsWith;
     this.puts.push({ key, body });
@@ -879,6 +882,111 @@ describe("runTick — overlapping invocations (quick task 261019-oim)", () => {
     expect(tick.eventsSkippedInFlight).toBe(0);
     expect(linesNamed(warn, "event-lease-unavailable")).toHaveLength(1);
     expect(d1.eventLease.releaseCount).toBe(0);
+  });
+
+  it("one team at two events folding in the same tick keeps both events' matches on its team page", async () => {
+    // frc1 plays qm1 at both fixture events. Every frc1 team page write is held
+    // 300 ms, so without the team page lock the second event would read the page
+    // before the first event's write landed and its own write would drop it.
+    const frc1Key = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
+    const comparable = (body: string): Record<string, unknown> => {
+      const { generation: _generation, computedAt: _computedAt, ...rest } = JSON.parse(body) as Record<string, unknown>;
+      return rest;
+    };
+
+    // Reference: A alone in one tick, then B alone in the next, on one pair.
+    const sequentialD1 = new FakeD1Database();
+    const sequentialR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    expect((await runTick(makeEnv(makeManifests([windowA]), sequentialD1, sequentialR2), { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+    expect((await runTick(makeEnv(makeManifests([windowB]), sequentialD1, sequentialR2), { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+    const reference = await (await sequentialR2.get(frc1Key))!.text();
+
+    // Both in ONE tick, every frc1 team page put held 300 ms.
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.beforePut = async (key) => {
+      if (key.startsWith("v1/team/frc1/")) await new Promise((resolve) => setTimeout(resolve, 300));
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const tick = await runTick(makeEnv(makeManifests([windowA, windowB]), d1, r2), { nowMs: NOW_MS });
+
+    expect(tick.eventsAdvanced).toBe(2);
+    const body = await (await r2.get(frc1Key))!.text();
+    const artifact = TeamSeasonArtifactSchema.parse(JSON.parse(body));
+    const matchKeys = artifact.events.flatMap((event) => event.matches.map((row) => row.matchKey));
+    expect(matchKeys).toEqual(expect.arrayContaining(["2026aaaa_qm1", "2026bbbb_qm1"]));
+    expect(comparable(body)).toEqual(comparable(reference));
+  });
+
+  it("the fold lease held by another invocation is waited for, then taken, and the event folds", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const heldFrom = Date.now();
+    d1.eventLease.rows.set("#fold", { tickId: "other-tick", leasedAt: iso(heldFrom), expiresAt: iso(heldFrom + 600) });
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+
+    const tick = await runTick(makeEnv(makeManifests([windowA]), d1, r2), { nowMs: NOW_MS, tickId: "tick-1" });
+
+    expect(tick.eventsAdvanced).toBe(1);
+    expect(tick.eventsFailed).toBe(0);
+    expect(Date.now() - heldFrom).toBeGreaterThanOrEqual(500);
+    expect(d1.eventLease.rows.has("#fold")).toBe(false);
+    expect(d1.eventLease.rows.size).toBe(0);
+  });
+
+  it("a fold lease never freed before the deadline fails the event: the claim is reverted, no state is written, and one event-failed line names FoldLeaseTimeoutError", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    d1.eventLease.rows.set("#fold", { tickId: "other-tick", leasedAt: iso(Date.now()), expiresAt: iso(Date.now() + 3_600_000) });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+
+    const tick = await runTick(makeEnv(makeManifests([windowA]), d1, r2), { nowMs: NOW_MS, tickId: "tick-1", deadlineMs: Date.now() + 400 });
+
+    expect(tick.eventsFailed).toBe(1);
+    expect(tick.eventsAdvanced).toBe(0);
+    // The claim wrote a cursor row; the revert put back what the tick read: nothing folded.
+    expect(d1.eventCursors.get("2026aaaa")?.last_folded_match_key ?? null).toBeNull();
+    expect(d1.algorithmState.size).toBe(0);
+    const failed = linesNamed(error, "event-failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ eventKey: "2026aaaa" });
+    expect(String(failed[0]!.error)).toContain("FoldLeaseTimeoutError");
+    // The other tick's fold lease is untouched, and this tick's event lease is released.
+    expect([...d1.eventLease.rows.keys()]).toEqual(["#fold"]);
+    expect(d1.eventLease.rows.get("#fold")!.tickId).toBe("other-tick");
+  });
+
+  it("two invocations folding DIFFERENT events on one database leave the same state rows as folding them one after the other", async () => {
+    // The event lease cannot help here: each invocation holds its own window. The
+    // fold lease makes the second invocation's Phase A wait for the first's, so
+    // B's league write starts from A's instead of erasing it.
+    const algorithmIds = ["opr", "epa"];
+    const sequentialD1 = new FakeD1Database();
+    const sequentialR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const tickA = await runTick(makeEnv(makeManifests([windowA], algorithmIds), sequentialD1, sequentialR2), { nowMs: NOW_MS });
+    const tickB = await runTick(makeEnv(makeManifests([windowB], algorithmIds), sequentialD1, sequentialR2), { nowMs: NOW_MS });
+    expect(tickA.eventsAdvanced + tickB.eventsAdvanced).toBe(2);
+
+    const d1 = new FakeD1Database();
+    holdStateWrites(d1);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const env1 = makeEnv(makeManifests([windowA], algorithmIds), d1, new FakeR2Bucket());
+    const env2 = makeEnv(makeManifests([windowB], algorithmIds), d1, new FakeR2Bucket());
+
+    const tick1 = runTick(env1, { nowMs: NOW_MS, tickId: "tick-1" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const tick2 = await runTick(env2, { nowMs: NOW_MS, tickId: "tick-2" });
+    const first = await tick1;
+
+    expect(first.eventsAdvanced).toBe(1);
+    expect(tick2.eventsAdvanced).toBe(1);
+    const sequentialRows = stateJsonByRow(sequentialD1);
+    expect(Object.keys(sequentialRows).some((key) => key.includes("::league::"))).toBe(true);
+    expect(stateJsonByRow(d1)).toEqual(sequentialRows);
+    expect(d1.eventLease.rows.has("#fold")).toBe(false);
   });
 });
 

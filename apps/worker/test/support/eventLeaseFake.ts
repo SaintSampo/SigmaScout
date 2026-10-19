@@ -10,11 +10,11 @@
  * `eventLease.test.ts` proves this store returns the change counts a real SQLite
  * engine returns for the same statements.
  */
-import { EVENT_LEASE_ACQUIRE_SQL, EVENT_LEASE_RELEASE_SQL } from "../../src/eventLease.js";
+import { EVENT_LEASE_ACQUIRE_SQL, EVENT_LEASE_RELEASE_KEY_SQL, EVENT_LEASE_RELEASE_SQL } from "../../src/eventLease.js";
 
-/** True for the lease's acquire and release statements, exactly as `eventLease.ts` writes them. */
+/** True for the lease's acquire, release and release-by-key statements, exactly as `eventLease.ts` writes them. */
 export function isEventLeaseSql(sql: string): boolean {
-  return sql === EVENT_LEASE_ACQUIRE_SQL || sql === EVENT_LEASE_RELEASE_SQL;
+  return sql === EVENT_LEASE_ACQUIRE_SQL || sql === EVENT_LEASE_RELEASE_SQL || sql === EVENT_LEASE_RELEASE_KEY_SQL;
 }
 
 export interface EventLeaseFakeRow {
@@ -28,8 +28,10 @@ export class EventLeaseFakeStore {
   rows = new Map<string, EventLeaseFakeRow>();
   /** Every attempted lease statement, a rejected one included. */
   statementCount = 0;
-  /** Every attempted release, a rejected one included. */
+  /** Every attempted release of a tick's event leases, a rejected one included. */
   releaseCount = 0;
+  /** Every attempted fold lease release (release by key), a rejected one included. */
+  releaseKeyCount = 0;
   /** When set, every lease statement throws it, modelling a missing table or a D1 outage. */
   rejectWith: Error | null = null;
 
@@ -37,6 +39,7 @@ export class EventLeaseFakeStore {
   apply(sql: string, args: readonly unknown[]): number {
     this.statementCount++;
     if (sql === EVENT_LEASE_RELEASE_SQL) this.releaseCount++;
+    if (sql === EVENT_LEASE_RELEASE_KEY_SQL) this.releaseKeyCount++;
     if (this.rejectWith !== null) throw this.rejectWith;
     if (sql === EVENT_LEASE_ACQUIRE_SQL) {
       const [eventKey, tickId, leasedAt, expiresAt] = args as string[];
@@ -55,6 +58,12 @@ export class EventLeaseFakeStore {
         deleted++;
       }
       return deleted;
+    }
+    if (sql === EVENT_LEASE_RELEASE_KEY_SQL) {
+      const [eventKey, tickId] = args as string[];
+      if (this.rows.get(eventKey!)?.tickId !== tickId) return 0;
+      this.rows.delete(eventKey!);
+      return 1;
     }
     throw new Error(`EventLeaseFakeStore.apply: unrecognized SQL: ${sql}`);
   }

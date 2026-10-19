@@ -207,10 +207,10 @@ import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefres
 import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./districtEventState.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
-import { createSerialLock, EVENT_CONCURRENCY, mapWithConcurrency, type SerialLock } from "./boundedConcurrency.js";
+import { createKeyedLock, createSerialLock, EVENT_CONCURRENCY, mapWithConcurrency, type KeyedLock, type SerialLock } from "./boundedConcurrency.js";
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
-import { acquireEventLeases, releaseEventLeases } from "./eventLease.js";
+import { acquireEventLeases, acquireFoldLease, FOLD_LEASE_TTL_MS, FoldLeaseTimeoutError, releaseEventLeases, releaseFoldLease } from "./eventLease.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
 import { NO_OFFICIAL_DATA, readOpenWindowCursors, runLiveEventPass, type LiveEventPassResult } from "./liveEventPass.js";
 import type { Env } from "./env.js";
@@ -849,7 +849,9 @@ async function runLateBreakdownBackfill(
   cursor: Pick<EventCursor, "lastFoldedMatchKey">,
   eventStartDateIso: string,
   stamp: Stamp,
-  live: LiveTickContext
+  live: LiveTickContext,
+  /** The tick's team page lock (quick task 261019-oim): each team artifact's read, patch and write below runs one at a time per artifact key. */
+  teamLock: KeyedLock
 ): Promise<void> {
   const eventKey = window.eventKey;
   const cutoff = foldedCutoffIndex(cursor, orderedMatchKeys);
@@ -906,22 +908,26 @@ async function runLateBreakdownBackfill(
     }
     for (const teamKey of [...teamKeys].sort()) {
       const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: algorithm.version };
-      const existingTeam = await readExistingTeam(env, counter, teamParams);
-      if (existingTeam === undefined) continue;
-      let changed = false;
-      const events = existingTeam.events.map((event) => {
-        if (event.eventKey !== eventKey) return event;
-        const teamPatched = patchRowsWithLateBreakdowns(event.matches, factsCache);
-        if (teamPatched.patchedKeys.length === 0) return event;
-        changed = true;
-        return { ...event, matches: teamPatched.rows };
-      });
-      if (!changed) continue;
-      await writeArtifactObject(env, counter, "team", teamParams, {
-        ...existingTeam,
-        generation: stamp.generation,
-        computedAt: stamp.computedAt,
-        events,
+      // One team page at a time per artifact key (quick task 261019-oim): another
+      // event folding this team in the same tick reads and rewrites it too.
+      await teamLock.run(artifactKey(teamParams), async () => {
+        const existingTeam = await readExistingTeam(env, counter, teamParams);
+        if (existingTeam === undefined) return;
+        let changed = false;
+        const events = existingTeam.events.map((event) => {
+          if (event.eventKey !== eventKey) return event;
+          const teamPatched = patchRowsWithLateBreakdowns(event.matches, factsCache);
+          if (teamPatched.patchedKeys.length === 0) return event;
+          changed = true;
+          return { ...event, matches: teamPatched.rows };
+        });
+        if (!changed) return;
+        await writeArtifactObject(env, counter, "team", teamParams, {
+          ...existingTeam,
+          generation: stamp.generation,
+          computedAt: stamp.computedAt,
+          events,
+        });
       });
     }
   }
@@ -932,14 +938,32 @@ async function runLateBreakdownBackfill(
 // ---------------------------------------------------------------------------
 
 /**
- * The tick's two serial locks (quick task 261018-3ju). Events run concurrently,
- * but two objects are read and rewritten by every event: each algorithm's league
- * row in `algorithm_state` (Phase A) and the as-of season object in R2. A section
- * that touches either runs inside its lock, one event at a time.
+ * The tick's locks (quick task 261018-3ju). Events run concurrently, but two
+ * objects are read and rewritten by every event: each algorithm's league row in
+ * `algorithm_state` (Phase A) and the as-of season object in R2. A section that
+ * touches either runs inside its lock, one event at a time. Each team page
+ * artifact is read, merged and rewritten by every event that touched the team,
+ * so those sections run inside `team`, one at a time per artifact key (quick task
+ * 261019-oim).
+ *
+ * NOTHING CAN DEADLOCK. No section takes a second lock, and the three team
+ * sections (the Phase B team loop, the late breakdown backfill and schedule-only
+ * pricing) all run outside `state`.
+ *
+ * THE FOLD LEASE (quick task 261019-oim) is the cross-invocation half of
+ * `state`: every Phase A section, already inside `state`, first waits for the
+ * `#fold` lease in D1 (see `withFoldLease`). The tick id, the real clock and the
+ * deadline it waits on live here, and so does the once-per-tick fail-open flag.
  */
 interface TickLocks {
   readonly state: SerialLock;
   readonly asOf: SerialLock;
+  readonly team: KeyedLock;
+  readonly tickId: string;
+  readonly clock: () => number;
+  readonly deadlineMs: number;
+  /** Set when a fold lease statement threw: the rest of the tick folds unguarded and warns no more. */
+  foldLeaseUnavailable: boolean;
 }
 
 interface TouchedTeamInfo {
@@ -1166,7 +1190,9 @@ async function runScheduleOnlyPricing(
   algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>,
   window: LiveWindowEntry,
   stillUpcoming: readonly ScheduledMatchFacts[],
-  stamp: Stamp
+  stamp: Stamp,
+  /** The tick's team page lock (quick task 261019-oim): each team artifact's read, merge and write below runs one at a time per artifact key. */
+  teamLock: KeyedLock
 ): Promise<void> {
   const eventKey = window.eventKey;
   // Every team on the posted schedule — the event artifact's roster for this
@@ -1254,35 +1280,39 @@ async function runScheduleOnlyPricing(
 
     for (const teamKey of realScheduledTeams) {
       const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: algorithm.version };
-      const existingTeam = await readExistingTeam(env, counter, teamParams);
-      // With `matches: []` this merge appends no metric-history row, increments
-      // no record, and creates the event's entry from `upcomingRows` alone —
-      // which is the behaviour this path needs. Its `matches.every(...)`
-      // resolution of `metricsBasis` to `"last-official-match"` on an empty match
-      // list is HONEST here (nothing this tick changed the metrics) and is
-      // deliberately not "fixed".
-      const teamMergeParams = {
-        existing: existingTeam,
-        teamKey,
-        season: window.season,
-        algorithmId,
-        algorithmVersion: algorithm.version,
-        eventKey,
-        matches: [],
-        predictions: new Map<string, Prediction>(),
-        metrics: touchedMetrics[teamKey] ?? {},
-        bands: new Map<string, MatchBand>(),
-        playedRowFacts: new Map<string, PlayedRowFacts>(),
-        // The SAME records the event artifact's `upcoming` came from, filtered to
-        // this team's own matches — one pricing call feeds both pages.
-        upcomingRows: priced.team.filter((row) => row.redTeams.includes(teamKey) || row.blueTeams.includes(teamKey)),
-        stamp,
-        sigmaAfterTick: undefined,
-      };
-      const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
-      await writeArtifactWithBootstrapRetry(env, counter, "team", teamParams, mergedTeam, algorithmId, () =>
-        mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
-      );
+      // One team page at a time per artifact key (quick task 261019-oim): another
+      // event in the same tick can read, merge and rewrite this team's page too.
+      await teamLock.run(artifactKey(teamParams), async () => {
+        const existingTeam = await readExistingTeam(env, counter, teamParams);
+        // With `matches: []` this merge appends no metric-history row, increments
+        // no record, and creates the event's entry from `upcomingRows` alone —
+        // which is the behaviour this path needs. Its `matches.every(...)`
+        // resolution of `metricsBasis` to `"last-official-match"` on an empty match
+        // list is HONEST here (nothing this tick changed the metrics) and is
+        // deliberately not "fixed".
+        const teamMergeParams = {
+          existing: existingTeam,
+          teamKey,
+          season: window.season,
+          algorithmId,
+          algorithmVersion: algorithm.version,
+          eventKey,
+          matches: [],
+          predictions: new Map<string, Prediction>(),
+          metrics: touchedMetrics[teamKey] ?? {},
+          bands: new Map<string, MatchBand>(),
+          playedRowFacts: new Map<string, PlayedRowFacts>(),
+          // The SAME records the event artifact's `upcoming` came from, filtered to
+          // this team's own matches — one pricing call feeds both pages.
+          upcomingRows: priced.team.filter((row) => row.redTeams.includes(teamKey) || row.blueTeams.includes(teamKey)),
+          stamp,
+          sigmaAfterTick: undefined,
+        };
+        const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
+        await writeArtifactWithBootstrapRetry(env, counter, "team", teamParams, mergedTeam, algorithmId, () =>
+          mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
+        );
+      });
     }
   }
 }
@@ -1475,6 +1505,42 @@ async function runRosterPass(
   return { rostersPolled, rosterTeamsAppended };
 }
 
+/**
+ * Runs one event's Phase A section under the D1 fold lease (quick task
+ * 261019-oim), and is called INSIDE `locks.state`, so within one invocation the
+ * sections are already one at a time and only another invocation can hold the
+ * lease. It WAITS for the lease (each attempt one subrequest) until
+ * `locks.deadlineMs`, then runs the section, and releases the lease (one more
+ * subrequest) in a `finally`, whether the section returned or threw.
+ *
+ * Still held at the deadline: throws `FoldLeaseTimeoutError`, which the caller's
+ * Phase A catch turns into a reverted claim and a `failed` event that the next
+ * tick folds. A lease statement that THROWS (a missing table, a D1 outage) fails
+ * open, as the event lease does: one `fold-lease-unavailable` line for the
+ * tick, and this and every later section run unguarded.
+ */
+async function withFoldLease<T>(env: Env, counter: SubrequestCounter, locks: TickLocks, eventKey: string, section: () => Promise<T>): Promise<T> {
+  let held = false;
+  if (!locks.foldLeaseUnavailable) {
+    try {
+      held = await acquireFoldLease(env.DB, locks.tickId, locks.clock, locks.deadlineMs, () => counter.spend(1));
+    } catch (error) {
+      locks.foldLeaseUnavailable = true;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(JSON.stringify({ msg: "fold-lease-unavailable", error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
+    }
+    if (!locks.foldLeaseUnavailable && !held) throw new FoldLeaseTimeoutError(eventKey);
+  }
+  try {
+    return await section();
+  } finally {
+    if (held) {
+      counter.spend(1);
+      await releaseFoldLease(env.DB, locks.tickId);
+    }
+  }
+}
+
 async function processEvent(
   env: Env,
   counter: SubrequestCounter,
@@ -1493,7 +1559,7 @@ async function processEvent(
   matchDerivedState: Map<string, MatchDerivedEventState>,
   /** The tick's ingest log buffer (quick task 261004-uyc). */
   live: LiveTickContext,
-  /** The tick's two locks (quick task 261018-3ju): the sections that read and rewrite an object every event shares run inside them, one event at a time. */
+  /** The tick's locks (quick tasks 261018-3ju and 261019-oim): the sections that read and rewrite an object several events share run inside them, plus the fold lease's tick id, clock and deadline. */
   locks: TickLocks,
   /**
    * A probe's already-paid-for `eventPreflight` result (`runProbes`), for a
@@ -1568,7 +1634,7 @@ async function processEvent(
     // failure here costs the backfill alone: the fold and the pricing run
     // regardless, and the next 200 retries it.
     try {
-      await runLateBreakdownBackfill(env, counter, algorithmModules, window, rawMatches, orderedMatchKeys, cursor, approxStartDateIso, stamp, live);
+      await runLateBreakdownBackfill(env, counter, algorithmModules, window, rawMatches, orderedMatchKeys, cursor, approxStartDateIso, stamp, live, locks.team);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(JSON.stringify({ msg: "late-breakdown-backfill-failed", eventKey, error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
@@ -1595,7 +1661,7 @@ async function processEvent(
 
       // A POSTED, UNSCORED SCHEDULE (quick task 260925-uy5) — priced and
       // published rather than dropped.
-      await runScheduleOnlyPricing(env, counter, tbaCtx, algorithmModules, window, stillUpcoming, stamp);
+      await runScheduleOnlyPricing(env, counter, tbaCtx, algorithmModules, window, stillUpcoming, stamp, locks.team);
       live.ingest.eventPublished(eventKey);
       // AFTER the writes, and that ORDER IS THE POINT, not an accident: writing
       // the etag first and then throwing would leave TBA answering 304 for a
@@ -1659,7 +1725,11 @@ async function processEvent(
       // earlier event's contribution. The tick's state lock keeps this section
       // sequential across events, exactly as the one-at-a-time walk was; the TBA
       // requests before it and the artifact writes after it still overlap.
-      await locks.state.run(async () => {
+      //
+      // AND ONE INVOCATION AT A TIME (quick task 261019-oim): `withFoldLease`
+      // first waits for the D1 fold lease, so a second invocation folding a
+      // different event waits here too instead of erasing this one's league row.
+      await locks.state.run(() => withFoldLease(env, counter, locks, eventKey, async () => {
         for (const [algorithmId, algorithm] of algorithmModules) {
           // The READ names every raw key plus the demo pseudo-team key
           // (`stateScopeKeys`), so a demo match resumes what the offline
@@ -1906,10 +1976,10 @@ async function processEvent(
 
           perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, eventSigma, observedBonusSides, upcomingModel, ...(asOf !== undefined ? { asOf } : {}) });
         }
-      });
+      }));
 
       live.ingest.matchesFolded(eventKey, matchArrivalFacts(rawMatchesUnknown, new Set(newlyFolded.map((m) => m.matchKey))));
-      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, live, locks.asOf);
+      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, live, locks);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again. Unconditional since quick task 260923-3w4 —
@@ -1960,8 +2030,13 @@ async function runPhaseBAndReport(
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
   stamp: Stamp,
   live: LiveTickContext,
-  /** The tick's as-of lock (quick task 261018-3ju): the as-of write below rewrites the season object every event shares, so it runs one event at a time. */
-  asOfLock: SerialLock
+  /**
+   * The tick's locks. `asOf` (quick task 261018-3ju): the as-of write below
+   * rewrites the season object every event shares, so it runs one event at a
+   * time. `team` (quick task 261019-oim): each team artifact's read, merge and
+   * write runs one at a time per artifact key.
+   */
+  locks: TickLocks
 ): Promise<EventOutcome> {
   try {
     // Algorithm-independent, so computed ONCE for the whole tick. The bonus
@@ -2088,30 +2163,35 @@ async function runPhaseBAndReport(
         const teamMatches = newlyFoldedResults.filter((m) => m.redTeams.includes(teamKey) || m.blueTeams.includes(teamKey));
 
         const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: info.algorithm.version };
-        const existingTeam = await readExistingTeam(env, counter, teamParams);
-        const teamMergeParams = {
-          existing: existingTeam,
-          teamKey,
-          season: window.season,
-          algorithmId,
-          algorithmVersion: info.algorithm.version,
-          eventKey,
-          matches: teamMatches,
-          predictions: info.newPredictions,
-          metrics: info.touchedMetrics[teamKey] ?? {},
-          bands: info.newBands,
-          playedRowFacts,
-          // The SAME records the event artifact's `upcoming` came from, filtered to
-          // this team's own matches — one pricing call per algorithm feeds both
-          // pages, so they cannot disagree about a scheduled match.
-          upcomingRows: priced.team.filter((row) => row.redTeams.includes(teamKey) || row.blueTeams.includes(teamKey)),
-          stamp,
-          sigmaAfterTick: info.touchedSigma.get(teamKey),
-        };
-        const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
-        await writeArtifactWithBootstrapRetry(env, counter, "team", teamParams, mergedTeam, algorithmId, () =>
-          mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
-        );
+        // One team at two events folding in the same tick would otherwise merge
+        // both events over the same stale read, and the later write would drop the
+        // earlier event's matches (quick task 261019-oim): one page at a time per key.
+        await locks.team.run(artifactKey(teamParams), async () => {
+          const existingTeam = await readExistingTeam(env, counter, teamParams);
+          const teamMergeParams = {
+            existing: existingTeam,
+            teamKey,
+            season: window.season,
+            algorithmId,
+            algorithmVersion: info.algorithm.version,
+            eventKey,
+            matches: teamMatches,
+            predictions: info.newPredictions,
+            metrics: info.touchedMetrics[teamKey] ?? {},
+            bands: info.newBands,
+            playedRowFacts,
+            // The SAME records the event artifact's `upcoming` came from, filtered to
+            // this team's own matches — one pricing call per algorithm feeds both
+            // pages, so they cannot disagree about a scheduled match.
+            upcomingRows: priced.team.filter((row) => row.redTeams.includes(teamKey) || row.blueTeams.includes(teamKey)),
+            stamp,
+            sigmaAfterTick: info.touchedSigma.get(teamKey),
+          };
+          const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
+          await writeArtifactWithBootstrapRetry(env, counter, "team", teamParams, mergedTeam, algorithmId, () =>
+            mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
+          );
+        });
 
         // `runGlobalRebuild`'s teams-of-the-year feed, gated on officialness and
         // summing this team's newly-folded match count. Unchanged.
@@ -2160,7 +2240,7 @@ async function runPhaseBAndReport(
       // Inside the as-of lock since quick task 261018-3ju: the season object is
       // shared by every event, and its conditional put tolerates ONE conflict.
       // Events folding at once would otherwise race each other into a second.
-      await asOfLock.run(() =>
+      await locks.asOf.run(() =>
         writeAsOfFolds(env, counter, {
           eventKey,
           season: window.season,
@@ -2297,6 +2377,16 @@ export interface RunTickDeps {
   readonly ingestClock?: () => number;
   /** Test-only: the id this tick's event leases are held under (quick task 261019-oim). Defaults to `crypto.randomUUID()`, generated only once the tick is past the idle exit. */
   readonly tickId?: string;
+  /** Test-only: the REAL clock the fold lease's wait and deadline run on (quick task 261019-oim). Defaults to `Date.now`; never `nowMs`, because the wait sleeps. */
+  readonly leaseClock?: () => number;
+  /**
+   * The real-clock instant after which this tick takes no new fold section: a
+   * fold lease still held by another tick at this instant fails the event with
+   * `FoldLeaseTimeoutError`, and the next tick folds it. Defaults to the lease
+   * clock at the start of the fold loop plus `FOLD_LEASE_TTL_MS`. A webhook tick
+   * passes a short one, because Cloudflare cancels it 30 s after the response.
+   */
+  readonly deadlineMs?: number;
 }
 
 export interface TickResult {
@@ -2676,8 +2766,20 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // Phase A's state read, fold and write stay one event at a time, because every
   // fold rewrites each algorithm's shared league row; so does the as-of write,
   // because it rewrites the season object every event shares (see `processEvent`
-  // and `runPhaseBAndReport`).
-  const locks: TickLocks = { state: createSerialLock(), asOf: createSerialLock() };
+  // and `runPhaseBAndReport`). Each team page's read, merge and write is one at a
+  // time per page (quick task 261019-oim).
+  // The fold lease's wait and deadline run on the REAL clock, never `nowMs`,
+  // because the wait sleeps (quick task 261019-oim).
+  const leaseClock = deps.leaseClock ?? Date.now;
+  const locks: TickLocks = {
+    state: createSerialLock(),
+    asOf: createSerialLock(),
+    team: createKeyedLock(),
+    tickId,
+    clock: leaseClock,
+    deadlineMs: deps.deadlineMs ?? leaseClock() + FOLD_LEASE_TTL_MS,
+    foldLeaseUnavailable: false,
+  };
 
   // UP TO `EVENT_CONCURRENCY` EVENTS FOLD AT ONCE (quick task 261018-3ju),
   // started in `orderedEventKeys` order, so the rotation still decides who goes

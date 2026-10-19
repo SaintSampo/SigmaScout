@@ -73,3 +73,38 @@ export function createSerialLock(): SerialLock {
     },
   };
 }
+
+/** Runs the sections handed to it one at a time PER KEY, in arrival order; sections on different keys overlap. */
+export interface KeyedLock {
+  run<T>(key: string, section: () => Promise<T>): Promise<T>;
+  /** Keys with a section queued or running. A test seam: drained chains are dropped. */
+  readonly size: number;
+}
+
+/**
+ * A lock per key (quick task 261019-oim). One team's page artifact is read,
+ * merged and rewritten by every event that touched the team, so one team at two
+ * concurrently folding events must not merge both events over the same stale
+ * read: the later write would drop the earlier event's matches. Keyed by the
+ * artifact's R2 key, so two different teams never wait for each other. A
+ * section that rejects passes its rejection to its own caller only and does not
+ * block the next section on that key. A key whose chain has drained is dropped,
+ * so the map holds only keys with work queued or running.
+ */
+export function createKeyedLock(): KeyedLock {
+  const tails = new Map<string, Promise<unknown>>();
+  return {
+    run<T>(key: string, section: () => Promise<T>): Promise<T> {
+      const result = (tails.get(key) ?? Promise.resolve()).then(section);
+      const tail = result.catch(() => undefined);
+      tails.set(key, tail);
+      void tail.then(() => {
+        if (tails.get(key) === tail) tails.delete(key);
+      });
+      return result;
+    },
+    get size(): number {
+      return tails.size;
+    },
+  };
+}

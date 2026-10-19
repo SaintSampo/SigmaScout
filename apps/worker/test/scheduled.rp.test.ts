@@ -168,8 +168,13 @@ import { officialDataStubResponse } from "./support/officialDataStubs.js";
  * event leases in ONE D1 batch over the open windows (+1) and releases them in ONE
  * statement when it ends (+1), so 84 + 1 + 1. Both are lease statements, not RP:
  * RP still costs no D1 subrequest.
+ *
+ * MOVED TO 88 on purpose by the same quick task's fold lease: this tick folds ONE
+ * event, and its Phase A section first takes the D1 fold lease (+1, one attempt,
+ * since nothing else holds it) and releases it after (+1), so 86 + 1 + 1. Both
+ * are lease statements, not RP.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 86;
+const SUBREQUESTS_PER_LIVE_TICK = 88;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;

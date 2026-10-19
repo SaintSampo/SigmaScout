@@ -2,8 +2,10 @@
 -- 261019-oim), so a tick that starts while an older one is still running skips
 -- that window instead of folding it at the same time.
 --
--- WHAT A ROW IS. `event_key` is the live window's event key. `tick_id` names
--- the invocation that holds it.
+-- WHAT A ROW IS. `event_key` is the live window's event key, or `#fold` for the
+-- fold lease every state fold takes across invocations (a `#` prefix can never
+-- collide with a TBA event key, which starts with a digit). `tick_id` names the
+-- invocation that holds it.
 -- `leased_at` and `expires_at` are ISO UTC strings, which compare correctly as
 -- text, and the acquire statement relies on exactly that.
 --
@@ -14,7 +16,8 @@
 --
 -- THE EXPIRY. An event lease expires 15 minutes after it was taken, which is the
 -- Workers cron wall time ceiling. A row older than that belongs to a tick that
--- was killed, and the next tick takes it over.
+-- was killed, and the next tick takes it over. The `#fold` lease expires after
+-- 60 seconds, because one event's state fold takes seconds.
 --
 -- IDEMPOTENT. The one statement is IF NOT EXISTS, so applying this file twice is
 -- harmless.

@@ -223,9 +223,12 @@ class FakeR2Bucket {
   failPutsAfter: { prefix: string; remaining: number } | undefined;
   /** Called after every get, with the key: a test's overlapping invocation writes here. */
   afterGet: ((key: string) => void) | undefined;
+  /** Awaited at the very top of `put`, BEFORE the `onlyIf` check, because R2 evaluates the condition when the write lands (quick task 261019-oim). */
+  beforePut: ((key: string) => Promise<void>) | undefined;
   #version = 0;
 
   async put(key: string, body: string, options?: { onlyIf?: FakeConditional }): Promise<{ key: string } | null> {
+    if (this.beforePut !== undefined) await this.beforePut(key);
     if (this.failPutsWithPrefix !== undefined && key.startsWith(this.failPutsWithPrefix)) throw new Error(`R2 put failed: ${key}`);
     if (this.failPutsAfter !== undefined && key.startsWith(this.failPutsAfter.prefix)) {
       if (this.failPutsAfter.remaining === 0) throw new Error(`R2 put failed: ${key}`);
@@ -653,6 +656,39 @@ describe("scheduled.asOf — the season object's read-modify-write (C1)", () => 
     expect(index.teams.frc1).toEqual([{ f: [1000, 0], l: [1001, 1], p: null, s: T(0), x: T(2) }]);
     expect(read(r2, SEASON_KEY, AsOfSeasonSchema).tails.frc1).toEqual([EVENT_A, 1001, 1]);
   });
+});
+
+describe("scheduled.asOf — the as-of lock (quick task 261019-oim)", () => {
+  it(
+    "two SPR events folding in ONE tick write the season object one at a time: no conditional put is refused and both events' teams have tails",
+    async () => {
+      // The season object is shared by every event and its conditional put is
+      // held 300 ms here, so without the tick's as-of lock the second event would
+      // read it before the first event's put landed and have its own put refused.
+      const seasonKey = asOfSeasonKey({ season: SEASON, ...KEY_PARAMS });
+      const d1 = new FakeD1Database();
+      const r2 = new FakeR2Bucket();
+      vi.stubGlobal("fetch", makeTbaFetchStub());
+      revealed = { a: 1, b: 1 };
+      const env = makeEnv(d1, r2);
+      r2.beforePut = async (key) => {
+        if (key === seasonKey) await new Promise((resolve) => setTimeout(resolve, 300));
+      };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      const tick = await runTick(env, { nowMs: NOW_MS });
+
+      expect(tick.eventsAdvanced).toBe(2);
+      expect(tick.eventsFailed).toBe(0);
+      expect(r2.refused).toEqual([]);
+      const asOfFailures = warn.mock.calls.filter((call) => String(call[0]).includes("asof-write-failed"));
+      expect(asOfFailures).toEqual([]);
+      const season = read(r2, seasonKey, AsOfSeasonSchema);
+      const realTeams = [...new Set([...A1.redTeams, ...A1.blueTeams, ...B1.redTeams, ...B1.blueTeams])].sort();
+      expect(Object.keys(season.tails).sort()).toEqual(realTeams);
+    },
+    60_000
+  );
 });
 
 describe("scheduled.asOf — best effort", () => {

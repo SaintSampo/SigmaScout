@@ -33,6 +33,42 @@ export const EVENT_LEASE_ACQUIRE_SQL =
 /** Releases every lease one tick holds. */
 export const EVENT_LEASE_RELEASE_SQL = "DELETE FROM event_lease WHERE tick_id = ?1";
 
+/** Releases ONE lease, and only while the given tick still holds it: the fold lease's release. */
+export const EVENT_LEASE_RELEASE_KEY_SQL = "DELETE FROM event_lease WHERE event_key = ?1 AND tick_id = ?2";
+
+/**
+ * THE FOLD LEASE. The event lease stops two invocations touching the SAME
+ * window; it does not stop one invocation folding event A while another folds
+ * event B (a window that opened after the first tick leased, or a webhook tick
+ * running one named event beside the cron), and both rewrite each algorithm's
+ * league row. Every Phase A section therefore takes this one cross-invocation
+ * lease first, and WAITS for it rather than skipping, so two invocations
+ * interleave their Phase A sections through D1 exactly as events interleave
+ * through the tick's state lock inside one invocation.
+ *
+ * The key lives in the same `event_lease` table. A `#` prefix can never collide
+ * with a TBA event key, which always starts with a digit (the season).
+ */
+export const FOLD_LEASE_KEY = "#fold";
+
+/** Phase A for one event takes seconds, so a holder that dies frees the fold section within a minute. */
+export const FOLD_LEASE_TTL_MS = 60_000;
+
+/** How long a tick waiting for the fold lease sleeps between attempts. */
+export const FOLD_LEASE_POLL_MS = 250;
+
+/**
+ * Thrown when the fold lease was still held by another tick at the waiting
+ * tick's deadline. The Phase A catch reverts the event's claim and counts the
+ * event failed, and the next tick folds the same matches.
+ */
+export class FoldLeaseTimeoutError extends Error {
+  constructor(eventKey: string) {
+    super(`FoldLeaseTimeoutError: another tick still held the fold lease at this tick's deadline; ${eventKey} folds on the next tick`);
+    this.name = "FoldLeaseTimeoutError";
+  }
+}
+
 /** The longest error message a lease warn line carries. */
 const LEASE_ERROR_MESSAGE_MAX = 300;
 
@@ -75,5 +111,39 @@ export async function releaseEventLeases(db: D1Database, tickId: string): Promis
     await db.prepare(EVENT_LEASE_RELEASE_SQL).bind(tickId).run();
   } catch (error) {
     console.warn(JSON.stringify({ msg: "event-lease-release-failed", tickId, error: truncatedMessage(error) }));
+  }
+}
+
+/**
+ * Waits for the fold lease: ONE acquire statement per attempt (`run()`, not a
+ * batch), `FOLD_LEASE_POLL_MS` apart, on the REAL clock because the loop sleeps.
+ * Returns true once this tick holds it, and false when an attempt fails at or
+ * after `deadlineMs`. `onAttempt` runs before every statement, so the caller can
+ * count each one as a subrequest. THROWS if D1 throws: the caller fails open.
+ */
+export async function acquireFoldLease(db: D1Database, tickId: string, clock: () => number, deadlineMs: number, onAttempt: () => void = () => undefined): Promise<boolean> {
+  for (;;) {
+    const leasedAtMs = clock();
+    onAttempt();
+    const result = await db
+      .prepare(EVENT_LEASE_ACQUIRE_SQL)
+      .bind(FOLD_LEASE_KEY, tickId, new Date(leasedAtMs).toISOString(), new Date(leasedAtMs + FOLD_LEASE_TTL_MS).toISOString())
+      .run();
+    if (changesOf(result) > 0) return true;
+    if (clock() >= deadlineMs) return false;
+    await new Promise((resolve) => setTimeout(resolve, FOLD_LEASE_POLL_MS));
+  }
+}
+
+/**
+ * Releases the fold lease this tick holds, in one statement that deletes the
+ * row only while this tick's id is on it. NEVER throws: a failure warns one JSON
+ * line, and the lease expires on its own after `FOLD_LEASE_TTL_MS`.
+ */
+export async function releaseFoldLease(db: D1Database, tickId: string): Promise<void> {
+  try {
+    await db.prepare(EVENT_LEASE_RELEASE_KEY_SQL).bind(FOLD_LEASE_KEY, tickId).run();
+  } catch (error) {
+    console.warn(JSON.stringify({ msg: "fold-lease-release-failed", tickId, error: truncatedMessage(error) }));
   }
 }

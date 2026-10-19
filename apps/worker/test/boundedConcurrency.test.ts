@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSerialLock, mapWithConcurrency } from "../src/boundedConcurrency.js";
+import { createKeyedLock, createSerialLock, mapWithConcurrency } from "../src/boundedConcurrency.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -114,5 +114,74 @@ describe("createSerialLock", () => {
     const second = lock.run(async () => "ran");
     await expect(first).rejects.toBe(boom);
     await expect(second).resolves.toBe("ran");
+  });
+});
+
+describe("createKeyedLock (quick task 261019-oim)", () => {
+  it("runs two sections on the same key one at a time, in arrival order", async () => {
+    const lock = createKeyedLock();
+    const events: string[] = [];
+    let inside = 0;
+    let maxInside = 0;
+    const section = (name: string, ms: number) =>
+      lock.run("team-1", async () => {
+        inside++;
+        maxInside = Math.max(maxInside, inside);
+        events.push(`${name}:start`);
+        await sleep(ms);
+        events.push(`${name}:end`);
+        inside--;
+        return name;
+      });
+    const results = await Promise.all([section("a", 20), section("b", 1), section("c", 1)]);
+    expect(results).toEqual(["a", "b", "c"]);
+    expect(maxInside).toBe(1);
+    expect(events).toEqual(["a:start", "a:end", "b:start", "b:end", "c:start", "c:end"]);
+  });
+
+  it("lets sections on different keys overlap: neither waits for the other", async () => {
+    const lock = createKeyedLock();
+    const events: string[] = [];
+    await Promise.all([
+      lock.run("team-1", async () => {
+        events.push("1:start");
+        await sleep(20);
+        events.push("1:end");
+      }),
+      lock.run("team-2", async () => {
+        events.push("2:start");
+        await sleep(1);
+        events.push("2:end");
+      }),
+    ]);
+    expect(events).toEqual(["1:start", "2:start", "2:end", "1:end"]);
+  });
+
+  it("hands a rejecting section's error to its own caller only, and the next section on that key still runs", async () => {
+    const lock = createKeyedLock();
+    const boom = new Error("boom");
+    const first = lock.run("team-1", async () => {
+      await sleep(5);
+      throw boom;
+    });
+    const second = lock.run("team-1", async () => "ran");
+    await expect(first).rejects.toBe(boom);
+    await expect(second).resolves.toBe("ran");
+  });
+
+  it("drops a key once every section on it has settled, so size returns to 0", async () => {
+    const lock = createKeyedLock();
+    const pending = [
+      lock.run("team-1", async () => sleep(5)),
+      lock.run("team-1", async () => {
+        throw new Error("boom");
+      }),
+      lock.run("team-2", async () => sleep(1)),
+    ];
+    expect(lock.size).toBe(2);
+    await Promise.allSettled(pending);
+    // The bookkeeping that drops a drained key runs one turn after the last section settles.
+    await sleep(0);
+    expect(lock.size).toBe(0);
   });
 });

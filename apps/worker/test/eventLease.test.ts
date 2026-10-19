@@ -16,7 +16,18 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { D1Database } from "@cloudflare/workers-types";
-import { acquireEventLeases, EVENT_LEASE_ACQUIRE_SQL, EVENT_LEASE_RELEASE_SQL, EVENT_LEASE_TTL_MS, releaseEventLeases } from "../src/eventLease.js";
+import {
+  acquireEventLeases,
+  acquireFoldLease,
+  EVENT_LEASE_ACQUIRE_SQL,
+  EVENT_LEASE_RELEASE_KEY_SQL,
+  EVENT_LEASE_RELEASE_SQL,
+  EVENT_LEASE_TTL_MS,
+  FOLD_LEASE_KEY,
+  FOLD_LEASE_TTL_MS,
+  releaseEventLeases,
+  releaseFoldLease,
+} from "../src/eventLease.js";
 import { EventLeaseFakeStore, isEventLeaseSql } from "./support/eventLeaseFake.js";
 
 afterEach(() => {
@@ -49,6 +60,7 @@ const acquire = (eventKey: string, tickId: string, leasedAtMs: number, expiresAt
   [eventKey, tickId, iso(leasedAtMs), iso(expiresAtMs)],
 ];
 const release = (tickId: string): [string, unknown[]] => [EVENT_LEASE_RELEASE_SQL, [tickId]];
+const releaseKey = (eventKey: string, tickId: string): [string, unknown[]] => [EVENT_LEASE_RELEASE_KEY_SQL, [eventKey, tickId]];
 
 /**
  * One sequence covering every case: an absent key, a foreign unexpired lease, an
@@ -65,6 +77,9 @@ const SCENARIO: readonly { readonly name: string; readonly statement: [string, u
   { name: "release a tick that holds nothing", statement: release("tick-1"), changes: 0 },
   { name: "release tick-3: its two rows only", statement: release("tick-3"), changes: 2 },
   { name: "release tick-4", statement: release("tick-4"), changes: 1 },
+  { name: "the fold lease, absent", statement: acquire(FOLD_LEASE_KEY, "tick-5", NOW_MS, NOW_MS + FOLD_LEASE_TTL_MS), changes: 1 },
+  { name: "release the fold lease by key with the wrong tick id", statement: releaseKey(FOLD_LEASE_KEY, "tick-6"), changes: 0 },
+  { name: "release the fold lease by key with its own tick id", statement: releaseKey(FOLD_LEASE_KEY, "tick-5"), changes: 1 },
 ];
 
 describe("event_lease on a real SQLite engine", () => {
@@ -103,6 +118,17 @@ describe("event_lease on a real SQLite engine", () => {
     expect(runOn(sqlite, ...release("tick-1"))).toBe(2);
     expect(sqlite.prepare(`SELECT event_key, tick_id FROM event_lease`).all()).toEqual([{ event_key: "2026cccc", tick_id: "tick-2" }]);
     expect(runOn(sqlite, ...release("tick-1"))).toBe(0);
+    sqlite.close();
+  });
+
+  it("release by key deletes nothing for the wrong tick id and one row for the right one", () => {
+    const sqlite = freshEngine();
+    runOn(sqlite, ...acquire(FOLD_LEASE_KEY, "tick-1", NOW_MS, NOW_MS + FOLD_LEASE_TTL_MS));
+    runOn(sqlite, ...acquire("2026aaaa", "tick-1", NOW_MS));
+
+    expect(runOn(sqlite, ...releaseKey(FOLD_LEASE_KEY, "tick-2"))).toBe(0);
+    expect(runOn(sqlite, ...releaseKey(FOLD_LEASE_KEY, "tick-1"))).toBe(1);
+    expect(sqlite.prepare(`SELECT event_key FROM event_lease`).all()).toEqual([{ event_key: "2026aaaa" }]);
     sqlite.close();
   });
 
@@ -201,5 +227,60 @@ describe("acquireEventLeases and releaseEventLeases", () => {
     expect(line.msg).toBe("event-lease-release-failed");
     expect(line.tickId).toBe("tick-9");
     expect(line.error.length).toBeLessThanOrEqual(300);
+  });
+});
+
+describe("acquireFoldLease and releaseFoldLease", () => {
+  it("takes a free fold lease on the first attempt, with one statement and a 60 s expiry on the clock it was given", async () => {
+    const sqlite = freshEngine();
+    const { db } = sqliteD1(sqlite);
+    let attempts = 0;
+
+    const held = await acquireFoldLease(db, "tick-1", () => NOW_MS, NOW_MS + 1_000, () => attempts++);
+
+    expect(held).toBe(true);
+    expect(attempts).toBe(1);
+    expect(sqlite.prepare(`SELECT tick_id, leased_at, expires_at FROM event_lease WHERE event_key = ?`).get(FOLD_LEASE_KEY)).toEqual({
+      tick_id: "tick-1",
+      leased_at: iso(NOW_MS),
+      expires_at: iso(NOW_MS + FOLD_LEASE_TTL_MS),
+    });
+    await releaseFoldLease(db, "tick-1");
+    expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM event_lease`).get() as { n: number }).n).toBe(0);
+    sqlite.close();
+  });
+
+  it("waits while another tick holds it and returns false once an attempt fails at the deadline", async () => {
+    const sqlite = freshEngine();
+    runOn(sqlite, ...acquire(FOLD_LEASE_KEY, "other-tick", Date.now(), Date.now() + 3_600_000));
+    const { db } = sqliteD1(sqlite);
+    let attempts = 0;
+    const started = Date.now();
+
+    const held = await acquireFoldLease(db, "tick-1", Date.now, started + 300, () => attempts++);
+
+    expect(held).toBe(false);
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    expect((sqlite.prepare(`SELECT tick_id FROM event_lease WHERE event_key = ?`).get(FOLD_LEASE_KEY) as { tick_id: string }).tick_id).toBe("other-tick");
+    sqlite.close();
+  });
+
+  it("acquire rejects when D1 throws; release never does and warns one fold-lease-release-failed line", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          run: async () => {
+            throw new Error("D1_ERROR: no such table: event_lease");
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+
+    await expect(acquireFoldLease(db, "tick-1", () => NOW_MS, NOW_MS)).rejects.toThrow("no such table");
+    await expect(releaseFoldLease(db, "tick-1")).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(warn.mock.calls[0]![0]))).toMatchObject({ msg: "fold-lease-release-failed", tickId: "tick-1" });
   });
 });
