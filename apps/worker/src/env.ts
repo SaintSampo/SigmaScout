@@ -1,7 +1,8 @@
 /**
  * The Worker's whole typed binding surface (wrangler.toml's `DB`/`ARTIFACTS`,
- * plus the `TBA_API_KEY` secret set with `wrangler secret put` —
- * never assigned a value in the tracked `wrangler.toml`). Every module that
+ * plus two secrets set with `wrangler secret put`: `TBA_API_KEY` and, since
+ * quick task 261019-ooj, `TBA_WEBHOOK_SECRET` — neither ever assigned a value
+ * in the tracked `wrangler.toml`). Every module that
  * touches a Cloudflare binding or the TBA key reads it off this ONE typed
  * `Env`, never an untyped `env.something` — a typo in a binding name fails
  * at compile time instead of as a runtime `undefined`.
@@ -20,6 +21,19 @@ export interface Env {
   // browser) and R2 for published artifacts.
   /** Set via `wrangler secret put TBA_API_KEY` — NEVER assigned a value in wrangler.toml, which is tracked in git. */
   readonly TBA_API_KEY: string;
+  /**
+   * The shared secret TBA signs each webhook body with (the `X-TBA-HMAC`
+   * header, quick task 261019-ooj). Set via `wrangler secret put
+   * TBA_WEBHOOK_SECRET` — NEVER assigned a value in wrangler.toml, which is
+   * tracked in git. The same value goes into the webhook entry on the TBA
+   * account page.
+   *
+   * Declared OPTIONAL because an unset secret must be a real, reachable,
+   * type-checked branch: `tbaWebhook.ts` answers 503 and warns
+   * `tba-webhook-secret-missing` rather than ever accepting an unsigned
+   * request.
+   */
+  readonly TBA_WEBHOOK_SECRET?: string;
   /**
    * A plain `[vars]` value (never a secret) — the real TBA base URL by
    * default, tracked in `wrangler.toml`. The replay rig overrides it at

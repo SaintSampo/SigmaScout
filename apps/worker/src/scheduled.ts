@@ -212,6 +212,7 @@ import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, 
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
 import { acquireEventLeases, acquireFoldLease, FOLD_LEASE_TTL_MS, FoldLeaseTimeoutError, releaseEventLeases, releaseFoldLease } from "./eventLease.js";
 import { reportTick } from "./tickLog.js";
+import { handleTbaWebhook } from "./tbaWebhook.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
 import { NO_OFFICIAL_DATA, readOpenWindowCursors, runLiveEventPass, type LiveEventPassResult } from "./liveEventPass.js";
 import type { Env } from "./env.js";
@@ -2962,11 +2963,17 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
  * One structured JSON line per invocation, so an idle tick is distinguishable
  * from a cron that never fires and Workers Observability can filter on
  * fields. Counts and durations only, never a key, artifact body or TBA response.
+ * The fetch entry (quick task 261019-ooj) serves TBA webhooks only: it logs one
+ * `tba-webhook-*` line at once and, for an accepted webhook, a tick line
+ * carrying `trigger: "webhook"` and the `eventKey` when that tick ends.
  */
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const startedMs = Date.now();
     // No extras: the cron's tick line carries no `trigger` field (see `tickLog.ts`).
     ctx.waitUntil(reportTick(runTick(env), startedMs));
+  },
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleTbaWebhook(request, env, ctx, { runTick });
   },
 } satisfies ExportedHandler<Env>;

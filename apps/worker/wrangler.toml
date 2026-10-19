@@ -3,6 +3,10 @@
 # a secret — the TBA key is set once with `wrangler secret put TBA_API_KEY`
 # (plan 04-07) and is NEVER assigned a value in this file, because this file
 # is tracked in git.
+#
+# Since quick task 261019-ooj the Worker also has a fetch() entry: it answers
+# TBA webhooks at /tba-webhook (see src/tbaWebhook.ts). Its signing secret is
+# set with `wrangler secret put TBA_WEBHOOK_SECRET`, never assigned here.
 name = "sigmascout-worker"
 
 # The real scheduled() orchestration entrypoint (plan 04-06) — reads what is
@@ -21,6 +25,14 @@ compatibility_date = "2026-08-22"
 # applies. The flag stays because removing it has not been verified with a
 # real bundle and tick.
 compatibility_flags = ["nodejs_compat"]
+
+# The fetch() entry (quick task 261019-ooj) is reached on this Worker's
+# workers.dev URL. The TBA webhook URL is that URL plus /tba-webhook
+# (`wrangler deploy` prints the exact hostname, expected
+# sigmascout-worker.jrw4561.workers.dev). There are no routes and no custom
+# domain. This key MUST stay above [vars]: TOML assigns every key written after
+# a table header to that table, so below it this would become a plain var.
+workers_dev = true
 
 # D-20 (plan 04-07): the real TBA base URL by default, tracked here so the
 # override point is visible in the tracked config rather than an undocumented
