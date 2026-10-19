@@ -30,7 +30,7 @@ typecheck:
   worker: "tsc --noEmit -p apps/worker/tsconfig.json exit 0"
   web: "tsc --noEmit -p apps/web/tsconfig.json exit 0"
   root: "tsc --noEmit exit 0"
-deployed: "Worker version _pending_ (filled in below)"
+deployed: "Worker version 071ba371-686d-42b2-a27e-3333096bd454, 2026-10-19 23:05Z, after migration 0004"
 decisions:
   - "Two leases, not one. The per-event lease (15 min expiry) makes a later invocation skip windows an earlier one still holds. The fold lease (#fold row, 60 s expiry) is waited for, not skipped, around every Phase A section, so two invocations folding different events rewrite each algorithm's league row one at a time. Both planners flagged that the per-event lease alone left that race open."
   - "Fail open. A lease table that cannot be read warns once (event-lease-unavailable, fold-lease-unavailable) and the tick folds unguarded, so a D1 outage or a missed migration never stops the site folding."
@@ -126,4 +126,4 @@ still ran past 60 s, which is what this task's lease closes.
 - Migration 0004 applied to the remote `sigmascout-state` database before the deploy.
 - Worker deployed: see the line below.
 
-Deployed as Worker version _pending_.
+Deployed as Worker version 071ba371-686d-42b2-a27e-3333096bd454 at 2026-10-19 23:05Z, after migration 0004 was applied to the remote database (`wrangler d1 migrations apply sigmascout-state --remote -c apps/worker/wrangler.toml`, run from the repo root; from `apps/worker` the same command fails with a 7403 because wrangler picks up the R2-scoped token there).
