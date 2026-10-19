@@ -27,7 +27,9 @@ import { buildLiveReport } from "../../../scripts/liveReport.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { EventLeaseFakeStore, isEventLeaseSql } from "./support/eventLeaseFake.js";
 import { officialDataStubResponse } from "./support/officialDataStubs.js";
+import { EVENT_LEASE_TTL_MS } from "../src/eventLease.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -86,6 +88,8 @@ class FakeD1Database {
   eventCursors = new Map<string, FakeEventCursorRow>();
   /** The ingest log table (quick task 261004-uyc). */
   readonly ingestLog = new IngestLogFakeStore();
+  /** The event lease table (quick task 261019-oim). */
+  readonly eventLease = new EventLeaseFakeStore();
   rejectNextBatchWith: Error | null = null;
 
   constructor(private readonly sharedLog: SharedLogEntry[] = []) {
@@ -101,16 +105,22 @@ class FakeD1Database {
     return new FakePreparedStatement(sql, this);
   }
 
-  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true }[]> {
+  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true; meta: { changes: number } }[]> {
+    // The event lease (quick task 261019-oim) first, before any counter, log or
+    // rejection below: those model the fold's state writes, and a lease batch
+    // must never consume a rejection meant for Phase A.
+    if (statements.length > 0 && statements.every((stmt) => isEventLeaseSql(stmt.sql))) {
+      return statements.map((stmt) => ({ success: true as const, meta: { changes: this.eventLease.apply(stmt.sql, stmt.boundArgs) } }));
+    }
     this.batchCallCount++;
     if (this.rejectNextBatchWith) {
       const err = this.rejectNextBatchWith;
       this.rejectNextBatchWith = null;
       throw err;
     }
-    for (const stmt of statements) this.executeWrite(stmt.sql, stmt.boundArgs);
+    const results = statements.map((stmt) => ({ success: true as const, meta: { changes: this.executeWrite(stmt.sql, stmt.boundArgs) } }));
     this.sharedLog.push({ type: "d1-batch" });
-    return statements.map(() => ({ success: true as const }));
+    return results;
   }
 
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
@@ -154,6 +164,7 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): number {
+    if (isEventLeaseSql(sql)) return this.eventLease.apply(sql, args);
     if (isIngestLogSql(sql)) return this.ingestLog.apply(sql, args);
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
@@ -740,6 +751,134 @@ describe("runTick — two concurrent live events", () => {
     const sequentialRows = stateJsonByRow(sequentialD1);
     expect(Object.keys(sequentialRows).some((key) => key.includes("::league::"))).toBe(true);
     expect(stateJsonByRow(concurrentD1)).toEqual(sequentialRows);
+  });
+});
+
+describe("runTick — overlapping invocations (quick task 261019-oim)", () => {
+  // Two cron invocations overlap when a tick runs past 60 s. The fold claim stops
+  // them folding the SAME event twice; the event lease stops a new tick touching
+  // any window an older tick still holds, so two invocations never rewrite the
+  // league row at once.
+  const windowA: WindowFixture = { eventKey: "2026aaaa", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+  const windowB: WindowFixture = { eventKey: "2026bbbb", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+  const tbaEvents = () =>
+    new Map([
+      ["2026aaaa", twoMatchEventRecord("2026aaaa", "etag-a")],
+      ["2026bbbb", twoMatchEventRecord("2026bbbb", "etag-b")],
+    ]);
+  const stateJsonByRow = (d1: FakeD1Database): Record<string, string> =>
+    Object.fromEntries([...d1.algorithmState].map(([key, row]) => [key, row.state_json]).sort(([a], [b]) => a!.localeCompare(b!)));
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  /** Holds every `algorithm_state` write for 300 ms, as the 261018-3ju test does. */
+  const holdStateWrites = (d1: FakeD1Database): void => {
+    const realBatch = d1.batch.bind(d1);
+    d1.batch = async (statements) => {
+      if (statements.some((stmt) => stmt.sql.includes("INSERT INTO algorithm_state"))) await new Promise((resolve) => setTimeout(resolve, 300));
+      return realBatch(statements);
+    };
+  };
+  const linesNamed = (spy: { mock: { calls: unknown[][] } }, msg: string): Record<string, unknown>[] =>
+    spy.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as Record<string, unknown>;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((line): line is Record<string, unknown> => line !== undefined && line.msg === msg);
+
+  it("a tick started while another still holds both events skips them both: no TBA request, no write, and the state equals the sequential reference", async () => {
+    const algorithmIds = ["opr", "epa"];
+
+    // Reference: A alone in one tick, then B alone in the next, on one database.
+    const sequentialD1 = new FakeD1Database();
+    const sequentialR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const tickA = await runTick(makeEnv(makeManifests([windowA], algorithmIds), sequentialD1, sequentialR2), { nowMs: NOW_MS });
+    const tickB = await runTick(makeEnv(makeManifests([windowB], algorithmIds), sequentialD1, sequentialR2), { nowMs: NOW_MS });
+    expect(tickA.eventsAdvanced + tickB.eventsAdvanced).toBe(2);
+
+    // Two invocations on ONE database and ONE bucket, tick 1's state writes held 300 ms.
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    holdStateWrites(d1);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const env = makeEnv(makeManifests([windowA, windowB], algorithmIds), d1, r2);
+
+    const tick1 = runTick(env, { nowMs: NOW_MS, tickId: "tick-1" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const putsBeforeTick2 = r2.putCallCount;
+    const tick2 = await runTick(env, { nowMs: NOW_MS + 60_000, tickId: "tick-2" });
+
+    expect(tick2.eventsSkippedInFlight).toBe(2);
+    expect(tick2.eventsAdvanced).toBe(0);
+    expect(tick2.tbaRequests).toBe(0);
+    // 1 live windows read + 1 lease acquire. It holds nothing, so it releases nothing.
+    expect(tick2.subrequestsUsed).toBe(2);
+    expect(r2.putCallCount).toBe(putsBeforeTick2);
+
+    const first = await tick1;
+    expect(first.eventsAdvanced).toBe(2);
+    expect(first.eventsSkippedInFlight).toBe(0);
+    const sequentialRows = stateJsonByRow(sequentialD1);
+    expect(Object.keys(sequentialRows).some((key) => key.includes("::league::"))).toBe(true);
+    expect(stateJsonByRow(d1)).toEqual(sequentialRows);
+    expect(d1.eventLease.rows.size).toBe(0);
+
+    const tick3 = await runTick(env, { nowMs: NOW_MS + 120_000 });
+    expect(tick3.eventsSkippedInFlight).toBe(0);
+  });
+
+  it("a window another tick holds under an unexpired lease is skipped: no cursor, no put, one events-in-flight line, and the foreign lease is left alone", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const leasedAtMs = NOW_MS - 30_000;
+    d1.eventLease.rows.set("2026aaaa", { tickId: "other-tick", leasedAt: iso(leasedAtMs), expiresAt: iso(leasedAtMs + EVENT_LEASE_TTL_MS) });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+
+    const tick = await runTick(makeEnv(makeManifests([windowA, windowB]), d1, r2), { nowMs: NOW_MS, tickId: "tick-1" });
+
+    expect(tick.eventsAdvanced).toBe(1);
+    expect(tick.eventsSkippedInFlight).toBe(1);
+    expect(d1.eventCursors.get("2026aaaa")).toBeUndefined();
+    expect(d1.eventCursors.get("2026bbbb")?.last_folded_match_key).toBe("2026bbbb_qm1");
+    expect(r2.puts.filter((put) => put.key.includes("2026aaaa"))).toEqual([]);
+    expect(r2.puts.some((put) => put.key.includes("2026bbbb"))).toBe(true);
+    const inFlight = linesNamed(log, "events-in-flight");
+    expect(inFlight).toHaveLength(1);
+    expect(inFlight[0]).toMatchObject({ tickId: "tick-1", skipped: ["2026aaaa"] });
+    expect([...d1.eventLease.rows.keys()]).toEqual(["2026aaaa"]);
+    expect(d1.eventLease.rows.get("2026aaaa")!.tickId).toBe("other-tick");
+  });
+
+  it("a lease that expired (a killed tick) is taken over, and both events fold", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    d1.eventLease.rows.set("2026aaaa", { tickId: "other-tick", leasedAt: iso(NOW_MS - EVENT_LEASE_TTL_MS - 1), expiresAt: iso(NOW_MS - 1) });
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+
+    const tick = await runTick(makeEnv(makeManifests([windowA, windowB]), d1, r2), { nowMs: NOW_MS, tickId: "tick-1" });
+
+    expect(tick.eventsAdvanced).toBe(2);
+    expect(tick.eventsSkippedInFlight).toBe(0);
+    expect(d1.eventLease.rows.size).toBe(0);
+  });
+
+  it("a lease table that cannot be read fails open: both events fold, one event-lease-unavailable line, and no release is attempted", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    d1.eventLease.rejectWith = new Error("D1_ERROR: no such table: event_lease");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+
+    const tick = await runTick(makeEnv(makeManifests([windowA, windowB]), d1, r2), { nowMs: NOW_MS, tickId: "tick-1" });
+
+    expect(tick.eventsAdvanced).toBe(2);
+    expect(tick.eventsSkippedInFlight).toBe(0);
+    expect(linesNamed(warn, "event-lease-unavailable")).toHaveLength(1);
+    expect(d1.eventLease.releaseCount).toBe(0);
   });
 });
 
@@ -2041,8 +2180,10 @@ describe("runTick — the tick probes a probe window", () => {
     // 1 roster-pass cursor read for the whole tick, 1 roster poll per window and
     // 2 probe calls per window. Nothing else — a probe-only tick whose rosters
     // all 304 still returns before the algorithms manifest, the module build and
-    // the tick-meta read (quick task 260925-uy5).
-    expect(tick.subrequestsUsed).toBe(1 + 1 + probeKeys.length + 2 * probeKeys.length);
+    // the tick-meta read (quick task 260925-uy5). Then 1 + 1: lease acquire, lease
+    // release (quick task 261019-oim), one batch for every open window and one
+    // release statement, moved on purpose.
+    expect(tick.subrequestsUsed).toBe(1 + 1 + probeKeys.length + 2 * probeKeys.length + 1 + 1);
     // And the pass really did answer every window, 304 or not.
     expect(tick.rostersPolled).toBe(probeKeys.length);
     expect(tick.rosterTeamsAppended).toBe(0);
@@ -2118,7 +2259,10 @@ describe("runTick - the ingest log", () => {
     // spent before the log existed, plus 1 for the live event pass's rankings poll
     // (quick task 261004-uyc plan 02, moved from 8 on purpose). The stub answers
     // that poll with an empty body, so it writes nothing and logs nothing.
-    expect(second.subrequestsUsed).toBe(9);
+    // MOVED FROM 9 to 11 on purpose by quick task 261019-oim: + 1 lease acquire
+    // (one batch over the open window) + 1 lease release. A 304 tick never enters
+    // Phase A, so it takes no fold lease.
+    expect(second.subrequestsUsed).toBe(11);
   });
 
   it("with the log's table rejecting every insert the tick still advances and writes the same artifacts", async () => {

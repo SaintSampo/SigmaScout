@@ -210,6 +210,7 @@ import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js
 import { createSerialLock, EVENT_CONCURRENCY, mapWithConcurrency, type SerialLock } from "./boundedConcurrency.js";
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
+import { acquireEventLeases, releaseEventLeases } from "./eventLease.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
 import { NO_OFFICIAL_DATA, readOpenWindowCursors, runLiveEventPass, type LiveEventPassResult } from "./liveEventPass.js";
 import type { Env } from "./env.js";
@@ -2294,6 +2295,8 @@ export interface RunTickDeps {
   readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
   /** Test-only: the clock the ingest log stamps its observed, folded and published times from. Defaults to `Date.now`. */
   readonly ingestClock?: () => number;
+  /** Test-only: the id this tick's event leases are held under (quick task 261019-oim). Defaults to `crypto.randomUUID()`, generated only once the tick is past the idle exit. */
+  readonly tickId?: string;
 }
 
 export interface TickResult {
@@ -2337,6 +2340,8 @@ export interface TickResult {
   readonly officialDataPolled: number;
   /** Event artifacts the official data pass rewrote this tick, summed over algorithms and events. Zero on a tick whose polls all answered 304. */
   readonly officialDataWritten: number;
+  /** Open live windows another tick still held when this one started (quick task 261019-oim). Zero on an idle tick, and zero when the lease table could not be read, because then nothing is skipped. */
+  readonly eventsSkippedInFlight: number;
 }
 
 /** What `runTickCore` returns: every `TickResult` field the wrapper does not own. */
@@ -2356,20 +2361,70 @@ const NO_DISTRICT_REFRESH: DistrictRefreshResult = { districtsConsidered: 0, dis
  * and fills the buffer; this wrapper flushes it in a `finally`, after the fold,
  * so a failing log write can neither fail nor delay a fold. The flush is ONE
  * statement and costs ONE subrequest, and only when there is something to write.
+ * The same `finally` first releases the tick's event leases (quick task
+ * 261019-oim), in ONE never-throwing statement and ONE subrequest, whenever the
+ * core took any, whether it returned or threw.
  */
 export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickResult> {
   const startMs = deps.nowMs ?? Date.now();
   const live: LiveTickContext = { ingest: new IngestLogBuffer(new Date(startMs).toISOString(), deps.ingestClock), phaseFacts: new Map() };
   let core: CoreTickResult;
+  let releaseAttempted = false;
   let flushAttempted = false;
   let ingestRowsWritten = 0;
   try {
     core = await runTickCore(env, deps, live);
   } finally {
+    if (live.leaseTickId !== undefined) {
+      releaseAttempted = true;
+      await releaseEventLeases(env.DB, live.leaseTickId);
+    }
     flushAttempted = live.ingest.rows().length > 0;
     ingestRowsWritten = await flushIngestLog(env.DB, live.ingest);
   }
-  return { ...core, ingestRowsWritten, subrequestsUsed: core.subrequestsUsed + (flushAttempted ? 1 : 0) };
+  return { ...core, ingestRowsWritten, subrequestsUsed: core.subrequestsUsed + (releaseAttempted ? 1 : 0) + (flushAttempted ? 1 : 0) };
+}
+
+/** What `leaseOpenWindows` hands back: the windows this tick may process and the keys another tick still holds. */
+interface LeasedWindows {
+  readonly held: readonly LiveWindowEntry[];
+  readonly skippedKeys: readonly string[];
+}
+
+/**
+ * Takes this tick's event lease on every open window, in ONE D1 batch and ONE
+ * subrequest (quick task 261019-oim). A window another unexpired tick still
+ * holds is skipped: this tick neither polls nor writes anything for it. The
+ * tick id goes on `live.leaseTickId` only when the tick holds at least one key,
+ * because a tick holding nothing has nothing to release and saves that
+ * subrequest.
+ *
+ * FAIL OPEN. When the batch throws (a missing `event_lease` table, a D1 outage)
+ * the tick warns `event-lease-unavailable` once and processes every window
+ * unguarded, with nothing to release: a lease outage must never stop the site
+ * folding.
+ */
+async function leaseOpenWindows(
+  env: Env,
+  subrequests: SubrequestCounter,
+  live: LiveTickContext,
+  openWindows: readonly LiveWindowEntry[],
+  tickId: string,
+  nowMs: number
+): Promise<LeasedWindows> {
+  subrequests.spend(1);
+  let heldKeys: Set<string>;
+  try {
+    heldKeys = await acquireEventLeases(env.DB, openWindows.map((w) => w.eventKey), tickId, nowMs);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(JSON.stringify({ msg: "event-lease-unavailable", error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
+    return { held: openWindows, skippedKeys: [] };
+  }
+  if (heldKeys.size > 0) live.leaseTickId = tickId;
+  const skippedKeys = [...new Set(openWindows.map((w) => w.eventKey).filter((eventKey) => !heldKeys.has(eventKey)))].sort();
+  if (skippedKeys.length > 0) console.log(JSON.stringify({ msg: "events-in-flight", tickId, skipped: skippedKeys }));
+  return { held: openWindows.filter((w) => heldKeys.has(w.eventKey)), skippedKeys };
 }
 
 async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): Promise<CoreTickResult> {
@@ -2387,18 +2442,22 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
 
   // The one read that answers "is anything live", and since quick task
   // 261009-tx6 also "which district windows ended in the last 24 hours". Both
-  // lists come out of the SAME single R2 read. `liveEvents` is exactly what
+  // lists come out of the SAME single R2 read. `openWindows` is exactly what
   // `loadLiveEventsAt` returned here before, by the same scan (see its header
-  // in `liveWindows.ts`), so folding, probing, the roster pass and the live
-  // event pass read what they always read. An idle tick with no district in
-  // its watch (the common case) still exits just below with zero TBA
-  // requests and nothing spent but this read.
+  // in `liveWindows.ts`). Every pass below reads `liveEvents`, which is this
+  // list less the windows another tick still holds (quick task 261019-oim, see
+  // `leaseOpenWindows`). An idle tick with no district in its watch (the
+  // common case) still exits just below with zero TBA requests, no lease
+  // statement and nothing spent but this read.
   subrequests.spend(1);
   const tickWindows = await loadTickWindowsAt(env, nowMs, DISTRICT_AWARDS_WATCH_MS);
-  const liveEvents = tickWindows.live;
+  const openWindows = tickWindows.live;
   // THE DISTRICT PASS'S WATCH SET: every district window that is live or
   // ended within the watch. Only the district pass reads it.
-  const districtWatchWindows = [...liveEvents.filter((w) => typeof w.districtKey === "string" && w.districtKey.length > 0), ...tickWindows.recentlyEnded];
+  const watchWindowsFor = (windows: readonly LiveWindowEntry[]): LiveWindowEntry[] => [
+    ...windows.filter((w) => typeof w.districtKey === "string" && w.districtKey.length > 0),
+    ...tickWindows.recentlyEnded,
+  ];
 
   // THE ALGORITHMS MANIFEST, THE MODULES AND THE TICK STATE, AT MOST ONCE PER
   // TICK (quick task 260925-uy5). The roster pass below and the fold loop further
@@ -2455,12 +2514,15 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // loads the algorithm context at all.
   const districtPassSuspended = async (): Promise<boolean> => (await algorithmContext()).mismatch !== undefined;
 
-  if (liveEvents.length === 0) {
-    const idle = { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_OFFICIAL_DATA };
+  const idle = { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_OFFICIAL_DATA };
+  if (openWindows.length === 0) {
+    // `watchWindowsFor(openWindows)` is the recently ended district windows
+    // alone here, because nothing is open.
+    const districtWatchWindows = watchWindowsFor(openWindows);
     // Nothing is live and no district window ended in the last 24 hours: the
     // tick has cost its one manifest read and ends here, as it always has.
     if (districtWatchWindows.length === 0) {
-      return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...NO_DISTRICT_REFRESH };
+      return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...NO_DISTRICT_REFRESH, eventsSkippedInFlight: 0 };
     }
     // THE DISTRICT PASS, FROM AN IDLE TICK (quick task 261009-tx6). Nothing is
     // live, but a district event ended inside its watch: its awards and award
@@ -2469,7 +2531,28 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     // at once having spent nothing. It never throws.
     const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [], watchWindows: districtWatchWindows, matchDerivedState: new Map(), isSuspended: districtPassSuspended, stamp, nowIso });
     // The two counters are read AFTER the pass.
-    return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...districtRefresh };
+    return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...districtRefresh, eventsSkippedInFlight: 0 };
+  }
+
+  // THE EVENT LEASE (quick task 261019-oim), after the idle exit (an idle tick
+  // never generates a tick id and issues no lease statement) and before every
+  // pass that touches an event. A window another unexpired tick still holds is
+  // dropped from `liveEvents`, so the probes, the roster pass, the cursors, the
+  // fold loop, the district pass and the live event pass below all see only
+  // the windows this tick holds, with no further edit. The tick id is generated
+  // on every tick that gets this far.
+  const tickId = deps.tickId ?? crypto.randomUUID();
+  const leased = await leaseOpenWindows(env, subrequests, live, openWindows, tickId, nowMs);
+  const liveEvents = leased.held;
+  const eventsSkippedInFlight = leased.skippedKeys.length;
+  const districtWatchWindows = watchWindowsFor(liveEvents);
+
+  if (liveEvents.length === 0) {
+    // EVERY OPEN WINDOW IS IN FLIGHT in an older tick. This return deliberately
+    // does NOT run the district pass: the tick holding the leases runs it, and
+    // a second district pass from a tick that holds nothing would rewrite the
+    // same district artifact concurrently.
+    return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...NO_DISTRICT_REFRESH, eventsSkippedInFlight };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -2480,7 +2563,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
   // describes: a tick that pays the full expensive prefix for a window that
   // was never proven live. `loadLiveEventsAt`'s prefilter and the
-  // `liveEvents.length === 0` early exit above are unchanged.
+  // `openWindows.length === 0` early exit above are unchanged.
   const foldableWindows = liveEvents.filter((w) => !w.inferred);
   const probeWindows = liveEvents.filter((w) => w.inferred);
 
@@ -2536,6 +2619,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
       stateGenerationMismatch: false,
       ...districtRefresh,
       ...officialData,
+      eventsSkippedInFlight,
     };
   }
 
@@ -2572,6 +2656,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
       // with them.
       ...NO_DISTRICT_REFRESH,
       ...NO_OFFICIAL_DATA,
+      eventsSkippedInFlight,
     };
   }
 
@@ -2710,6 +2795,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     stateGenerationMismatch: false,
     ...districtRefresh,
     ...officialData,
+    eventsSkippedInFlight,
   };
 }
 

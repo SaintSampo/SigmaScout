@@ -236,6 +236,13 @@ export interface LiveTickContext {
   readonly ingest: IngestLogBuffer;
   /** The phase facts `processEvent` derived from each match list this tick fetched, by event key (`liveEventPass.ts` reads them). An event with no entry held no fresh list. */
   readonly phaseFacts: Map<string, LivePhaseFacts>;
+  /**
+   * The tick id the tick's event leases are held under (quick task 261019-oim).
+   * Set by the tick core once it holds at least one lease, and left unset when it
+   * holds none or the lease table could not be read; `runTick` releases by it.
+   * Mutable on purpose: the core sets it after the context is built.
+   */
+  leaseTickId?: string;
 }
 
 /**

@@ -1,0 +1,26 @@
+-- `event_lease`: one row per open live window a running tick holds (quick task
+-- 261019-oim), so a tick that starts while an older one is still running skips
+-- that window instead of folding it at the same time.
+--
+-- WHAT A ROW IS. `event_key` is the live window's event key. `tick_id` names
+-- the invocation that holds it.
+-- `leased_at` and `expires_at` are ISO UTC strings, which compare correctly as
+-- text, and the acquire statement relies on exactly that.
+--
+-- WHY D1. It is the one store with an atomic conditional write that the tick
+-- already pays for, and the race the lease guards is on D1's own
+-- `algorithm_state` league row: two invocations folding different events both
+-- read that row and the later write erased the earlier contribution.
+--
+-- THE EXPIRY. An event lease expires 15 minutes after it was taken, which is the
+-- Workers cron wall time ceiling. A row older than that belongs to a tick that
+-- was killed, and the next tick takes it over.
+--
+-- IDEMPOTENT. The one statement is IF NOT EXISTS, so applying this file twice is
+-- harmless.
+--
+-- APPLY ORDER. Apply this migration BEFORE deploying the Worker that uses it. A
+-- Worker running against a missing table warns `event-lease-unavailable` once
+-- per tick and folds every window unguarded (fail open): nothing breaks, but
+-- the overlap guard is off until the table exists.
+CREATE TABLE IF NOT EXISTS event_lease (event_key TEXT PRIMARY KEY, tick_id TEXT NOT NULL, leased_at TEXT NOT NULL, expires_at TEXT NOT NULL);

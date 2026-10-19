@@ -6,6 +6,7 @@
  * in plan 04-07.
  */
 import { beforeEach, describe, expect, it } from "vitest";
+import { EventLeaseFakeStore, isEventLeaseSql } from "./support/eventLeaseFake.js";
 import {
   hasAlreadyFolded,
   MAX_SCOPE_KEYS_PER_READ,
@@ -102,12 +103,21 @@ class FakeD1Database {
   /** When set, the NEXT `batch()` call rejects with this error instead of applying anything. */
   rejectNextBatchWith: Error | null = null;
 
+  /** The event lease table (quick task 261019-oim). This file never drives `runTick`; the store is here so every fake routes the lease SQL the same way. */
+  readonly eventLease = new EventLeaseFakeStore();
+
   prepare(sql: string): FakePreparedStatement {
     this.prepareCallCount++;
     return new FakePreparedStatement(sql, this);
   }
 
-  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true }[]> {
+  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true; meta: { changes: number } }[]> {
+    // The event lease (quick task 261019-oim) first, before any counter, log or
+    // rejection below: those model the fold's state writes, and a lease batch
+    // must never consume a rejection meant for Phase A.
+    if (statements.length > 0 && statements.every((stmt) => isEventLeaseSql(stmt.sql))) {
+      return statements.map((stmt) => ({ success: true as const, meta: { changes: this.eventLease.apply(stmt.sql, stmt.boundArgs) } }));
+    }
     this.batchCallCount++;
     if (this.rejectNextBatchWith) {
       const err = this.rejectNextBatchWith;
@@ -117,8 +127,11 @@ class FakeD1Database {
     // Real D1 batches are transactions: stage writes, then commit all at
     // once. Since this fake only rejects BEFORE applying anything (above),
     // plain sequential application here already matches "all or nothing."
-    for (const stmt of statements) this.executeWrite(stmt.sql, stmt.boundArgs);
-    return statements.map(() => ({ success: true as const }));
+    // `executeWrite` returns nothing here; every statement reports one change, as `run()` does.
+    return statements.map((stmt) => {
+      this.executeWrite(stmt.sql, stmt.boundArgs);
+      return { success: true as const, meta: { changes: 1 } };
+    });
   }
 
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
@@ -162,6 +175,10 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): void {
+    if (isEventLeaseSql(sql)) {
+      this.lastUpdateChanges = this.eventLease.apply(sql, args);
+      return;
+    }
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
       this.algorithmState.set(`${algorithmId} ${scopeKind} ${scopeKey}`, {

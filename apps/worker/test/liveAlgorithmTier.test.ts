@@ -70,6 +70,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { EventLeaseFakeStore, isEventLeaseSql } from "./support/eventLeaseFake.js";
 import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -166,6 +167,8 @@ class FakeD1Database {
   eventCursors = new Map<string, FakeEventCursorRow>();
   /** The ingest log table (quick task 261004-uyc). */
   readonly ingestLog = new IngestLogFakeStore();
+  /** The event lease table (quick task 261019-oim). */
+  readonly eventLease = new EventLeaseFakeStore();
 
   constructor() {
     // Every fixture's algorithms manifest publishes `generation: "gen-1"`
@@ -179,10 +182,15 @@ class FakeD1Database {
     return new FakePreparedStatement(sql, this);
   }
 
-  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true }[]> {
+  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true; meta: { changes: number } }[]> {
+    // The event lease (quick task 261019-oim) first, before any counter, log or
+    // rejection below: those model the fold's state writes, and a lease batch
+    // must never consume a rejection meant for Phase A.
+    if (statements.length > 0 && statements.every((stmt) => isEventLeaseSql(stmt.sql))) {
+      return statements.map((stmt) => ({ success: true as const, meta: { changes: this.eventLease.apply(stmt.sql, stmt.boundArgs) } }));
+    }
     this.batchCallCount++;
-    for (const stmt of statements) this.executeWrite(stmt.sql, stmt.boundArgs);
-    return statements.map(() => ({ success: true as const }));
+    return statements.map((stmt) => ({ success: true as const, meta: { changes: this.executeWrite(stmt.sql, stmt.boundArgs) } }));
   }
 
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
@@ -218,6 +226,7 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): number {
+    if (isEventLeaseSql(sql)) return this.eventLease.apply(sql, args);
     if (isIngestLogSql(sql)) return this.ingestLog.apply(sql, args);
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
@@ -493,8 +502,13 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
    * It was SIX before quick task 260925-uy5; the two added terms are the roster
    * pass's cursor read and its poll, and each is named above rather than folded
    * into a new total.
+   *
+   * MOVED FROM 8 to 10 on purpose by quick task 261019-oim: + 1 lease acquire
+   * (one D1 batch over the open window) + 1 lease release (one statement when the
+   * tick ends). The match poll is a 304, so the tick never enters Phase A and
+   * takes no fold lease.
    */
-  it("a tick that considers one live event and finds it unchanged spends exactly eight subrequests", async () => {
+  it("a tick that considers one live event and finds it unchanged spends exactly ten subrequests", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const manifests = makeManifests([window], ["spr"]);
     const d1 = new FakeD1Database();
@@ -521,7 +535,7 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
     const result = await runTick(env, { nowMs: NOW_MS });
 
     expect(result.eventsFailed).toBe(0);
-    expect(result.subrequestsUsed).toBe(8);
+    expect(result.subrequestsUsed).toBe(10);
   });
 });
 

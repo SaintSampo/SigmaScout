@@ -40,6 +40,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { EventLeaseFakeStore, isEventLeaseSql } from "./support/eventLeaseFake.js";
 import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 // ---------------------------------------------------------------------------
@@ -96,6 +97,8 @@ class FakeD1Database {
   eventCursors = new Map<string, FakeEventCursorRow>();
   /** The ingest log table (quick task 261004-uyc). */
   readonly ingestLog = new IngestLogFakeStore();
+  /** The event lease table (quick task 261019-oim). */
+  readonly eventLease = new EventLeaseFakeStore();
 
   /**
    * Every statement this fake executed, in order: the literal `"d1-batch"` for a
@@ -118,10 +121,15 @@ class FakeD1Database {
     return new FakePreparedStatement(sql, this);
   }
 
-  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true }[]> {
+  async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true; meta: { changes: number } }[]> {
+    // The event lease (quick task 261019-oim) first, before any counter, log or
+    // rejection below: those model the fold's state writes, and a lease batch
+    // must never consume a rejection meant for Phase A.
+    if (statements.length > 0 && statements.every((stmt) => isEventLeaseSql(stmt.sql))) {
+      return statements.map((stmt) => ({ success: true as const, meta: { changes: this.eventLease.apply(stmt.sql, stmt.boundArgs) } }));
+    }
     this.statements.push("d1-batch");
-    for (const stmt of statements) this.executeWrite(stmt.sql, stmt.boundArgs);
-    return statements.map(() => ({ success: true as const }));
+    return statements.map((stmt) => ({ success: true as const, meta: { changes: this.executeWrite(stmt.sql, stmt.boundArgs) } }));
   }
 
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
@@ -157,6 +165,7 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): number {
+    if (isEventLeaseSql(sql)) return this.eventLease.apply(sql, args);
     this.statements.push(sql);
     if (isIngestLogSql(sql)) return this.ingestLog.apply(sql, args);
     if (sql.includes("INSERT INTO algorithm_state")) {
