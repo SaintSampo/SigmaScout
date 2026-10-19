@@ -211,6 +211,7 @@ import { createKeyedLock, createSerialLock, EVENT_CONCURRENCY, mapWithConcurrenc
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
 import { acquireEventLeases, acquireFoldLease, FOLD_LEASE_TTL_MS, FoldLeaseTimeoutError, releaseEventLeases, releaseFoldLease } from "./eventLease.js";
+import { reportTick } from "./tickLog.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
 import { NO_OFFICIAL_DATA, readOpenWindowCursors, runLiveEventPass, type LiveEventPassResult } from "./liveEventPass.js";
 import type { Env } from "./env.js";
@@ -1697,6 +1698,17 @@ async function processEvent(
     // subrequests per invocation make that arithmetic unreachable; the Phase
     // A-before-Phase B ordering and the claim revert below are what still keep a
     // partial event from desyncing the cursor.
+    //
+    // THE DEADLINE STOPS THE CLAIM TOO (quick task 261019-ooj). A tick at or
+    // past `locks.deadlineMs` takes no new claim: a webhook tick runs inside
+    // `waitUntil`, which Cloudflare cancels 30 s after the response, and a claim
+    // cancelled before its state write would leave the match out of live state.
+    // Returning here writes no poll etag (only the other branches write it), so
+    // the next cron poll re-reads the same list and folds these matches.
+    if (locks.clock() >= locks.deadlineMs) {
+      console.log(JSON.stringify({ msg: "tick-deadline-skip", eventKey }));
+      return { status: "unchanged" };
+    }
     counter.spend(1);
     const claimed = await claimEventAdvance(env.DB, eventKey, cursor.lastFoldedMatchKey, lastFoldedMatchKey, pollEtag ?? cursor.tbaEtag, nowIso);
     if (!claimed) {
@@ -2385,8 +2397,27 @@ export interface RunTickDeps {
    * `FoldLeaseTimeoutError`, and the next tick folds it. Defaults to the lease
    * clock at the start of the fold loop plus `FOLD_LEASE_TTL_MS`. A webhook tick
    * passes a short one, because Cloudflare cancels it 30 s after the response.
+   * The same instant also stops the fold CLAIM: an event that reaches its
+   * claim at or after it takes none, logs `tick-deadline-skip`, and is left
+   * for the next tick (quick task 261019-ooj, see `processEvent`).
    */
   readonly deadlineMs?: number;
+  /**
+   * Restricts the tick to these events, for a webhook-triggered tick (quick
+   * task 261019-ooj). The live windows are filtered to these keys before
+   * anything else reads them, the 24 hour recently-ended district watch is
+   * dropped, and the tick meta row (the cron's rotation offset) is never
+   * written. A key with no live window logs `webhook-event-not-live` and costs
+   * nothing beyond the one manifest read. Undefined, every live window, as the
+   * cron has always run.
+   */
+  readonly onlyEventKeys?: readonly string[];
+  /**
+   * Who started the tick (quick task 261019-ooj): `"cron"` (the default) or
+   * `"webhook"`. Recorded on the tick's own diagnostic lines only and never a
+   * switch: every branch keys on `onlyEventKeys`.
+   */
+  readonly trigger?: "cron" | "webhook";
 }
 
 export interface TickResult {
@@ -2541,12 +2572,33 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // statement and nothing spent but this read.
   subrequests.spend(1);
   const tickWindows = await loadTickWindowsAt(env, nowMs, DISTRICT_AWARDS_WATCH_MS);
-  const openWindows = tickWindows.live;
+  // THE ONE-EVENT TICK (quick task 261019-ooj). A webhook-triggered tick names
+  // its events in `deps.onlyEventKeys`: the open windows are filtered to those
+  // keys HERE, before the idle exit, the event lease and every pass below, so
+  // the lease only ever sees the filtered windows. The recently-ended list is
+  // dropped, so a one-event tick's district pass sees only the named event's
+  // own district. Nothing below this block reads `tickWindows` directly.
+  let openWindows: readonly LiveWindowEntry[];
+  let recentlyEndedWindows: readonly LiveWindowEntry[];
+  if (deps.onlyEventKeys !== undefined) {
+    const onlyKeys = new Set(deps.onlyEventKeys);
+    openWindows = tickWindows.live.filter((w) => onlyKeys.has(w.eventKey));
+    recentlyEndedWindows = [];
+    const liveKeys = new Set(tickWindows.live.map((w) => w.eventKey));
+    for (const eventKey of onlyKeys) {
+      // A key with no live window: the tick then takes the idle return below,
+      // one manifest read and zero TBA requests, because nothing is watched.
+      if (!liveKeys.has(eventKey)) console.log(JSON.stringify({ msg: "webhook-event-not-live", eventKey, trigger: deps.trigger ?? "cron" }));
+    }
+  } else {
+    openWindows = tickWindows.live;
+    recentlyEndedWindows = tickWindows.recentlyEnded;
+  }
   // THE DISTRICT PASS'S WATCH SET: every district window that is live or
   // ended within the watch. Only the district pass reads it.
   const watchWindowsFor = (windows: readonly LiveWindowEntry[]): LiveWindowEntry[] => [
     ...windows.filter((w) => typeof w.districtKey === "string" && w.districtKey.length > 0),
-    ...tickWindows.recentlyEnded,
+    ...recentlyEndedWindows,
   ];
 
   // THE ALGORITHMS MANIFEST, THE MODULES AND THE TICK STATE, AT MOST ONCE PER
@@ -2877,11 +2929,16 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // does not, because a mismatch suspends every live write.
   const officialData: LiveEventPassResult = await runLiveEventPass(env, subrequests, { windows: liveEvents, cursors: openCursors, live, nowIso, tbaCtx, algorithmContext, stamp });
 
-  const newMeta: TickMeta = {
-    rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
-  };
-  subrequests.spend(1);
-  await writeTickMeta(env.DB, newMeta, nowIso);
+  // THE ROTATION OFFSET BELONGS TO THE CRON (quick task 261019-ooj). A one-event
+  // tick never writes it: `orderedEventKeys.length` would be 1 there, so the
+  // offset would always reset to 0 and the cron's rotation would lose its place.
+  if (deps.onlyEventKeys === undefined) {
+    const newMeta: TickMeta = {
+      rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
+    };
+    subrequests.spend(1);
+    await writeTickMeta(env.DB, newMeta, nowIso);
+  }
 
   return {
     eventsConsidered,
@@ -2909,25 +2966,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const startedMs = Date.now();
-    ctx.waitUntil(
-      runTick(env).then(
-        (result) => {
-          console.log(JSON.stringify({ msg: "tick", ok: true, durationMs: Date.now() - startedMs, ...result }));
-        },
-        (error: unknown) => {
-          // A rejected waitUntil is otherwise swallowed silently. Log for the
-          // operator, rethrow so the dashboard records the failure.
-          console.error(
-            JSON.stringify({
-              msg: "tick",
-              ok: false,
-              durationMs: Date.now() - startedMs,
-              error: error instanceof Error ? error.message : String(error),
-            })
-          );
-          throw error;
-        }
-      )
-    );
+    // No extras: the cron's tick line carries no `trigger` field (see `tickLog.ts`).
+    ctx.waitUntil(reportTick(runTick(env), startedMs));
   },
 } satisfies ExportedHandler<Env>;

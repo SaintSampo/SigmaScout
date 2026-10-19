@@ -7,6 +7,9 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics } from "../src/scheduled.js";
+import type { TickResult } from "../src/scheduled.js";
+import { reportTick } from "../src/tickLog.js";
+import { TICK_META_EVENT_KEY } from "../../../packages/harness/stateBaseline.js";
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import {
@@ -987,6 +990,124 @@ describe("runTick — overlapping invocations (quick task 261019-oim)", () => {
     expect(Object.keys(sequentialRows).some((key) => key.includes("::league::"))).toBe(true);
     expect(stateJsonByRow(d1)).toEqual(sequentialRows);
     expect(d1.eventLease.rows.has("#fold")).toBe(false);
+  });
+});
+
+describe("runTick — one-event webhook tick (quick task 261019-ooj)", () => {
+  // A TBA webhook names one event. The tick it starts folds that event only,
+  // never touches another, and leaves the cron's rotation offset alone.
+  const windowA: WindowFixture = { eventKey: "2026aaaa", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+  const windowB: WindowFixture = { eventKey: "2026bbbb", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+  const tbaEvents = () =>
+    new Map([
+      ["2026aaaa", twoMatchEventRecord("2026aaaa", "etag-a")],
+      ["2026bbbb", twoMatchEventRecord("2026bbbb", "etag-b")],
+    ]);
+  /** The row `writeTickMeta` writes, with a rotation offset of 1 and a fixed stamp. */
+  const seededMeta = (): FakeEventCursorRow => ({
+    event_key: TICK_META_EVENT_KEY,
+    tba_etag: null,
+    last_folded_match_key: JSON.stringify({ rotationOffset: 1 }),
+    last_polled_at: null,
+    last_advanced_at: "2026-08-22T11:00:00.000Z",
+  });
+  const linesNamed = (spy: { mock: { calls: unknown[][] } }, msg: string): Record<string, unknown>[] =>
+    spy.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as Record<string, unknown>;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((line): line is Record<string, unknown> => line !== undefined && line.msg === msg);
+
+  it("folds only the named event, touches nothing of the other, and never writes the tick meta row; a following full tick folds the other and does", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    d1.eventCursors.set(TICK_META_EVENT_KEY, seededMeta());
+    const metaBefore = structuredClone(d1.eventCursors.get(TICK_META_EVENT_KEY)!);
+    const fetchMock = makeTbaFetchStub(tbaEvents());
+    vi.stubGlobal("fetch", fetchMock);
+    const env = makeEnv(makeManifests([windowA, windowB]), d1, r2);
+
+    const tick = await runTick(env, { nowMs: NOW_MS, onlyEventKeys: ["2026aaaa"], trigger: "webhook" });
+
+    expect(tick.eventsAdvanced).toBe(1);
+    expect(d1.eventCursors.get("2026aaaa")?.last_folded_match_key).toBe("2026aaaa_qm1");
+    expect([...d1.eventCursors.keys()].some((key) => key.includes("2026bbbb"))).toBe(false);
+    expect(r2.puts.some((p) => p.key.includes("2026bbbb"))).toBe(false);
+    expect(r2.puts.some((p) => p.key.includes("2026aaaa") && p.key.startsWith("v1/event/"))).toBe(true);
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("2026bbbb"))).toBe(false);
+    expect(d1.eventCursors.get(TICK_META_EVENT_KEY)).toEqual(metaBefore);
+
+    // The control: a cron tick a minute later folds B and DOES rewrite the meta row.
+    const full = await runTick(env, { nowMs: NOW_MS + 60_000 });
+
+    expect(full.eventsAdvanced).toBe(1);
+    expect(d1.eventCursors.get("2026bbbb")?.last_folded_match_key).toBe("2026bbbb_qm1");
+    expect(d1.eventCursors.get(TICK_META_EVENT_KEY)?.last_advanced_at).not.toBe(metaBefore.last_advanced_at);
+  });
+
+  it("a key with no live window costs one manifest read and no TBA request, and logs webhook-event-not-live", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const fetchMock = makeTbaFetchStub(tbaEvents());
+    vi.stubGlobal("fetch", fetchMock);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const tick = await runTick(makeEnv(makeManifests([windowA, windowB]), d1, r2), { nowMs: NOW_MS, onlyEventKeys: ["2026zzzz"], trigger: "webhook" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(r2.getCallCount).toBe(1);
+    expect(r2.putCallCount).toBe(0);
+    expect(tick).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, tbaRequests: 0, districtsConsidered: 0 });
+    expect(linesNamed(log, "webhook-event-not-live")).toEqual([{ msg: "webhook-event-not-live", eventKey: "2026zzzz", trigger: "webhook" }]);
+  });
+
+  it("a tick past its deadline takes no fold claim: nothing folds, no cursor row, one tick-deadline-skip line, and the next tick folds the same matches", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const env = makeEnv(makeManifests([windowA]), d1, r2);
+
+    const tick = await runTick(env, { nowMs: NOW_MS, deadlineMs: Date.now() - 1 });
+
+    expect(tick.eventsAdvanced).toBe(0);
+    expect(tick.eventsConsidered).toBe(0);
+    expect(d1.eventCursors.has("2026aaaa")).toBe(false);
+    expect(d1.algorithmState.size).toBe(0);
+    expect(linesNamed(log, "tick-deadline-skip")).toEqual([{ msg: "tick-deadline-skip", eventKey: "2026aaaa" }]);
+
+    const next = await runTick(env, { nowMs: NOW_MS + 60_000 });
+
+    expect(next.eventsAdvanced).toBe(1);
+    expect(d1.eventCursors.get("2026aaaa")?.last_folded_match_key).toBe("2026aaaa_qm1");
+  });
+});
+
+describe("reportTick — the shared tick log line (quick task 261019-ooj)", () => {
+  it("with no extras logs exactly one tick line: msg, ok, durationMs, then the result's keys, and no trigger", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const result = { eventsConsidered: 2, eventsAdvanced: 1 } as unknown as TickResult;
+
+    await reportTick(Promise.resolve(result), 1_000, undefined, () => 1_250);
+
+    expect(log).toHaveBeenCalledTimes(1);
+    const line = JSON.parse(String(log.mock.calls[0]![0])) as Record<string, unknown>;
+    expect(Object.keys(line)).toEqual(["msg", "ok", "durationMs", "eventsConsidered", "eventsAdvanced"]);
+    expect(line).toEqual({ msg: "tick", ok: true, durationMs: 250, eventsConsidered: 2, eventsAdvanced: 1 });
+  });
+
+  it("a rejected run logs one error tick line and rejects with the same error", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const boom = new Error("boom");
+
+    await expect(reportTick(Promise.reject(boom), 1_000, {}, () => 1_100)).rejects.toBe(boom);
+
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(error.mock.calls[0]![0]))).toEqual({ msg: "tick", ok: false, durationMs: 100, error: "boom" });
   });
 });
 

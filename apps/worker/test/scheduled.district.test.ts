@@ -2012,6 +2012,17 @@ describe("runTick — the district pass watches an event for a day after its win
       expect(report.result).toMatchObject({ districtsConsidered: 1, districtsRefreshed: 0, districtsUnchanged: 1, districtsFailed: 0 });
     });
 
+    it("minute 12:05, a one-event webhook tick (quick task 261019-ooj): the recently-ended watch is dropped, so no TBA request and no district work", async () => {
+      const h = quietDistrict(clockAt(12, 5));
+      seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+
+      const result = await runTick(h.env, { nowMs: clockAt(12, 5), onlyEventKeys: [LIVE_EVENT], trigger: "webhook" });
+
+      // The case above is the control: a full tick at this minute asks the district.
+      expect(h.fetchMock.mock.calls).toHaveLength(0);
+      expect(result).toMatchObject(NO_DISTRICT_WORK);
+    });
+
     it("minute 12:15, the forced look: the rankings are asked with NO If-None-Match although an ETag is stored, the artifact is read, nothing is put when nothing differs, and the rankings cursor is not rewritten", async () => {
       const h = quietDistrict(clockAt(12, 10));
       // 12:10, a quiet cadence tick with no rankings cursor yet: the 200
