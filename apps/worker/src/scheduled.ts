@@ -964,6 +964,13 @@ interface TickLocks {
   readonly tickId: string;
   readonly clock: () => number;
   readonly deadlineMs: number;
+  /**
+   * The instant after which `processEvent` takes no new fold claim (quick task
+   * 261019-ooj): `deps.deadlineMs` when the caller set one (a webhook tick),
+   * and `undefined` for a cron tick, which claims at any point in its run as it
+   * always has. The fold lease wait above stops at `deadlineMs` either way.
+   */
+  readonly claimDeadlineMs: number | undefined;
   /** Set when a fold lease statement threw: the rest of the tick folds unguarded and warns no more. */
   foldLeaseUnavailable: boolean;
 }
@@ -1700,13 +1707,16 @@ async function processEvent(
     // A-before-Phase B ordering and the claim revert below are what still keep a
     // partial event from desyncing the cursor.
     //
-    // THE DEADLINE STOPS THE CLAIM TOO (quick task 261019-ooj). A tick at or
-    // past `locks.deadlineMs` takes no new claim: a webhook tick runs inside
-    // `waitUntil`, which Cloudflare cancels 30 s after the response, and a claim
-    // cancelled before its state write would leave the match out of live state.
-    // Returning here writes no poll etag (only the other branches write it), so
-    // the next cron poll re-reads the same list and folds these matches.
-    if (locks.clock() >= locks.deadlineMs) {
+    // THE DEADLINE STOPS THE CLAIM TOO (quick task 261019-ooj). A tick whose
+    // caller set a deadline takes no new claim at or past it: a webhook tick
+    // runs inside `waitUntil`, which Cloudflare cancels 30 s after the response,
+    // and a claim cancelled before its state write would leave the match out of
+    // live state. Returning here writes no poll etag (only the other branches
+    // write it), so the next cron poll re-reads the same list and folds these
+    // matches. A cron tick has no claim deadline (`claimDeadlineMs` undefined):
+    // a slow cron tick still claims late, as it did before, rather than leaving
+    // events at the back of a busy queue for a later tick that may be as slow.
+    if (locks.claimDeadlineMs !== undefined && locks.clock() >= locks.claimDeadlineMs) {
       console.log(JSON.stringify({ msg: "tick-deadline-skip", eventKey }));
       return { status: "unchanged" };
     }
@@ -2398,9 +2408,10 @@ export interface RunTickDeps {
    * `FoldLeaseTimeoutError`, and the next tick folds it. Defaults to the lease
    * clock at the start of the fold loop plus `FOLD_LEASE_TTL_MS`. A webhook tick
    * passes a short one, because Cloudflare cancels it 30 s after the response.
-   * The same instant also stops the fold CLAIM: an event that reaches its
-   * claim at or after it takes none, logs `tick-deadline-skip`, and is left
-   * for the next tick (quick task 261019-ooj, see `processEvent`).
+   * When the caller sets it, the same instant also stops the fold CLAIM: an
+   * event that reaches its claim at or after it takes none, logs
+   * `tick-deadline-skip`, and is left for the next tick (quick task
+   * 261019-ooj, see `processEvent`). The default deadline never stops a claim.
    */
   readonly deadlineMs?: number;
   /**
@@ -2831,6 +2842,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     tickId,
     clock: leaseClock,
     deadlineMs: deps.deadlineMs ?? leaseClock() + FOLD_LEASE_TTL_MS,
+    claimDeadlineMs: deps.deadlineMs,
     foldLeaseUnavailable: false,
   };
 

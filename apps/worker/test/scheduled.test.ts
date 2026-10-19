@@ -1085,6 +1085,23 @@ describe("runTick — one-event webhook tick (quick task 261019-ooj)", () => {
     expect(next.eventsAdvanced).toBe(1);
     expect(d1.eventCursors.get("2026aaaa")?.last_folded_match_key).toBe("2026aaaa_qm1");
   });
+
+  it("a cron tick with no deadline set still claims after its default fold lease deadline has passed, as it always has", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents()));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    // The first read sets the default deadline (60 s on); every later read is two minutes on, past it.
+    let leaseClockReads = 0;
+    const leaseClock = (): number => (leaseClockReads++ === 0 ? Date.now() : Date.now() + 120_000);
+
+    const tick = await runTick(makeEnv(makeManifests([windowA]), d1, r2), { nowMs: NOW_MS, leaseClock });
+
+    expect(leaseClockReads).toBeGreaterThan(1);
+    expect(tick.eventsAdvanced).toBe(1);
+    expect(d1.eventCursors.get("2026aaaa")?.last_folded_match_key).toBe("2026aaaa_qm1");
+    expect(linesNamed(log, "tick-deadline-skip")).toEqual([]);
+  });
 });
 
 describe("reportTick — the shared tick log line (quick task 261019-ooj)", () => {
