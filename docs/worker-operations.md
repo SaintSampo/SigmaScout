@@ -113,6 +113,19 @@ deploy` and `tsc` both pass cleanly against an empty database. A missing table i
 error — it is a tick that fails every minute in production, and nothing upstream of the failure
 will have warned you.
 
+**Migration 0004 (`0004_event_lease.sql`, quick task 261019-oim)** adds the `event_lease` table.
+The same two `migrations apply` commands above apply it. Confirm it with the same command form:
+
+```bash
+npx wrangler d1 execute sigmascout-state --remote \
+  --command "SELECT COUNT(*) FROM event_lease;"
+```
+
+Expect 0 between ticks and a few rows while a tick runs. **Apply order: apply the migration first,
+then `npx wrangler deploy`.** A Worker deployed before the table exists warns
+`event-lease-unavailable` every tick and folds unguarded. Nothing breaks, but the overlap guard is
+off until the table exists.
+
 ---
 
 ## Re-baselining
@@ -1515,7 +1528,66 @@ median **143 s**, p90 **266 s**, max **530 s**.
 - **A state generation mismatch in the roster pass** stops any event that has not started its roster
   poll yet, and logs `roster-suspended` once, as the sequential walk's early return did.
 
-After: _measured on the next live window, see the quick task SUMMARY_
+After (2026-10-18 12:49Z to 2026-10-19 13:58Z, 435 ticks, never more than 4 events live in a tick; tick span and publish latency computed exactly as the Before table):
+
+| Slice | n | median | p90 | max |
+|---|---|---|---|---|
+| tick span, all ticks (1 to 4 events) | 435 | 4 s | 47 s | 85 s |
+| post_result_time to published_at, folded matches | 141 | 122 s | 200 s | 1573 s |
+
+No tick in the After window had 5 or more events live, so the busy-tick slices have no After yet. 25 of the 435 ticks still ran past 60 s, which is why quick task 261019-oim adds the lease.
+
+Before, same slice: _orchestrator fills in_
+
+---
+
+## Overlapping ticks skip events still in flight (quick task 261019-oim, 2026-10-19)
+
+- **The problem.** A tick that runs past 60 s overlaps the next one. The cursor CAS already stopped
+  a double fold of one event, but two invocations folding different events both rewrote each
+  algorithm's `league` row in `algorithm_state`, and the later write erased the earlier one.
+- **The event lease.** The table is `event_lease` (migration 0004). A tick takes one row per open
+  window, for every open window, in ONE D1 batch before any pass runs. It releases them in ONE
+  statement when it ends, also when it throws. A new tick skips every window another tick still
+  holds: no TBA request, no D1 write and no R2 write for it. Cost: two subrequests per tick, and per
+  open window one row written and one deleted. An idle tick takes no lease and still costs one R2
+  read.
+- **The 15 minute expiry.** That is the cron wall time ceiling, so an older lease belongs to a tick
+  that was killed, and the next tick takes it over. Stated plainly: a tick that is killed, or whose
+  release fails (`event-lease-release-failed`), leaves its events unfolded for up to 15 minutes. To
+  clear that at once, delete the rows by hand with the same `--command` form
+  (`DELETE FROM event_lease`), run without the `.env` token as the ingest log section says.
+- **Fail open.** If the lease batch throws (a missing table, a D1 outage), the tick warns
+  `event-lease-unavailable` once and folds every window unguarded.
+- **What to watch.** The `events-in-flight` log line carries the tick id and the skipped keys. The
+  tick log carries the `eventsSkippedInFlight` counter. A tick that skips every window does not run
+  the district pass; the tick holding the leases runs it.
+- **The fold lease closes the cross-invocation `league` row race.** Every event's Phase A (the state
+  read, fold and write) first takes one more row in the same table, `#fold`, and WAITS for it
+  rather than skipping. Two invocations folding different events therefore take turns through D1,
+  exactly as two events take turns through the state lock inside one tick. A `#` key can never
+  collide with a TBA event key, which starts with a digit. Cost: one subrequest per attempt (one,
+  when nothing else holds it) and one to release it, per folded event.
+- **The fold lease's expiry, wait and deadline.** It expires after 60 s, because one event's fold
+  takes seconds, so a holder that dies frees it within a minute. A waiting tick tries again every
+  250 ms on the real clock until its deadline: 60 s after the fold loop starts for a cron tick, and
+  shorter for a webhook tick, which Cloudflare cancels 30 s after the response.
+- **Still held at the deadline.** The event fails with `FoldLeaseTimeoutError` in its
+  `event-failed` line. Its claim is reverted, so the next tick folds the same matches. Nothing is
+  lost, only delayed by a minute.
+- **The fold lease fails open too.** If its statement throws, the tick warns
+  `fold-lease-unavailable` once and folds the rest of its events unguarded. A failed release warns
+  `fold-lease-release-failed`, and the row expires on its own after 60 s.
+- **The team page lock.** Inside one tick, each team page artifact's read, merge and write runs one
+  at a time per artifact key (`locks.team`, a keyed lock in `boundedConcurrency.ts`). One team at
+  two concurrently folding events keeps both events' matches. It covers the Phase B team loop, the
+  late breakdown backfill and schedule-only pricing. The 3ju residual "team page artifacts" is
+  closed.
+- **What is still NOT guarded, honestly.** Same-event double folds were already covered by the
+  cursor CAS and still are. A window that opens during an overlap is leased by the newer tick and
+  folds under the fold lease like any other. The `teams/{year}` feed and a team page shared by two
+  INVOCATIONS remain read, merge and write with no cross-invocation lock. That needs one team at two
+  live events at once, in two overlapping invocations, which is rare.
 
 ---
 
