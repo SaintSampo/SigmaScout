@@ -99,17 +99,19 @@ page or the `teams/{year}` feed shared by two invocations, one team at two live 
 - The executor was stopped during its final whole-repo run (reboot); the orchestrator re-ran the
   whole-repo tests and both typechecks, wrote this summary from the diff, and deployed.
 
-## Not done here (operator steps, see the runbook section "Registering the webhook")
+## Operator steps, done 2026-10-20 (Jacob)
 
-1. Add the webhook on TBA first (TBA generates the secret and shows it on the account page; corrected 2026-10-20, the runbook first said the operator picks it), then set `TBA_WEBHOOK_SECRET` on the Worker. Until then every webhook
-   POST answers 503.
-2. The webhook URL on https://www.thebluealliance.com/account is
-   `https://sigmascout-worker.jrw4561.workers.dev/tba-webhook`.
-3. Read the `tba-webhook-verification` key from `npx wrangler tail sigmascout-worker --format json`
-   and enter it on the account page.
-4. Subscribe that account to all events this year (the firehose) on the myTBA Subscriptions tab.
-5. After the next live event, measure from `ingest_log` whether webhook ticks beat the cron past
-   TBA's API cache; fill the "After" line in the runbook's caveat (a).
+1. Webhook added on the TBA account page with URL
+   `https://sigmascout-worker.jrw4561.workers.dev/tba-webhook`; TBA generated the secret.
+2. `TBA_WEBHOOK_SECRET` set on the Worker from `.env`; a bare POST answers 401 (was 503) and
+   `wrangler secret list` names it.
+3. Verified: the `tba-webhook-verification` key read from the tail and entered on TBA; TBA then
+   sent a signed `ping`, answered 200.
+4. Firehose subscribed (myTBA, all 2027 events; TBA's "this year" had already rolled to 2027)
+   with Match Score, Alliance Selection and Event Schedule Updated only.
+
+Still open: after the next live event, measure from `ingest_log` whether `trigger:"webhook"`
+ticks beat the cron past TBA's API cache; fill the "After" line in the runbook's caveat (a).
 
 ## Release
 
