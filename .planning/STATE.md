@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-19T23:02:12.246Z"
-last_activity: 2026-10-19
+last_updated: "2026-10-20T01:15:55.430Z"
+last_activity: 2026-10-20
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -785,6 +785,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 349 | Process live events concurrently inside a Worker tick: probe, roster, fold and live passes run up to 6 events at once; TBA throttle made concurrency safe; league-row fold serialized | 2026-10-18 | 04996326 | [261018-3ju-concurrent-tick-events](./quick/261018-3ju-concurrent-tick-events/) |
 | 350 | Teams table first row hidden on Safari: virtualized rows now in-flow with spacer rows (WebKit ignores a positioned tbody) | 2026-10-19 | d36b68e8 | [261019-7qs-safari-teams-first-row](./quick/261019-7qs-safari-teams-first-row/) |
 | 351 | Tick overlap guard: per-event D1 lease, fold lease across invocations, team page keyed lock, as-of lock test, After numbers for 3ju | 2026-10-19 | eb584f80 | [261019-oim-tick-overlap-guard-d1-lease-per-tick-so-](./quick/261019-oim-tick-overlap-guard-d1-lease-per-tick-so-/) |
+| 352 | Push instead of poll: TBA webhook fetch handler at /tba-webhook runs a one-event tick under a 20 s deadline; firehose is open to any account; secret and registration left to Jacob | 2026-10-20 | a4a79979 | [261019-ooj-push-instead-of-poll-a-worker-fetch-hand](./quick/261019-ooj-push-instead-of-poll-a-worker-fetch-hand/) |
 
 ### Roadmap Evolution
 
