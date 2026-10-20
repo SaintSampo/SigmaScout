@@ -108,7 +108,9 @@ page or the `teams/{year}` feed shared by two invocations, one team at two live 
 3. Verified: the `tba-webhook-verification` key read from the tail and entered on TBA; TBA then
    sent a signed `ping`, answered 200.
 4. Firehose subscribed (myTBA, all 2027 events; TBA's "this year" had already rolled to 2027)
-   with Match Score, Alliance Selection and Event Schedule Updated only.
+   with Match Score, Alliance Selection and Event Schedule Updated only. Then the same for all 2026
+   events, by editing the year in the subscription URL, so the remaining 2026 offseason events are
+   covered too.
 
 Still open: after the next live event, measure from `ingest_log` whether `trigger:"webhook"`
 ticks beat the cron past TBA's API cache; fill the "After" line in the runbook's caveat (a).
