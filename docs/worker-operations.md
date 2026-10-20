@@ -98,18 +98,17 @@ npx wrangler secret list
 
 `TBA_WEBHOOK_SECRET` is the second Worker secret. TBA signs every webhook body with it, and the
 Worker checks that signature (`X-TBA-HMAC`) before it does anything. The same value lives in three
-places: the gitignored `.env`, the Worker secret, and the webhook entry on the TBA account page.
-Never echo it, and never paste it anywhere but the TBA webhook form.
+places: the webhook entry on the TBA account page, the gitignored `.env`, and the Worker secret.
+Never echo it.
 
-Generate it straight into `.env` without printing it, from the repo root. The `grep -q ||` writes
-nothing if a value is already there. The leading `\n` keeps the new line separate if `.env` has no
-final newline.
+**TBA generates the secret; you cannot choose it.** (Corrected 2026-10-20: TBA's add handler
+says "always generate secret server-side; previously allowed clients to set the secret".) The
+account page shows it next to the webhook as "Secret:" once the webhook is added. So add the
+webhook on TBA FIRST (see "Registering the webhook"), then bring its secret here.
 
-```bash
-grep -q '^TBA_WEBHOOK_SECRET=' .env || printf '\nTBA_WEBHOOK_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
-```
-
-Confirm it by length only (64 for `openssl rand -hex 32`):
+Put TBA's value into `.env` with an editor, as a line `TBA_WEBHOOK_SECRET=<value>` (32 hex
+characters). Do not type it on a command line: that lands in shell history. Confirm it by length
+only (expect 32):
 
 ```bash
 v=$(grep -E '^TBA_WEBHOOK_SECRET=' .env | cut -d= -f2- | tr -d '\r'); [ -n "$v" ] && echo "OK (len=${#v})"; unset v
@@ -124,14 +123,9 @@ printf '%s' "$S" | npx wrangler secret put TBA_WEBHOOK_SECRET
 unset S
 ```
 
-Copy it for the TBA form without printing it, from the repo root:
-
-```bash
-grep -E '^TBA_WEBHOOK_SECRET=' .env | cut -d= -f2- | tr -d '\r\n' | clip     # Windows, Git Bash
-grep -E '^TBA_WEBHOOK_SECRET=' .env | cut -d= -f2- | tr -d '\r\n' | pbcopy   # macOS
-```
-
-Paste it into the TBA form, then copy something else so the secret does not sit on the clipboard.
+(Or skip `.env`: `npx wrangler secret put TBA_WEBHOOK_SECRET` alone prompts for the value with
+hidden input.) No redeploy is needed. A bare `POST /tba-webhook` answers 401 once the secret is
+set, 503 before.
 
 **Rotating it means changing both sides:** the Worker secret and the TBA webhook entry. Until both
 match, every webhook is answered 401. TBA can delete a webhook that keeps answering non-200, so do
@@ -1733,18 +1727,20 @@ the code stands:
 
 ### Registering the webhook (operator steps, in this order)
 
-1. **Set the secret.** Follow "Secrets" above: generate `TBA_WEBHOOK_SECRET` into `.env`, then
-   `wrangler secret put` it. Do this before step 3. A webhook that answers 503 can be deleted by
-   TBA.
-2. **Deploy.** Run `npx wrangler deploy` from `apps/worker` (or `pnpm worker:deploy` from the repo
+1. **Deploy.** Run `npx wrangler deploy` from `apps/worker` (or `pnpm worker:deploy` from the repo
    root). Note the workers.dev hostname it prints. It should be
-   `sigmascout-worker.jrw4561.workers.dev`.
-3. **Add the webhook on TBA.** Sign in at https://www.thebluealliance.com/account and add a
-   webhook. The URL is `https://<that hostname>/tba-webhook`. The secret is the same value as
-   `TBA_WEBHOOK_SECRET` (copy it with the `clip` or `pbcopy` line in "Secrets").
-4. **Verify it.** TBA posts a `verification` message as soon as the webhook is added. Run
-   `npx wrangler tail sigmascout-worker --format json`, find the `tba-webhook-verification` line,
-   and read its `verificationKey` field. Enter that key on the TBA account page. The key is a
+   `sigmascout-worker.jrw4561.workers.dev`. Until the secret is set, every webhook POST answers
+   503, which is harmless while nothing is registered.
+2. **Add the webhook on TBA.** Sign in at https://www.thebluealliance.com/account, "Add Webhook",
+   URL `https://<that hostname>/tba-webhook`, any name. TBA generates the secret and shows it next
+   to the entry as "Secret:". The verification message TBA sends at this moment is answered 503
+   (no secret yet); step 4 resends it.
+3. **Set the secret.** Follow "Secrets" above: TBA's value into `.env` with an editor, then
+   `wrangler secret put`. Do this promptly: TBA can delete a webhook that keeps answering non-200.
+4. **Verify it.** Run `npx wrangler tail sigmascout-worker --format json` in a second terminal,
+   press "Resend Code" next to the webhook on the account page, find the
+   `tba-webhook-verification` line in the tail and read its `verificationKey` field. Press
+   "Verify" on the account page and enter that key; the entry then shows "Verified". The key is a
    one-time activation code, not a secret.
 5. **Subscribe to the firehose.** On the account's myTBA page, Subscriptions tab, choose
    "Subscribe to all events this year". If the form offers notification types, pick at least match
