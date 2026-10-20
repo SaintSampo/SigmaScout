@@ -101,10 +101,10 @@ page or the `teams/{year}` feed shared by two invocations, one team at two live 
 
 ## Not done here (operator steps, see the runbook section "Registering the webhook")
 
-1. Set `TBA_WEBHOOK_SECRET` (generate into `.env`, `wrangler secret put`). Until then every webhook
-   POST answers 503, which is safe because nothing is registered yet.
-2. Add the webhook on https://www.thebluealliance.com/account with URL
-   `https://sigmascout-worker.jrw4561.workers.dev/tba-webhook` and the same secret.
+1. Add the webhook on TBA first (TBA generates the secret and shows it on the account page; corrected 2026-10-20, the runbook first said the operator picks it), then set `TBA_WEBHOOK_SECRET` on the Worker. Until then every webhook
+   POST answers 503.
+2. The webhook URL on https://www.thebluealliance.com/account is
+   `https://sigmascout-worker.jrw4561.workers.dev/tba-webhook`.
 3. Read the `tba-webhook-verification` key from `npx wrangler tail sigmascout-worker --format json`
    and enter it on the account page.
 4. Subscribe that account to all events this year (the firehose) on the myTBA Subscriptions tab.
