@@ -11,7 +11,7 @@
  *   - A run made only of roster-only seasons writes no manifest and no seed.
  *   - A roster-only season with a played match refuses the publish before anything uploads.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -272,5 +272,58 @@ describe("isRosterOnlySeason", () => {
     expect(selectRosterOnlySeasons(parseSeasonsRange("2016-2020,2022-2027"))).toEqual([2027]);
     // The registry stays strict: no 2027 entry was added to make the path work.
     expect(() => componentMapForSeason(2027)).toThrow();
+  });
+});
+
+/**
+ * The one command Jacob runs to refresh and publish the roster-only season, then read it back
+ * (quick task 261024-lfa). Pinned to `publish:seasons` so the two cannot drift: the publish step's spec
+ * must equal publish:seasons' spec, and the years the ingest step names must be exactly that spec's
+ * roster-only seasons.
+ */
+describe("package.json publish:roster-seasons", () => {
+  function scripts(): Record<string, string> {
+    const raw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
+    return (JSON.parse(raw) as { scripts: Record<string, string> }).scripts;
+  }
+
+  it("ingests exactly the roster-only seasons of publish:seasons, publishes only them, then reads them back", () => {
+    const all = scripts();
+    const script = all["publish:roster-seasons"];
+    const seasonsScript = all["publish:seasons"];
+    expect(script, "publish:roster-seasons must exist in package.json").toBeDefined();
+    expect(seasonsScript).toBeDefined();
+    const seasonsSpec = /--seasons\s+(\S+)/.exec(seasonsScript!)![1]!;
+    const parsedSeasons = parseSeasonsRange(seasonsSpec);
+
+    expect(script).toContain("--roster-seasons-only");
+    expect(script).toContain("--include-offseason");
+    expect(script).not.toContain("--write-budget");
+
+    const specs = [...script!.matchAll(/--seasons\s+(\S+)/g)].map((m) => m[1]!);
+    expect(specs.length, "the publish and the verify step each carry --seasons").toBe(2);
+    for (const spec of specs) expect(parseSeasonsRange(spec)).toEqual(parsedSeasons);
+
+    const ingestYears = new Set<number>();
+    for (const m of script!.matchAll(/--year\s+(\d{4})(?!\S)/g)) ingestYears.add(Number(m[1]));
+    for (const m of script!.matchAll(/--years\s+(\d{4})-(\d{4})(?!\S)/g)) {
+      for (let y = Number(m[1]); y <= Number(m[2]); y++) ingestYears.add(y);
+    }
+    const rosterOnly = selectRosterOnlySeasons(parsedSeasons);
+    expect(
+      rosterOnly.length,
+      "publish:seasons has no roster-only season left: that season's game rules are registered, so delete or retarget publish:roster-seasons"
+    ).toBeGreaterThan(0);
+    expect([...ingestYears].sort((a, b) => a - b)).toEqual(rosterOnly);
+
+    const steps = script!.split("&&").map((s) => s.trim());
+    const publishIdx = steps.findIndex((s) => s.includes("packages/harness/publish.ts"));
+    const verifyIdx = steps.findIndex((s) => s.includes("scripts/verifyRosterSeason.ts"));
+    expect(publishIdx).toBeGreaterThanOrEqual(0);
+    expect(verifyIdx, "the read-back runs after the publish").toBeGreaterThan(publishIdx);
+    for (const step of steps.filter((s) => s.includes("packages/ingest/cli.ts") || s.includes("packages/harness/publish.ts"))) {
+      expect(step, `credentials come from --env-file: ${step}`).toContain("--env-file=.env");
+    }
+    expect(steps[verifyIdx], "the read-back is credential-free").not.toContain("--env-file");
   });
 });
