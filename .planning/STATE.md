@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-20T01:15:55.430Z"
-last_activity: 2026-10-20
+last_updated: "2026-10-24T18:41:19.822Z"
+last_activity: 2026-10-24
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -786,6 +786,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 350 | Teams table first row hidden on Safari: virtualized rows now in-flow with spacer rows (WebKit ignores a positioned tbody) | 2026-10-19 | d36b68e8 | [261019-7qs-safari-teams-first-row](./quick/261019-7qs-safari-teams-first-row/) |
 | 351 | Tick overlap guard: per-event D1 lease, fold lease across invocations, team page keyed lock, as-of lock test, After numbers for 3ju | 2026-10-19 | eb584f80 | [261019-oim-tick-overlap-guard-d1-lease-per-tick-so-](./quick/261019-oim-tick-overlap-guard-d1-lease-per-tick-so-/) |
 | 352 | Push instead of poll: TBA webhook fetch handler at /tba-webhook runs a one-event tick under a 20 s deadline; firehose is open to any account; secret and registration left to Jacob | 2026-10-20 | a4a79979 | [261019-ooj-push-instead-of-poll-a-worker-fetch-hand](./quick/261019-ooj-push-instead-of-poll-a-worker-fetch-hand/) |
+| 353 | Event page: remove the Breakdown tab, rename Insights to Teams, add column sorting to the Teams table | 2026-10-24 | e4bab555 | [261024-jvv-event-page-remove-the-breakdown-tab-rena](./quick/261024-jvv-event-page-remove-the-breakdown-tab-rena/) |
 
 ### Roadmap Evolution
 
