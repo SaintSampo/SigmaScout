@@ -41,7 +41,7 @@ Winner accuracy, SigmaScout against Statbotics, under `epa@10.0.0+baseline`, war
 per cell, in total. The previously-cited ~2.4 pp 2022 deficit was a **cold-start artifact of the
 comparison script**, not a model defect: `compare:epa-statbotics` cold-started every team in 2022
 while the Statbotics column it was differenced against held its real 2019/2020 carry-in. Production
-artifacts were never affected — `publish:seasons` has always replayed `2016-2020,2022-2026`.
+artifacts were never affected — `publish:seasons` has always replayed `2016-2020,2022-2026` (2027 joined it on 2026-10-24 as a roster-only season, which replays nothing and writes no compare file).
 
 ### The one cell that was actually closed and measured came in NEGATIVE
 

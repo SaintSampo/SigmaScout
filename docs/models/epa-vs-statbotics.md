@@ -635,7 +635,7 @@ Brier also trails in all five; 2026's former Brier lead was an artifact of the s
 
 #### Production was ALREADY warm — only this page's number was wrong
 
-`publish:seasons` has always replayed `--seasons 2016-2020,2022-2026`, so `v1/compare/{season}.json`
+`publish:seasons` has always replayed `--seasons 2016-2020,2022-2026` (2027 joined it on 2026-10-24 as a roster-only season, which replays nothing and writes no compare file), so `v1/compare/{season}.json`
 and every team/event artifact already carried warm figures. The cold arm existed **only** in
 `compare:epa-statbotics`, which feeds `v1/methodology/epa-vs-statbotics.json`. The published
 methodology page has therefore been understating our own 2022 accuracy by ~2.2 pp against a

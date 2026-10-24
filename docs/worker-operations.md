@@ -777,8 +777,60 @@ percentile NUMBER is a separate question, accepted rather than open —
   missing percentile number, the TBA rank/record/RP on the event's standings, the events-list row and
   the season-final tiers. The live results themselves are already in the team season files — the tick
   writes them there (260923-3w6); they no longer wait in the event artifact for a republish.
-- **Why `pnpm rebaseline` is NOT scheduled:** it needs the local corpus and rewrites all ten seasons,
+- **Why `pnpm rebaseline` is NOT scheduled:** it needs the local corpus and rewrites every published
+  season (the ten game seasons, plus 2027's events and rosters since quick task 261024-lfa),
   about 109,000 R2 writes a run against a 1,000,000 a month free tier.
+
+## A season before its game: 2027 (quick task 261024-lfa)
+
+**What a roster-only season is.** A season the site lists for its events and rosters before its game
+rules exist. `isRosterOnlySeason` (`packages/harness/rosterOnlySeason.ts`) is true for any season newer
+than every registered score-breakdown component map. Today that is 2027 alone. It has no component map,
+no RP rule module and no matches. The registries are not loosened: `componentMapForSeason(2027)` still
+throws, and the call sites check the predicate first.
+
+**What the publisher writes for it.** Per algorithm: one events list (team counts come from the
+registered rosters, demo keys dropped, zero matches), one empty teams list, and one roster event page
+per event. It writes no carry, no replay, no presim sidecar, no as-of object, no compare file and no
+team page. A roster-only season with any played match refuses to publish.
+
+**What it never touches.**
+
+- **The D1 seed stays on the last game season (2026).** Roster-only seasons are always the newest in a
+  run, and they skip the carry block and the seed variables. A run made only of roster-only seasons
+  writes no manifest and no seed, even without `--skip-state`.
+- **The live-windows manifest drops roster-only seasons.** `buildLiveWindowsManifest` filters them out,
+  and both `publish.ts` and `scripts/publishLiveWindows.ts` call that one builder. So the Worker never
+  folds or probes a 2027 event. No Worker code changed for this.
+
+**The release command: `pnpm publish:roster-seasons`.** Run it from the repo root. It ingests 2027 (the
+season pass, then the event-teams pass; both are ETag cached, so a rerun is cheap), publishes only 2027
+with `--roster-seasons-only`, then runs `scripts/verifyRosterSeason.ts`, which reads the objects back
+from `data.sigmascout.org` by content. It takes minutes and writes about 650 objects. It writes no
+manifest, no seed and no 2026 object, so it is safe while live events fold. Rerunning it is also how
+the 2027 rosters get refreshed until January.
+
+The read-back is credential-free. It checks, in order: that the live algorithms manifest names the
+exact versions this checkout publishes (a mismatch means the run wrote keys the site does not read);
+that each events list holds exactly the corpus's 2027 events with the roster team counts; that each
+teams list is empty; and that the largest roster event's page carries that roster. It prints VERIFIED
+or names every problem and exits 1. `pnpm publish:seasons` also lists 2027, and a full run writes the
+same 2027 objects as part of every published season.
+
+**The reveal.** Only after VERIFIED: set `CURRENT_SEASON = 2027` in `apps/web/src/lib/seasons.ts`,
+run `npx vitest run apps/web` from the repo root, commit and push. 2027 then appears in the year
+dropdown above 2026. `DEFAULT_SEASON` stays 2026, so the site still opens on 2026. The Teams and Locks
+pages show a plain "The 2027 game is not out yet" state for 2027 and request nothing for it.
+
+**What stays without 2027.** `pnpm publish:districts` keeps `--years 2016-2020,2022-2026`. The district
+point model, bracket, pay rule and award slate have no 2027 entry yet.
+
+**The January trap.** Registering 2027's component map lifts the roster-only path AND the window
+filter at the same moment. From then on `buildLiveWindowsManifest` lists 2027 windows, and the Worker
+would try to fold 2027 events against a D1 seed that holds no 2027 state. So rebaseline with 2027 as
+the final season (carry from 2026, seed from 2027) BEFORE any `publishLiveWindows` run, and before the
+first 2027 event, 2027-02-20, whose probe window would open the day before. The checklist lives in
+`.planning/todos/pending/2027-season-before-the-game.md`.
 
 ## PRE-SEASON GATE (LIFTED 2026-09-22): historical record — do not open a live window until the RP fold fits the CPU budget
 
