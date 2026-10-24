@@ -54,8 +54,12 @@ const CORPUS_PATH = join("data", "corpus.sqlite");
  * THE TWO MUST BE CHANGED TOGETHER. Publishing a different season list under
  * this one key changes which events can be live at all, so a drift between
  * them would quietly shrink or widen the Worker's whole fold population.
+ *
+ * A roster-only season in this list (2027 until its game rules are registered,
+ * quick task 261024-lfa) gets no window: `buildLiveWindowsManifest` drops it.
+ * `scripts/pruneCancelledEvents.ts` reuses this array unchanged.
  */
-export const DEFAULT_LIVE_WINDOWS_SEASONS: readonly number[] = parseSeasonSpec("2016-2020,2022-2026", "--seasons");
+export const DEFAULT_LIVE_WINDOWS_SEASONS: readonly number[] = parseSeasonSpec("2016-2020,2022-2027", "--seasons");
 
 export interface PublishLiveWindowsOptions {
   readonly seasons?: readonly number[];

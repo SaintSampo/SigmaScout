@@ -249,7 +249,7 @@ describe("publishLiveWindows — the three refusals, each before any upload", ()
 
 describe("publishLiveWindows — the module's own contract", () => {
   it("DEFAULT_LIVE_WINDOWS_SEASONS is the season list publish:seasons itself publishes", () => {
-    expect([...DEFAULT_LIVE_WINDOWS_SEASONS]).toEqual(parseSeasonSpec("2016-2020,2022-2026", "--seasons"));
+    expect([...DEFAULT_LIVE_WINDOWS_SEASONS]).toEqual(parseSeasonSpec("2016-2020,2022-2027", "--seasons"));
     const publishSeasons = (JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> }).scripts["publish:seasons"]!;
     const spec = /--seasons\s+(\S+)/.exec(publishSeasons)![1]!;
     expect([...DEFAULT_LIVE_WINDOWS_SEASONS]).toEqual(parseSeasonSpec(spec, "--seasons"));

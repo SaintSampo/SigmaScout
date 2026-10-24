@@ -80,6 +80,8 @@ import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
+import { isRosterOnlySeason, selectRosterOnlySeasons } from "./rosterOnlySeason.js";
+import { BREAKDOWN_REGISTERED_SEASONS } from "../core/algorithms/breakdown/index.js";
 import {
   goodnessPercentileAgainstPools,
   HISTORY_PERCENTILE_METRIC_KEYS,
@@ -4877,8 +4879,10 @@ describe("parseSeasonsRange — gapped list form", () => {
 
   // Fails when the script and the corpus disagree, so the list tracks the
   // corpus. Keep the exact equality (never `toContain` or a length check): 2021
-  // is absent, so a contiguous `2016-2026` must fail.
-  it("the script/parser drift tripwire: package.json's publish:seasons --seasons argument parses to exactly the ten-season corpus", () => {
+  // is absent, so a contiguous `2016-2026` must fail. 2027 is listed as a
+  // roster-only season (quick task 261024-lfa): events and rosters only, until
+  // its game rules are registered.
+  it("the script/parser drift tripwire: package.json's publish:seasons --seasons argument parses to exactly the ten game seasons plus the roster-only 2027", () => {
     const packageJsonRaw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
     const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
     const script = pkg.scripts["publish:seasons"];
@@ -4888,8 +4892,15 @@ describe("parseSeasonsRange — gapped list form", () => {
     expect(match, `--seasons argument not found in publish:seasons script: ${script}`).not.toBeNull();
 
     const parsed = parseSeasonsRange(match![1]!);
-    expect(parsed).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+    expect(parsed).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026, 2027]);
     expect(parsed, "2021 is a permanent exclusion — the at-home season has no conventional 3v3 matches").not.toContain(2021);
+    for (const season of parsed) {
+      expect(
+        BREAKDOWN_REGISTERED_SEASONS.includes(season) || isRosterOnlySeason(season),
+        `season ${season} is neither a registered game season nor a roster-only season`
+      ).toBe(true);
+    }
+    expect(selectRosterOnlySeasons(parsed), "2027 is the one roster-only season until its game rules are registered").toEqual([2027]);
   });
 
   // A `--presim-from-season` above every published season silently writes zero
