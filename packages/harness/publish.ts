@@ -129,6 +129,7 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, probeWindowFor, PUBLISHED_ALGORITHM_IDS, PUBLISHED_ALGORITHM_MODULES } from "./manifests.js";
+import { isRosterOnlySeason, selectRosterOnlySeasons } from "./rosterOnlySeason.js";
 import { emitSeedSql, emitCursorSeedSql, writeSeedCommandsFile } from "./seedSql.js";
 import {
   serializeState,
@@ -1843,6 +1844,96 @@ export function buildProbeStubArtifact(params: {
   });
 }
 
+/**
+ * Publishes one ROSTER-ONLY season (quick task 261024-lfa, `rosterOnlySeason.ts`): a season listed for
+ * its events and rosters before its game rules exist. Per algorithm it writes one teams list with no
+ * rows, one events list, and one event artifact for EVERY event (roster known or not) carrying identity
+ * and the registered roster with empty metrics, matches and upcoming. Nothing else: no replay, no carry,
+ * no layer, no presim sidecar, no as-of object, no compare file, no team page.
+ *
+ * It deliberately never touches the season loop's cross-season variables (`liveStatesAcrossSeasons`,
+ * `sigmaCarryAcrossSeasons`, `finalSeasonStateRows`, `finalSeasonLastFoldedByEvent`,
+ * `finalSeasonNumber`), so the D1 seed stays the last GAME season's state.
+ *
+ * The event team count comes from the registered roster (demo keys dropped), 0 when the roster is
+ * unknown. No `tierCuts`: there is no rating pool to cut.
+ */
+async function publishRosterOnlySeason(params: {
+  readonly db: Corpus;
+  readonly season: number;
+  readonly algorithms: readonly AlgorithmModule<any>[];
+  readonly uploader: BoundedUploader;
+  readonly generation: string;
+  readonly computedAt: string;
+  readonly teamInfo: ReadonlyMap<string, TeamInfo>;
+  readonly cancelledEventKeys: ReadonlySet<string>;
+}): Promise<void> {
+  const { db, season, algorithms, uploader, generation, computedAt, teamInfo, cancelledEventKeys } = params;
+  const eventMeta = selectEventMeta(db, season).filter((e) => !cancelledEventKeys.has(e.event_key));
+  // An absent key means the roster is unknown; it publishes an empty roster, never an invented one.
+  const registeredTeamsByEvent = selectEventTeamsForEvents(
+    db,
+    eventMeta.map((e) => e.event_key)
+  );
+  const rosterByEvent = new Map<string, EventTeamStandingInput[]>();
+  for (const e of eventMeta) {
+    const roster = (registeredTeamsByEvent.get(e.event_key) ?? [])
+      .filter((teamKey) => !isDemoTeamKey(teamKey))
+      .map((teamKey) => {
+        const info = teamInfoOrFallback(teamInfo, teamKey);
+        return { teamKey, teamNumber: info.teamNumber, nickname: info.nickname, metrics: {} };
+      })
+      .sort((a, b) => a.teamNumber - b.teamNumber || a.teamKey.localeCompare(b.teamKey));
+    rosterByEvent.set(e.event_key, roster);
+  }
+  // The same row shape as the general path's events list.
+  const eventsRows: EventsArtifactEventInput[] = eventMeta.map((e) => ({
+    eventKey: e.event_key,
+    name: e.name ?? e.event_key,
+    eventType: e.event_type,
+    isOffseason: e.is_offseason === 1,
+    startDate: e.start_date,
+    week: e.week,
+    teamCount: rosterByEvent.get(e.event_key)?.length ?? 0,
+    matchCount: 0,
+    playedMatchCount: 0,
+    country: e.country,
+    stateProv: e.state_prov,
+    districtKey: e.district_key,
+  }));
+
+  for (const algorithm of algorithms) {
+    const version = algorithm.version;
+    const teamsArtifact = buildTeamsArtifact({ season, algorithmId: algorithm.id, algorithmVersion: version, teams: [], generation, computedAt });
+    await uploader.publish("teams", artifactKey({ page: "teams", year: season, algorithmId: algorithm.id, version }), JSON.stringify(teamsArtifact));
+    const eventsArtifact = buildEventsArtifact({ season, algorithmId: algorithm.id, algorithmVersion: version, events: eventsRows, generation, computedAt });
+    await uploader.publish("events", artifactKey({ page: "events", year: season, algorithmId: algorithm.id, version }), JSON.stringify(eventsArtifact));
+    for (const e of eventMeta) {
+      const eventArtifact = buildEventArtifact({
+        eventKey: e.event_key,
+        season,
+        algorithmId: algorithm.id,
+        algorithmVersion: version,
+        predictions: [],
+        upcoming: [],
+        teams: rosterByEvent.get(e.event_key) ?? [],
+        allianceTeams: [],
+        generation,
+        computedAt,
+        eventMeta: { name: e.name, startDate: e.start_date, country: e.country, stateProv: e.state_prov, week: e.week },
+        alliances: [],
+        eventType: e.event_type,
+      });
+      await uploader.publish("event", artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version }), JSON.stringify(eventArtifact));
+    }
+  }
+  const rosteredEvents = eventMeta.filter((e) => registeredTeamsByEvent.has(e.event_key)).length;
+  console.log(
+    `publish: season ${season} is roster-only (no registered game rules): ${eventMeta.length} event(s), ${rosteredEvents} with a registered roster, ` +
+      `${algorithms.length} algorithm(s); no replay, carry, sidecars, as-of, compare, team pages or seed.`
+  );
+}
+
 function selectEventMeta(db: Corpus, season: number): EventMetaRow[] {
   return db
     .prepare(
@@ -1989,6 +2080,14 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   const preScheduleFromSeason = options.preScheduleFromSeason ?? DEFAULT_PRESCHEDULE_FROM_SEASON;
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
+  // A run made only of roster-only seasons (quick task 261024-lfa) writes no manifest and no seed, even
+  // without --skip-state: a live-windows manifest built from those seasons alone lists no window and
+  // would switch off live folding for every game-season event, and there is no state to seed.
+  const allRosterOnly = seasonsSorted.length > 0 && seasonsSorted.every(isRosterOnlySeason);
+  const skipState = options.skipState === true || allRosterOnly;
+  if (allRosterOnly && options.skipState !== true) {
+    console.log(`publish: every season in this run (${seasonsSorted.join(", ")}) is roster-only; skipping the manifests and the D1 seed.`);
+  }
 
   const runStart = performance.now();
   const timings = new PhaseTimings();
@@ -2007,6 +2106,19 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       const sample = [...keys].slice(0, 10).join(", ");
       console.log(
         `publish: season ${cancelledSeason}: ${keys.size} cancelled event(s) skipped (zero played matches, start_date 7+ days before ${computedAt.slice(0, 10)}): ${sample}${keys.size > 10 ? ", ..." : ""}`
+      );
+    }
+  }
+
+  // A roster-only season publishes no matches (quick task 261024-lfa). One that already has a played
+  // match refuses the run here, before any upload, so real matches can never be skipped silently.
+  for (const rosterOnlySeason of selectRosterOnlySeasons(seasonsSorted)) {
+    let played = 0;
+    for (const count of selectPlayedMatchCountsByEvent(db, rosterOnlySeason).values()) played += count;
+    if (played > 0) {
+      throw new Error(
+        `publish: season ${rosterOnlySeason} has ${played} played match(es) but no registered game rules; ` +
+          `register its component map and RP rules before publishing it with matches.`
       );
     }
   }
@@ -2069,6 +2181,25 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   let finalSeasonNumber: number | undefined;
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
+    // A roster-only season (quick task 261024-lfa) takes its own short path and never reaches the carry
+    // block or any cross-season variable below, so the D1 seed stays the last game season's. Roster-only
+    // seasons are always the newest of a run (the predicate is "newer than every registered season"), so
+    // no game season ever follows one and `seasonBoundaryFor` is unaffected.
+    if (isRosterOnlySeason(season)) {
+      await timings.timeAsync(`season ${season} roster`, () =>
+        publishRosterOnlySeason({
+          db,
+          season,
+          algorithms: options.algorithms,
+          uploader,
+          generation,
+          computedAt,
+          teamInfo,
+          cancelledEventKeys: cancelledBySeason.get(season) ?? new Set<string>(),
+        })
+      );
+      continue;
+    }
     const stream = buildSeasonStream(db, season, { includeOffseason });
     const cancelledEventKeys = cancelledBySeason.get(season) ?? new Set<string>();
     // A cancelled event's never-scored schedule is dropped here, together with its `eventMeta` row below:
@@ -2874,7 +3005,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   await timings.timeAsync("uploadDrain", () => uploader.drain());
 
   // --- Manifests and the D1 state seed ---
-  if (!options.skipState) {
+  if (!skipState) {
     const liveWindows = buildLiveWindowsManifest(db, { seasons: seasonsSorted, generation, computedAt });
     const algorithmsManifest = buildAlgorithmsManifest({ generation, computedAt });
     const liveWindowsKey = "v1/manifest/live-windows.json";
@@ -3055,9 +3186,23 @@ async function runSeasonsCliMode(
   skipState: boolean,
   includeOffseason: boolean,
   preScheduleFromSeason: number | undefined,
-  writeBudget: boolean
+  writeBudget: boolean,
+  rosterSeasonsOnly: boolean
 ): Promise<void> {
-  const seasons = parseSeasonsRange(seasonsSpec);
+  let seasons = parseSeasonsRange(seasonsSpec);
+  if (rosterSeasonsOnly) {
+    // `--roster-seasons-only` (quick task 261024-lfa): publish only the roster-only seasons of the spec,
+    // a minutes-long run that writes their events lists, empty teams lists and roster event pages, and
+    // never a manifest or a seed.
+    seasons = selectRosterOnlySeasons(seasons);
+    if (seasons.length === 0) {
+      throw new Error(`--roster-seasons-only: no roster-only season in "${seasonsSpec}"; publish game seasons with publish:seasons`);
+    }
+    if (writeBudget) {
+      throw new Error("--roster-seasons-only cannot be combined with --write-budget: a roster-only run's sizes would overwrite the budget block in docs/publish-budget.md");
+    }
+    skipState = true;
+  }
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
   // `undefined` for a missing file, so a run without a committed baseline attaches nothing.
   const rpCalibration = loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH);
@@ -3109,6 +3254,7 @@ async function main(): Promise<void> {
       "include-offseason": { type: "boolean" },
       "presim-from-season": { type: "string" },
       "write-budget": { type: "boolean" },
+      "roster-seasons-only": { type: "boolean" },
     },
   });
 
@@ -3133,7 +3279,8 @@ async function main(): Promise<void> {
       values["skip-state"] === true,
       values["include-offseason"] === true,
       preScheduleFromSeason,
-      values["write-budget"] === true
+      values["write-budget"] === true,
+      values["roster-seasons-only"] === true
     );
   } else {
     throw new Error("--seasons is required");

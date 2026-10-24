@@ -23,6 +23,7 @@ import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
 import type { AlgorithmModule } from "../core/algorithms/types.js";
 import type { Corpus } from "../corpus/db.js";
+import { isRosterOnlySeason } from "./rosterOnlySeason.js";
 import {
   AlgorithmManifestEntrySchema,
   AlgorithmsManifestSchema,
@@ -188,9 +189,20 @@ export interface BuildLiveWindowsManifestOptions {
  * windows is a handful of entries. `liveWindows.ts` ALSO defends itself at
  * read time — keep both: this one shrinks the artifact, that one bounds the
  * cost of whatever it contains.
+ *
+ * ROSTER-ONLY SEASONS GET NO WINDOW (quick task 261024-lfa). `seasons` is
+ * filtered through `isRosterOnlySeason` before the query. The Worker resumes
+ * the D1 state seeded from the last game season and has no RP rules or
+ * component map for a roster-only season, and a probe window is exactly what
+ * lets the Worker promote an event to live folding. Both callers (`publish.ts`
+ * and `scripts/publishLiveWindows.ts`) reach this one builder, so neither can
+ * list such a window. The filter lifts with the predicate: the January rules
+ * work must rebaseline (seeding the new season) before a manifest lists its
+ * windows.
  */
 export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsManifestOptions): LiveWindowsManifest {
-  const { seasons, generation, computedAt } = options;
+  const { generation, computedAt } = options;
+  const seasons = options.seasons.filter((season) => !isRosterOnlySeason(season));
   const padMs = options.padMs ?? LIVE_WINDOW_PAD_MS;
   const nowMs = options.nowMs ?? Date.parse(computedAt);
   if (!Number.isFinite(nowMs)) {
