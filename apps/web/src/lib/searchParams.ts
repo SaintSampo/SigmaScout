@@ -306,9 +306,10 @@ export const DEFAULT_EVENT_TAB = "teams";
 
 /**
  * Extends `RootSearchSchema` with exactly one field, `tab` — mirroring
- * `TeamSearchSchema` exactly. The event Teams tab exposes no
- * clickable-to-resort header, so there is no sort state to carry:
- * `sort`/`sortDir` are deliberately NOT extended in here.
+ * `TeamSearchSchema` exactly. The event Teams tab's headers DO
+ * re-sort its table, but by decision (quick task 261024-jvv) that sort is
+ * local component state, a transient reading posture and not a shareable
+ * view, so `sort`/`sortDir` are deliberately NOT extended in here.
  */
 export const EventSearchSchema = RootSearchSchema.extend({
   tab: z.enum(EVENT_TABS).catch(DEFAULT_EVENT_TAB),

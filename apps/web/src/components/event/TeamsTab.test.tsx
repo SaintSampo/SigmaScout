@@ -13,7 +13,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
@@ -24,14 +24,19 @@ import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact }
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
   buildTeamsRows,
+  effectiveTeamsSort,
   formatEventRecord,
+  nextTeamsSort,
+  sortTeamsRows,
   teamsAwaitingOfficialNotice,
   teamsFallbackNotice,
   teamsLiveNotice,
   teamsNoticeFor,
   teamsPreEventNotice,
+  TEAMS_SORTABLE_COLUMN_IDS,
   TeamsTab,
   TeamsTabSkeleton,
+  type TeamsRow,
 } from "./TeamsTab";
 
 type ArtifactTeam = EventArtifact["teams"][number];
@@ -1145,28 +1150,6 @@ describe("TeamsTab — tier key row, accessibility and scroll region", () => {
     await waitFor(() => expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1));
   });
 
-  it("no columnheader contains a button, and no header carries aria-sort", async () => {
-    const artifact = EventArtifactSchema.parse({
-      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-      generation: "gen-1",
-      computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "spr",
-      algorithmVersion: "2.0.0+tuned-2026-08",
-      eventKey: "2024casf",
-      season: 2024,
-      matches: [],
-      upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
-    });
-    renderTeams(artifact);
-
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    for (const header of screen.getAllByRole("columnheader")) {
-      expect(header.querySelector("button")).toBeNull();
-      expect(header.getAttribute("aria-sort")).toBeNull();
-    }
-  });
-
   it("exactly one element carries data-testid=teams-table-scroll", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -1194,5 +1177,204 @@ describe("TeamsTabSkeleton", () => {
     expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total ± Sigma", "Auto", "Teleop", "Endgame"]);
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
+});
+
+describe("TeamsTab — column sorting (quick 261024-jvv)", () => {
+  const AUTO_KEY = METRIC_GROUPS[0]!.metricKey;
+  const TELEOP_KEY = METRIC_GROUPS[1]!.metricKey;
+  const ENDGAME_KEY = METRIC_GROUPS[2]!.metricKey;
+
+  interface SortFixture {
+    teamNumber: number;
+    displayRank?: number;
+    rp?: number;
+    total?: number;
+    auto?: number;
+  }
+
+  function sortRow(fixture: SortFixture): TeamsRow {
+    const metrics: TeamsRow["metrics"] = {};
+    if (fixture.total !== undefined) metrics[TOTAL_KEY] = { value: fixture.total };
+    if (fixture.auto !== undefined) metrics[AUTO_KEY] = { value: fixture.auto };
+    return {
+      teamKey: `frc${fixture.teamNumber}`,
+      teamNumber: fixture.teamNumber,
+      nickname: `Team ${fixture.teamNumber}`,
+      displayRank: fixture.displayRank,
+      record: undefined,
+      rp: fixture.rp,
+      metrics,
+    };
+  }
+
+  const numbers = (rows: readonly TeamsRow[]) => rows.map((row) => row.teamNumber);
+
+  describe("sortTeamsRows", () => {
+    it("total descending: high to low, the row with no Total last, an exact tie in ascending team number", () => {
+      const rows = [sortRow({ teamNumber: 9 }), sortRow({ teamNumber: 7, total: 20 }), sortRow({ teamNumber: 5, total: 30 }), sortRow({ teamNumber: 3, total: 20 })];
+      expect(numbers(sortTeamsRows(rows, { key: "total", dir: "desc" }))).toEqual([5, 3, 7, 9]);
+    });
+
+    it("total ascending: low to high, and the row with no Total is STILL last", () => {
+      const rows = [sortRow({ teamNumber: 9 }), sortRow({ teamNumber: 7, total: 20 }), sortRow({ teamNumber: 5, total: 30 }), sortRow({ teamNumber: 3, total: 20 })];
+      expect(numbers(sortTeamsRows(rows, { key: "total", dir: "asc" }))).toEqual([3, 7, 5, 9]);
+    });
+
+    it("rank ascending and descending order by displayRank, with an unranked row last in both directions", () => {
+      const rows = [sortRow({ teamNumber: 9 }), sortRow({ teamNumber: 7, displayRank: 2 }), sortRow({ teamNumber: 5, displayRank: 3 }), sortRow({ teamNumber: 3, displayRank: 1 })];
+      expect(numbers(sortTeamsRows(rows, { key: "rank", dir: "asc" }))).toEqual([3, 7, 5, 9]);
+      expect(numbers(sortTeamsRows(rows, { key: "rank", dir: "desc" }))).toEqual([5, 7, 3, 9]);
+    });
+
+    it("rp descending: a real 0 sorts before a row with rp undefined", () => {
+      const rows = [sortRow({ teamNumber: 9 }), sortRow({ teamNumber: 7, rp: 0 }), sortRow({ teamNumber: 5, rp: 4.5 })];
+      expect(numbers(sortTeamsRows(rows, { key: "rp", dir: "desc" }))).toEqual([5, 7, 9]);
+    });
+
+    it("a phase metric key orders by that metric's value with the same rules", () => {
+      const rows = [sortRow({ teamNumber: 9 }), sortRow({ teamNumber: 7, auto: 1 }), sortRow({ teamNumber: 5, auto: 4 }), sortRow({ teamNumber: 3, auto: 4 })];
+      expect(numbers(sortTeamsRows(rows, { key: AUTO_KEY, dir: "desc" }))).toEqual([3, 5, 7, 9]);
+      expect(numbers(sortTeamsRows(rows, { key: AUTO_KEY, dir: "asc" }))).toEqual([7, 3, 5, 9]);
+    });
+
+    it("never mutates its input array", () => {
+      const rows = [sortRow({ teamNumber: 1, total: 1 }), sortRow({ teamNumber: 2, total: 2 })];
+      const snapshot = [...rows];
+      sortTeamsRows(rows, { key: "total", dir: "desc" });
+      expect(rows).toEqual(snapshot);
+    });
+  });
+
+  describe("nextTeamsSort", () => {
+    it("the first click applies the natural direction: rank ascending, everything else descending", () => {
+      expect(nextTeamsSort(null, "rank")).toEqual({ key: "rank", dir: "asc" });
+      expect(nextTeamsSort(null, "rp")).toEqual({ key: "rp", dir: "desc" });
+      expect(nextTeamsSort(null, AUTO_KEY)).toEqual({ key: AUTO_KEY, dir: "desc" });
+    });
+
+    it("clicking the active column toggles its direction", () => {
+      expect(nextTeamsSort({ key: "total", dir: "desc" }, "total")).toEqual({ key: "total", dir: "asc" });
+      expect(nextTeamsSort({ key: "rank", dir: "asc" }, "rank")).toEqual({ key: "rank", dir: "desc" });
+    });
+
+    it("clicking a different column applies that column's natural direction", () => {
+      expect(nextTeamsSort({ key: "total", dir: "desc" }, "rank")).toEqual({ key: "rank", dir: "asc" });
+    });
+  });
+
+  describe("effectiveTeamsSort", () => {
+    it("returns null for a null sort or a key that is not visible, and the sort unchanged otherwise", () => {
+      const visible = new Set(TEAMS_SORTABLE_COLUMN_IDS);
+      expect(effectiveTeamsSort(null, visible)).toBeNull();
+      expect(effectiveTeamsSort({ key: "ghost", dir: "asc" }, visible)).toBeNull();
+      const sort = { key: "total", dir: "desc" } as const;
+      expect(effectiveTeamsSort(sort, visible)).toBe(sort);
+    });
+
+    it("TEAMS_SORTABLE_COLUMN_IDS is rank, rp, total, then every METRIC_GROUPS key in order", () => {
+      expect(TEAMS_SORTABLE_COLUMN_IDS).toEqual(["rank", "rp", "total", AUTO_KEY, TELEOP_KEY, ENDGAME_KEY]);
+    });
+  });
+
+  describe("rendered table", () => {
+    const SORTABLE_HEADER_IDS = ["rank", "rp", "total", AUTO_KEY, TELEOP_KEY, ENDGAME_KEY];
+
+    function sortableArtifact(ranked = true) {
+      const specs = [
+        { teamNumber: 254, rank: 1, total: 10, rp: 5 },
+        { teamNumber: 118, rank: 2, total: 30, rp: 3 },
+        { teamNumber: 1678, rank: 3, total: 20, rp: 4 },
+      ];
+      return makeArtifact(
+        specs.map((spec) => ({
+          teamKey: `frc${spec.teamNumber}`,
+          teamNumber: spec.teamNumber,
+          nickname: `Team ${spec.teamNumber}`,
+          ...(ranked ? { rank: spec.rank } : {}),
+          rp: spec.rp,
+          metrics: fullTeamsMetrics({ [TOTAL_KEY]: { value: spec.total } }),
+        })),
+        ranked ? {} : { matches: [PLAYED_QM] as unknown as EventArtifact["matches"] },
+      );
+    }
+
+    const rowOrder = () => screen.getAllByTestId("teams-row").map((row) => row.getAttribute("data-team-number"));
+    const header = (id: string) => screen.getByTestId(`teams-header-${id}`);
+
+    it("the default render keeps the buildTeamsRows order, with exactly six sortable headers at aria-sort none and no glyph", async () => {
+      renderTeams(sortableArtifact());
+
+      await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+      expect(rowOrder()).toEqual(["254", "118", "1678"]);
+      for (const id of SORTABLE_HEADER_IDS) {
+        expect(within(header(id)).getByRole("button")).toBeDefined();
+        expect(header(id).getAttribute("aria-sort")).toBe("none");
+      }
+      for (const id of ["teamNumber", "nickname", "record"]) {
+        expect(header(id).querySelector("button")).toBeNull();
+        expect(header(id).getAttribute("aria-sort")).toBeNull();
+      }
+      expect(screen.getAllByRole("columnheader").filter((el) => el.querySelector("button") !== null)).toHaveLength(6);
+      expect(document.body.textContent).not.toMatch(/[\u25B2\u25BC]/);
+    });
+
+    it("clicking Total sorts descending with a glyph and aria-sort, clicking again sorts ascending, and every other sortable header reads none", async () => {
+      renderTeams(sortableArtifact());
+      await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(3));
+
+      fireEvent.click(within(header("total")).getByRole("button"));
+      expect(rowOrder()).toEqual(["118", "1678", "254"]);
+      expect(header("total").getAttribute("aria-sort")).toBe("descending");
+      expect(header("total").textContent).toContain("\u25BC");
+      for (const id of SORTABLE_HEADER_IDS.filter((candidate) => candidate !== "total")) {
+        expect(header(id).getAttribute("aria-sort")).toBe("none");
+      }
+
+      fireEvent.click(within(header("total")).getByRole("button"));
+      expect(rowOrder()).toEqual(["254", "1678", "118"]);
+      expect(header("total").getAttribute("aria-sort")).toBe("ascending");
+      expect(header("total").textContent).toContain("\u25B2");
+    });
+
+    it("the first click on Rank is ascending and a second click is descending", async () => {
+      renderTeams(sortableArtifact());
+      await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(3));
+
+      fireEvent.click(within(header("rank")).getByRole("button"));
+      expect(rowOrder()).toEqual(["254", "118", "1678"]);
+      expect(header("rank").getAttribute("aria-sort")).toBe("ascending");
+
+      fireEvent.click(within(header("rank")).getByRole("button"));
+      expect(rowOrder()).toEqual(["1678", "118", "254"]);
+      expect(header("rank").getAttribute("aria-sort")).toBe("descending");
+    });
+
+    it("after a sort that moves team 254 off the top, its rank cell still reads 1", async () => {
+      renderTeams(sortableArtifact());
+      await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(3));
+
+      fireEvent.click(within(header("total")).getByRole("button"));
+      const row254 = screen.getAllByTestId("teams-row").find((row) => row.getAttribute("data-team-number") === "254") as HTMLElement;
+      expect(screen.getAllByTestId("teams-row")[0]?.getAttribute("data-team-number")).toBe("118");
+      expect(within(row254).getByTestId("teams-cell-rank").textContent).toBe("1");
+    });
+
+    it("fallback mode: after a sort the fallback banner still renders and each row keeps its fallback position number", async () => {
+      renderTeams(sortableArtifact(false));
+      await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(3));
+      // Fallback order is descending Total: 118 (30), 1678 (20), 254 (10).
+      expect(rowOrder()).toEqual(["118", "1678", "254"]);
+      expect(screen.getByTestId("teams-fallback-banner")).toBeDefined();
+
+      fireEvent.click(within(header("rp")).getByRole("button"));
+      // RP descending: 254 (5), 1678 (4), 118 (3).
+      expect(rowOrder()).toEqual(["254", "1678", "118"]);
+      expect(screen.getByTestId("teams-fallback-banner")).toBeDefined();
+      const rankByTeam = Object.fromEntries(
+        screen.getAllByTestId("teams-row").map((row) => [row.getAttribute("data-team-number"), within(row as HTMLElement).getByTestId("teams-cell-rank").textContent]),
+      );
+      expect(rankByTeam).toEqual({ "118": "1", "1678": "2", "254": "3" });
+    });
   });
 });

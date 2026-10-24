@@ -19,9 +19,23 @@
  * `tierForPercentile` derivation the Teams list table uses, a plain bare RP
  * cell that can never wear a tier, and the fallback banner. No column in
  * this table is frozen during horizontal scroll.
+ *
+ * Sorting (quick task 261024-jvv): the Rank, RP, Total, Auto, Teleop and
+ * Endgame headers are buttons that re-sort the rows; Team #, Team Name and
+ * Record do not sort. The sort is local component state by decision, never a
+ * URL search param, because it is a transient reading posture and not a
+ * shareable view. `null` means the `buildTeamsRows` order, so the default
+ * order, whether official rank or the fallback Total order, is untouched.
+ * The first click on a column applies its natural direction (Rank ascending,
+ * RP and every metric descending) and a click on the active column toggles
+ * it. A row missing the sorted value sorts last in both directions, and an
+ * exact tie breaks by ascending team number. A sort whose column is not
+ * among the visible sortable ids falls back to the default order in place. A
+ * re-sort never recomputes `displayRank`, so every Rank cell keeps its
+ * official or fallback number under any sort.
  */
 import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
 import { MetricValue } from "@/components/MetricValue";
@@ -262,6 +276,64 @@ export function teamsNoticeFor(artifact: EventArtifact, orderSource: TeamsOrderS
  * must be mirrored here.
  */
 export const TEAMS_RP_DECIMALS = 2;
+
+/** The direction a sorted column runs. */
+export type TeamsSortDir = "asc" | "desc";
+
+/** The active column sort: the column id and its direction. Component state is `null` for the default order `buildTeamsRows` returns. */
+export interface TeamsSort {
+  readonly key: string;
+  readonly dir: TeamsSortDir;
+}
+
+/**
+ * The column ids whose headers sort: Rank, RP, Total, then every
+ * `METRIC_GROUPS` entry's `metricKey` in that constant's own order — never
+ * retyped as literals. Team #, Team Name and Record are deliberately absent.
+ */
+export const TEAMS_SORTABLE_COLUMN_IDS: readonly string[] = ["rank", "rp", "total", ...METRIC_GROUPS.map((group) => group.metricKey)];
+
+/** The value a column sorts on, or `undefined` when this row has none. `rank` reads `displayRank` (never recomputed), `total` reads `TOTAL_KEY`, any other id reads that metric key. */
+export function teamsSortValue(row: TeamsRow, columnId: string): number | undefined {
+  if (columnId === "rank") return row.displayRank;
+  if (columnId === "rp") return row.rp;
+  if (columnId === "total") return row.metrics[TOTAL_KEY]?.value;
+  return row.metrics[columnId]?.value;
+}
+
+/**
+ * `sortTeamsRows(rows, sort)`: a pure copy of `rows` ordered by the sort. A
+ * row missing the value sorts last whatever the direction, otherwise the
+ * comparison follows the direction, and an exact tie breaks on ascending
+ * team number — a total order that never relies on the sort engine's
+ * stability. Never recomputes `displayRank`.
+ */
+export function sortTeamsRows(rows: readonly TeamsRow[], sort: TeamsSort): TeamsRow[] {
+  const direction = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const valueA = teamsSortValue(a, sort.key);
+    const valueB = teamsSortValue(b, sort.key);
+    if (valueA === undefined && valueB === undefined) return byTeamNumberAscending(a, b);
+    if (valueA === undefined) return 1;
+    if (valueB === undefined) return -1;
+    if (valueA !== valueB) return (valueA - valueB) * direction;
+    return byTeamNumberAscending(a, b);
+  });
+}
+
+/** The sort a header click moves to: the active column toggles its direction, any other column starts at its natural direction (ascending for Rank, descending for every other column). Computed from the EFFECTIVE sort, never from raw state. */
+export function nextTeamsSort(current: TeamsSort | null, columnId: string): TeamsSort {
+  if (current !== null && current.key === columnId) {
+    return { key: columnId, dir: current.dir === "asc" ? "desc" : "asc" };
+  }
+  return { key: columnId, dir: columnId === "rank" ? "asc" : "desc" };
+}
+
+/** The sort actually applied: `null` when there is none or its column is not among the visible sortable ids (the in-place column-set-change rule), otherwise the sort unchanged. */
+export function effectiveTeamsSort(sort: TeamsSort | null, visibleIds: ReadonlySet<string>): TeamsSort | null {
+  if (sort === null || !visibleIds.has(sort.key)) return null;
+  return sort;
+}
 
 /**
  * Registered once, module-level: only column sizing is registered (no
@@ -530,10 +602,22 @@ export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
     [algorithmId, season, orderSource, isNarrow, artifact.tierCuts],
   );
 
+  // Local component state by decision (quick task 261024-jvv): `null` is the
+  // default order `buildTeamsRows` returned. The click handler and the
+  // rendered headers both read the EFFECTIVE sort, so a sort on a column
+  // that is no longer visible falls back to the default order in place.
+  const [sort, setSort] = useState<TeamsSort | null>(null);
+  const visibleSortableIds = useMemo(() => {
+    const ids = (columns as unknown as ReadonlyArray<{ id?: string; accessorKey?: string }>).map((column) => column.id ?? column.accessorKey);
+    return new Set(ids.filter((id): id is string => id !== undefined && TEAMS_SORTABLE_COLUMN_IDS.includes(id)));
+  }, [columns]);
+  const activeSort = effectiveTeamsSort(sort, visibleSortableIds);
+  const sortedRows = useMemo(() => (activeSort === null ? rows : sortTeamsRows(rows, activeSort)), [rows, activeSort]);
+
   const table = useTable({
     features,
     columns,
-    data: rows,
+    data: sortedRows,
   });
 
   if (artifact.teams.length === 0) {
@@ -590,19 +674,40 @@ export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    data-testid={`teams-header-${header.column.id}`}
-                    className="text-role-label truncate"
-                    style={{
-                      width: header.getSize(),
-                      background: "var(--color-bg-surface)",
-                    }}
-                  >
-                    <table.FlexRender header={header} />
-                  </TableHead>
-                ))}
+                {headerGroup.headers.map((header) => {
+                  const isSortable = visibleSortableIds.has(header.column.id);
+                  const isActive = isSortable && activeSort?.key === header.column.id;
+                  const ariaSort = !isSortable ? undefined : isActive ? (activeSort?.dir === "asc" ? "ascending" : "descending") : "none";
+                  return (
+                    <TableHead
+                      key={header.id}
+                      data-testid={`teams-header-${header.column.id}`}
+                      aria-sort={ariaSort}
+                      className="text-role-label truncate"
+                      style={{
+                        width: header.getSize(),
+                        background: "var(--color-bg-surface)",
+                      }}
+                    >
+                      {isSortable ? (
+                        <button
+                          type="button"
+                          className="tap-target inline-flex items-center gap-[var(--spacing-xs)]"
+                          onClick={() => setSort(nextTeamsSort(activeSort, header.column.id))}
+                        >
+                          <table.FlexRender header={header} />
+                          {isActive && (
+                            <span aria-hidden="true" className="text-[var(--color-accent)]">
+                              {activeSort?.dir === "asc" ? "▲" : "▼"}
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <table.FlexRender header={header} />
+                      )}
+                    </TableHead>
+                  );
+                })}
                 {/*
                   Trailing sizeless filler, matching `TeamsTable.tsx`'s own
                   reasoning: slack absorbed here rather than redistributed

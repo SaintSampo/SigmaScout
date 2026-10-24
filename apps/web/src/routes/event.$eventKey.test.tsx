@@ -549,3 +549,29 @@ describe("/event/$eventKey route — the Simulation tab, gated on ranking-point 
     expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(true);
   });
 });
+
+describe("/event/$eventKey route — the event Teams tab column sort (quick 261024-jvv)", () => {
+  it("clicking a sortable header re-sorts the rows while the URL search keeps tab teams and gains no sort key", async () => {
+    stubFetch(() =>
+      eventArtifactResponse({
+        teams: [
+          { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { total: { value: 10 } } },
+          { teamKey: "frc118", teamNumber: 118, nickname: "Robonauts", rank: 2, metrics: { total: { value: 30 } } },
+        ],
+      }),
+    );
+    const router = renderEventRoute("/event/2024casf?algorithm=spr&tab=teams");
+
+    await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(2));
+    const order = () => screen.getAllByTestId("teams-row").map((row) => row.getAttribute("data-team-number"));
+    expect(order()).toEqual(["254", "118"]);
+
+    fireEvent.click(screen.getByTestId("teams-header-total").querySelector("button") as HTMLButtonElement);
+    await waitFor(() => expect(order()).toEqual(["118", "254"]));
+
+    const search = router.state.location.search as Record<string, unknown>;
+    expect(search.tab).toBe("teams");
+    expect("sort" in search).toBe(false);
+    expect("sortDir" in search).toBe(false);
+  });
+});
