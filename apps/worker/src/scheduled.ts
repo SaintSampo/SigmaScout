@@ -200,6 +200,7 @@ import {
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
 import { AsOfTickCapture, asOfVarsOf, capturesAsOf, writeAsOfFolds, type AsOfModelView } from "./asOfCapture.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
+import { eventsListCountsOf, recordEventsListCounts, runEventsListRebuild, type EventsListFeed } from "./eventsListRebuild.js";
 import { foldedCutoffIndex, readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeEventRosterEtag, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { lateBreakdownFactsFor, patchRowsWithLateBreakdowns, rowHasBreakdownGap, type LateBreakdownFacts } from "./lateBreakdownBackfill.js";
@@ -792,23 +793,29 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  *   - `ArtifactSecretLeakError`. A bootstrap merge is not the remedy for a
  *     leaked secret, and re-serializing is not worth the chance of writing it.
  *
+ * IT RETURNS THE OBJECT IT ACTUALLY WROTE (quick task 261024-jdz): the merged
+ * candidate, or the bootstrap rebuild when the retry ran. The events list row is
+ * derived from it, because a bootstrap rewrite carries only this tick's rows and
+ * the list must match what the event page really carries. Callers that do not
+ * need it ignore the result.
+ *
  * The log line carries the artifact key, the algorithm id and a truncated
  * error message only — never an artifact body, a TBA value or an env value. That
  * is the rule every warn line in this file follows.
  */
-async function writeArtifactWithBootstrapRetry(
+async function writeArtifactWithBootstrapRetry<T>(
   env: Env,
   counter: SubrequestCounter,
   page: "event" | "team",
   params: { page: "event"; eventKey: string; algorithmId: string; version: string } | { page: "team"; teamKey: string; year: number; algorithmId: string; version: string },
-  merged: unknown,
+  merged: T,
   algorithmId: string,
-  rebuildAsBootstrap: () => unknown
-): Promise<void> {
+  rebuildAsBootstrap: () => T
+): Promise<T> {
   const usedBefore = counter.used;
   try {
     await writeArtifactObject(env, counter, page, params, merged);
-    return;
+    return merged;
   } catch (error) {
     if (counter.used !== usedBefore) throw error; // the put itself failed -- a retry would double-spend
     if (error instanceof ArtifactSecretLeakError) throw error;
@@ -825,7 +832,9 @@ async function writeArtifactWithBootstrapRetry(
   }
   // Outside the catch: a throw HERE is a genuine failure of the bootstrap
   // itself and belongs to the caller's blanket catch, not to a third attempt.
-  await writeArtifactObject(env, counter, page, params, rebuildAsBootstrap());
+  const bootstrapped = rebuildAsBootstrap();
+  await writeArtifactObject(env, counter, page, params, bootstrapped);
+  return bootstrapped;
 }
 
 /**
@@ -1201,7 +1210,9 @@ async function runScheduleOnlyPricing(
   stillUpcoming: readonly ScheduledMatchFacts[],
   stamp: Stamp,
   /** The tick's team page lock (quick task 261019-oim): each team artifact's read, merge and write below runs one at a time per artifact key. */
-  teamLock: KeyedLock
+  teamLock: KeyedLock,
+  /** The tick's events list feed (quick task 261024-jdz): declared in `runTick`, filled here with this event's counts after its artifact write. */
+  eventsListFeed: EventsListFeed
 ): Promise<void> {
   const eventKey = window.eventKey;
   // Every team on the posted schedule — the event artifact's roster for this
@@ -1283,9 +1294,16 @@ async function runScheduleOnlyPricing(
       stamp,
     };
     const mergedEvent = mergeEventArtifact(eventMergeParams);
-    await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
+    const writtenEvent = await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
       mergeEventArtifact({ ...eventMergeParams, existing: undefined })
     );
+    // THE EVENTS LIST FEED (quick task 261024-jdz). This is the path that turns a
+    // promoted event's 0/0 row into 0/N the tick its schedule is posted. Counts
+    // come from the object just written, never from raw TBA JSON.
+    const scheduleCounts = eventsListCountsOf(writtenEvent);
+    if (scheduleCounts !== undefined) {
+      recordEventsListCounts(eventsListFeed, touchedTeamsCompositeKey(algorithmId, window.season), algorithmId, window.season, eventKey, scheduleCounts);
+    }
 
     for (const teamKey of realScheduledTeams) {
       const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: algorithm.version };
@@ -1559,6 +1577,8 @@ async function processEvent(
   nowIso: string,
   stamp: Stamp,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
+  /** The tick's events list feed (quick task 261024-jdz), threaded as `touchedTeamsByAlgorithm` is: filled by the fold and schedule-only paths below, consumed by `runEventsListRebuild`. */
+  eventsListFeed: EventsListFeed,
   /**
    * The district pass's collector (10-05), threaded exactly as
    * `touchedTeamsByAlgorithm` is — declared in `runTick`, passed in, filled by
@@ -1670,7 +1690,7 @@ async function processEvent(
 
       // A POSTED, UNSCORED SCHEDULE (quick task 260925-uy5) — priced and
       // published rather than dropped.
-      await runScheduleOnlyPricing(env, counter, tbaCtx, algorithmModules, window, stillUpcoming, stamp, locks.team);
+      await runScheduleOnlyPricing(env, counter, tbaCtx, algorithmModules, window, stillUpcoming, stamp, locks.team, eventsListFeed);
       live.ingest.eventPublished(eventKey);
       // AFTER the writes, and that ORDER IS THE POINT, not an accident: writing
       // the etag first and then throwing would leave TBA answering 304 for a
@@ -2002,7 +2022,7 @@ async function processEvent(
       }));
 
       live.ingest.matchesFolded(eventKey, matchArrivalFacts(rawMatchesUnknown, new Set(newlyFolded.map((m) => m.matchKey))));
-      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, live, locks);
+      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, eventsListFeed, stamp, live, locks);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again. Unconditional since quick task 260923-3w4 —
@@ -2051,6 +2071,8 @@ async function runPhaseBAndReport(
   realTouchedTeams: readonly string[],
   perAlgorithm: ReadonlyMap<string, PerAlgorithmFold>,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
+  /** The tick's events list feed (quick task 261024-jdz): each algorithm's event write records this event's counts here. */
+  eventsListFeed: EventsListFeed,
   stamp: Stamp,
   live: LiveTickContext,
   /**
@@ -2153,9 +2175,20 @@ async function runPhaseBAndReport(
         stamp,
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);
-      await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
+      const writtenEvent = await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
         mergeEventArtifact({ ...eventMergeParams, existing: undefined })
       );
+
+      // THE EVENTS LIST FEED (quick task 261024-jdz). UNCONDITIONAL, outside the
+      // `isOfficial` gate below: an offseason event is displayed on the Events page,
+      // so its Matches column has to move too. BEFORE the team loop because the event
+      // artifact is already written at this point, even if a team write later throws
+      // into the blanket catch. Counts come from the object actually written, which
+      // is the bootstrap rebuild when the retry ran.
+      const foldCounts = eventsListCountsOf(writtenEvent);
+      if (foldCounts !== undefined) {
+        recordEventsListCounts(eventsListFeed, touchedTeamsCompositeKey(algorithmId, window.season), algorithmId, window.season, eventKey, foldCounts);
+      }
 
       // Only the `teams/{year}` feed is gated on officialness. The live rows
       // ride the event write above, which is unconditional — exactly as the
@@ -2824,6 +2857,10 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   let eventsPromoted = 0;
   let eventsPriced = 0;
   const touchedTeamsByAlgorithm = new Map<string, Map<string, TouchedTeamInfo>>();
+  // The events list's per-tick feed (quick task 261024-jdz). Only the fold and
+  // schedule-only paths feed it; the roster pass, the late breakdown backfill and
+  // the live event pass change neither `matches` nor `upcoming`.
+  const eventsListFeed: EventsListFeed = new Map();
   // Filled by `processEvent` for district member events only; consumed by
   // `runDistrictRefresh` below.
   const matchDerivedState = new Map<string, MatchDerivedEventState>();
@@ -2860,7 +2897,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     // A promoted event's preflight was already paid for by `runProbes` — hand
     // it straight to `processEvent`, which then makes no second TBA request.
     const preflight = probeResult.promoted.get(eventKey);
-    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, live, locks, preflight);
+    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, eventsListFeed, matchDerivedState, live, locks, preflight);
     return { outcome, promoted: preflight !== undefined };
   });
 
@@ -2911,6 +2948,16 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // when nothing was touched, so an unchanged tick still writes nothing. The
   // event-completion trigger is subsumed: a completing event touched teams.
   const globalRebuildRan = await runGlobalRebuild(env, subrequests, algorithmModules, touchedTeamsByAlgorithm, stamp);
+
+  // THE EVENTS LIST PATCH (quick task 261024-jdz), right behind the teams rebuild.
+  // The Events page Matches column used to freeze at its publish-time value during
+  // a live event because nothing here rewrote the list. Cost: one R2 read per
+  // algorithm-season that wrote an event artifact this tick, plus one put only when
+  // a count changed (Workers Paid since 2026-09-22; puts come out of R2's 1M Class A
+  // allowance, the same budget the teams rebuild uses). An empty feed costs nothing,
+  // so idle and 304 ticks are unchanged. It never throws, so a list failure cannot
+  // cost the district pass, the live event pass or `writeTickMeta`.
+  await runEventsListRebuild(env, subrequests, algorithmModules, eventsListFeed, stamp);
 
   // THE DISTRICT PASS (10-05), placed here deliberately:
   //  (a) AFTER the event loop, because the per-event state facts it writes are

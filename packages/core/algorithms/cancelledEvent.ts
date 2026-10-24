@@ -29,8 +29,11 @@
  *
  * "Now" is always the caller's reference instant (the publish `computedAt`, or
  * a published artifact's own `computedAt`), never an ambient clock read here.
- * A browser-clock check would hide a live event a week after the last publish,
- * because the Worker never rewrites a published events list.
+ * Since quick task 261024-jdz the Worker re-stamps a published events list, but
+ * only when it patches the counts of an event it folded or priced. A row it
+ * never touched keeps its publish-time count, so a browser-clock check would
+ * still hide a live event a week after the last publish. That is why the
+ * reference instant stays the artifact's own `computedAt`.
  *
  * This file must import nothing: `packages/core/isomorphic.test.ts` enforces
  * that no file under `packages/core` reaches for a Node built-in, since this

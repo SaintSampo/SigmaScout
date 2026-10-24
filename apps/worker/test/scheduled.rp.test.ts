@@ -173,8 +173,13 @@ import { officialDataStubResponse } from "./support/officialDataStubs.js";
  * event, and its Phase A section first takes the D1 fold lease (+1, one attempt,
  * since nothing else holds it) and releases it after (+1), so 86 + 1 + 1. Both
  * are lease statements, not RP.
+ *
+ * MOVED TO 91 on purpose by quick task 261024-jdz: a tick that wrote an event
+ * artifact now reads the events list once per algorithm-season to patch its row,
+ * and this tick folds under three algorithms (spr, opr, epa), so 88 + 3. These
+ * fixtures seed no list, so the read finds nothing and there is no put. Not RP.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 88;
+const SUBREQUESTS_PER_LIVE_TICK = 91;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -1797,7 +1802,10 @@ describe("scheduled.rp — the tick's own upcoming rows are the offline publishe
         expect("state" in afterTick3).toBe(false);
         expect(afterTick3.eventType).toBe(EVENT_TYPE);
 
-        expect(warn, "the healthy path must not warn").not.toHaveBeenCalled();
+        // `events-list-missing` is the one expected line (quick task 261024-jdz):
+        // this harness seeds no events list, and the Worker never invents one.
+        const unexpectedWarns = warn.mock.calls.filter((call) => !String(call[0]).includes('"msg":"events-list-missing"'));
+        expect(unexpectedWarns, "the healthy path must not warn").toEqual([]);
       } finally {
         warn.mockRestore();
       }

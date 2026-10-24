@@ -1111,6 +1111,11 @@ describe("liveAlgorithmTier — a promoted event's upcoming match is priced by t
 describe("liveAlgorithmTier — the three decided misconfiguration behaviors", () => {
   it("unset or empty defaults to spr and emits a structured live-tier-defaulted warn line", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // An earlier case in this file spies on `console.warn` and never restores it,
+    // so `spyOn` hands back the SAME spy with every earlier tick's lines on it.
+    // Quick task 261024-jdz added `events-list-missing` lines to those ticks (these
+    // fixtures seed no events list), which is what exposed it: clear before counting.
+    warnSpy.mockClear();
     try {
       expect(parseLiveAlgorithmIds(undefined)).toEqual([...DEFAULT_LIVE_ALGORITHM_IDS]);
       expect(parseLiveAlgorithmIds("")).toEqual([...DEFAULT_LIVE_ALGORITHM_IDS]);

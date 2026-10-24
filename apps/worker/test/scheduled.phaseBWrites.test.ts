@@ -30,7 +30,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey, TeamsArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey, EventsArtifactSchema, TeamsArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
@@ -263,9 +263,12 @@ class FakeR2Bucket {
   puts: { key: string; body: string }[] = [];
   /** Every key the tick asked for. The zero-team-READ half of the claim is unassertable without this. */
   gets: string[] = [];
+  /** Keys whose `put` throws (quick task 261024-jdz): a per-key hook, because a global put failure would fail the event write too. */
+  failPutsForKey: string | undefined;
   private readonly store = new Map<string, string>();
 
   async put(key: string, body: string): Promise<void> {
+    if (key === this.failPutsForKey) throw new Error("simulated R2 put failure");
     this.puts.push({ key, body });
     this.store.set(key, body);
   }
@@ -978,5 +981,186 @@ describe("the live Sigma on the event row", () => {
     expect(rows.get("frc1")!.metrics[SIGMA_METRIC_KEY], "non-vacuity: the real teams still get one").toBeDefined();
     const demo = rows.get("frc9985");
     if (demo !== undefined) expect(SIGMA_METRIC_KEY in demo.metrics).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE EVENTS LIST (quick task 261024-jdz). The Events page Matches column used
+// to freeze at its publish-time value during a live event, because the live tick
+// wrote the event, team and teams artifacts and never the list. These cases drive
+// the real `runTick` and read the list back out of R2.
+// ---------------------------------------------------------------------------
+
+describe("the events list (quick task 261024-jdz)", () => {
+  const LIST_KEY = artifactKey({ page: "events", year: SEASON, algorithmId: "opr", version: opr.version });
+
+  function listRow(eventKey: string, overrides: Record<string, unknown> = {}) {
+    return {
+      eventKey,
+      name: `Distinctive name of ${eventKey}`,
+      eventType: eventKey === EVENT_KEY ? 99 : 1,
+      isOffseason: eventKey === EVENT_KEY,
+      startDate: eventKey === EVENT_KEY ? "2026-08-22" : "2026-03-05",
+      week: eventKey === EVENT_KEY ? null : 3,
+      teamCount: 0,
+      matchCount: 0,
+      playedMatchCount: 0,
+      country: eventKey === EVENT_KEY ? "USA" : "Canada",
+      stateProv: eventKey === EVENT_KEY ? "CA" : "ON",
+      districtKey: eventKey === EVENT_KEY ? null : "ont",
+      ...overrides,
+    };
+  }
+
+  /** An `EventsArtifactSchema`-valid opr list: the live event at 0/0 and a second, untouched row. */
+  function seedList(r2: FakeR2Bucket, rows = [listRow(EVENT_KEY), listRow("2026other", { teamCount: 40, matchCount: 80, playedMatchCount: 80 })]) {
+    const list = {
+      schemaVersion: 1,
+      generation: "published-gen",
+      computedAt: "2026-08-20T00:00:00.000Z",
+      algorithmId: "opr",
+      algorithmVersion: opr.version,
+      season: SEASON,
+      events: rows,
+    };
+    r2.seed(LIST_KEY, JSON.stringify(EventsArtifactSchema.parse(list)));
+    return EventsArtifactSchema.parse(list);
+  }
+
+  function readList(r2: FakeR2Bucket) {
+    return EventsArtifactSchema.parse(JSON.parse(r2.peek(LIST_KEY)!));
+  }
+
+  function warnsNamed(spy: { mock: { calls: unknown[][] } }, name: string): Record<string, unknown>[] {
+    return spy.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as Record<string, unknown>;
+        } catch {
+          return {};
+        }
+      })
+      .filter((line) => line.msg === name);
+  }
+
+  it("a fold moves the row to 1/3 then 2/3 with six teams, keeps publisher fields, and leaves the other row byte-identical", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    const seeded = seedList(r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    revealed = 1;
+    expect((await runTick(env, { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+    let list = readList(r2);
+    let row = list.events.find((e) => e.eventKey === EVENT_KEY)!;
+    expect([row.playedMatchCount, row.matchCount, row.teamCount]).toEqual([1, 3, 6]);
+    expect(row).toEqual({ ...seeded.events[0], playedMatchCount: 1, matchCount: 3, teamCount: 6 });
+    expect(list.events[1]).toEqual(seeded.events[1]);
+    expect(list.generation).toBe(`tick-${NOW_MS}`);
+    expect(list.computedAt).toBe(new Date(NOW_MS).toISOString());
+
+    revealed = 2;
+    expect((await runTick(env, { nowMs: NOW_MS + 60_000 })).eventsAdvanced).toBe(1);
+    list = readList(r2);
+    row = list.events.find((e) => e.eventKey === EVENT_KEY)!;
+    expect([row.playedMatchCount, row.matchCount, row.teamCount]).toEqual([2, 3, 6]);
+    expect(list.events[1]).toEqual(seeded.events[1]);
+    expect(list.generation).toBe(`tick-${NOW_MS + 60_000}`);
+  });
+
+  it("patches an offseason (event_type 99) row too: no officialness gate", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    seedList(r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub(99));
+
+    revealed = 1;
+    expect((await runTick(env, { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+    const row = readList(r2).events.find((e) => e.eventKey === EVENT_KEY)!;
+    expect([row.playedMatchCount, row.matchCount, row.teamCount]).toEqual([1, 3, 6]);
+  });
+
+  it("a posted but unscored schedule moves a 0/0 row to 0/3 on the same tick", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    seedList(r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    revealed = 0;
+    const result = await runTick(env, { nowMs: NOW_MS });
+    expect(result.eventsPriced).toBe(1);
+    const row = readList(r2).events.find((e) => e.eventKey === EVENT_KEY)!;
+    expect([row.playedMatchCount, row.matchCount, row.teamCount]).toEqual([0, 3, 6]);
+  });
+
+  it("never creates a missing list: no put to the events key, the event still advances, one events-list-missing warn", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      revealed = 1;
+      expect((await runTick(env, { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+      expect(r2.puts.filter((p) => p.key === LIST_KEY)).toHaveLength(0);
+      expect(r2.peek(LIST_KEY)).toBeUndefined();
+      expect(warnsNamed(warn, "events-list-missing")).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("never adds a row: a list without the event is left alone, with one events-list-row-missing warn naming it", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    const seeded = seedList(r2, [listRow("2026other")]);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      revealed = 1;
+      expect((await runTick(env, { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+      expect(r2.puts.filter((p) => p.key === LIST_KEY)).toHaveLength(0);
+      expect(readList(r2)).toEqual(seeded);
+      const lines = warnsNamed(warn, "events-list-row-missing");
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.eventKeys).toEqual([EVENT_KEY]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("writes nothing when the counts are already current", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    seedList(r2, [listRow(EVENT_KEY, { teamCount: 6, matchCount: 3, playedMatchCount: 1 }), listRow("2026other")]);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    revealed = 1;
+    expect((await runTick(env, { nowMs: NOW_MS })).eventsAdvanced).toBe(1);
+    expect(r2.puts.filter((p) => p.key === LIST_KEY)).toHaveLength(0);
+    expect(readList(r2).generation, "an unchanged list must not be re-stamped").toBe("published-gen");
+  });
+
+  it("a throwing list put never throws out of the tick: the event still advances and one events-list-rebuild-failed warn is logged", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    seedList(r2);
+    r2.failPutsForKey = LIST_KEY;
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      revealed = 1;
+      const result = await runTick(env, { nowMs: NOW_MS });
+      expect(result.eventsAdvanced).toBe(1);
+      expect(result.eventsFailed).toBe(0);
+      expect(r2.peek(eventKeyFor("opr")), "the event artifact must still be written").toBeDefined();
+      const lines = warnsNamed(warn, "events-list-rebuild-failed");
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.algorithmId).toBe("opr");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
