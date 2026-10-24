@@ -10,7 +10,6 @@ import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { EventHeader, EventHeaderSkeleton } from "../components/event/EventHeader.js";
-import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
@@ -23,7 +22,7 @@ import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.j
 /**
  * The `/event/{eventKey}` route: the single artifact-fetch path, the
  * scrollable tab strip (its own DOM-sibling scroll region relative to the
- * Breakdown table's), and the page's four non-populated states.
+ * active tab table's own scroll region), and the page's four non-populated states.
  */
 export const Route = createFileRoute("/event/$eventKey")({
   validateSearch: EventSearchSchema,
@@ -50,7 +49,7 @@ export const Route = createFileRoute("/event/$eventKey")({
  * `isSimulationDisabled` below), a second narrowing this array cannot express
  * on its own.
  */
-const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"];
+const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "quals", "alliances", "elims", "simulation"];
 
 /**
  * `isAlliancesDisabled` and `isSimulationDisabled` extend this narrowing
@@ -224,20 +223,6 @@ function EventPage() {
   // — never the `?year=` search param, so a hand-edited year cannot produce
   // a mismatched column set. Both panels below pass `artifact.season` to
   // their populated renderer for that reason.
-  function renderBreakdownContent() {
-    return renderTabState({
-      is404,
-      error,
-      isPending,
-      data,
-      eventKey,
-      season,
-      onRetry: () => void refetch(),
-      renderPending: () => <BreakdownTabSkeleton algorithmId={algorithm} season={season} />,
-      renderPopulated: (artifact) => <BreakdownTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
-    });
-  }
-
   function renderInsightsContent() {
     return renderTabState({
       is404,
@@ -338,21 +323,16 @@ function EventPage() {
     });
   }
 
-  // The Breakdown tab's own column set (14 metric columns plus the leading
-  // `teamNumber`/`nickname` identity block) is wider than the shared
-  // `max-w-[1200px]` (below) was ever sized for — most of that width is the
-  // value-display box's own real-geometry floor plus the widest real "value
-  // ± spread" string this component ever renders. `BreakdownTab.tsx`'s own
-  // `<table>` declares an EXACT pixel `width` (`table.getTotalSize()`, never
-  // `"100%"`) and scrolls inside its own card, so the outer page cap below
-  // can stay constant for every tab without ever clipping or stretching the
-  // table.
+  // The widest event tables (the Insights tab's identity block plus its metric
+  // columns) are wider than the shared `max-w-[1200px]` (below) was ever sized
+  // for. Each table declares an EXACT pixel `width` (never `"100%"`) and scrolls
+  // inside its own card, so the outer page cap below can stay constant for
+  // every tab without ever clipping or stretching a table.
   return (
     // Same `max-w-[1200px]` centred content column `team.$teamNumber.tsx`
-    // uses, kept CONSTANT across every tab — an uncapped Breakdown tab made
-    // the header and tab strip jump sideways on every switch into or out of
-    // it. Breakdown's wide table scrolls inside its own card instead of
-    // dropping the page cap.
+    // uses, kept CONSTANT across every tab so the header and tab strip never
+    // jump sideways on a switch. A wide event table scrolls inside its own
+    // card instead of dropping the page cap.
     <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       {/*
         The identity header — a DOM SIBLING of the tab strip below, never
@@ -363,9 +343,9 @@ function EventPage() {
       <div className="mb-[var(--spacing-lg)]">{renderHeader()}</div>
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         {/*
-          A page-chrome-level scroll region, a DOM SIBLING of the Breakdown
-          table's own `breakdown-table-scroll` region — never its ancestor
-          and never its descendant, so the two can never trap one another.
+          A page-chrome-level scroll region, a DOM SIBLING of a tab table's
+          own `*-table-scroll` region — never its ancestor and never its
+          descendant, so the two can never trap one another.
         */}
         <div data-testid="event-tab-strip-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
           {/*
@@ -382,9 +362,6 @@ function EventPage() {
           <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
             <TabsTrigger value="insights" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Insights
-            </TabsTrigger>
-            <TabsTrigger value="breakdown" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-              Breakdown
             </TabsTrigger>
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Qualifications
@@ -428,9 +405,6 @@ function EventPage() {
         </div>
         <TabsContent value="insights" data-testid="insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderInsightsContent()}
-        </TabsContent>
-        <TabsContent value="breakdown" data-testid="breakdown-panel" className="min-w-0 mt-[var(--spacing-lg)]">
-          {renderBreakdownContent()}
         </TabsContent>
         <TabsContent value="quals" data-testid="quals-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderQualsContent()}

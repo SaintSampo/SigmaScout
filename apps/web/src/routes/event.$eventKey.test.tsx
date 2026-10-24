@@ -22,7 +22,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { DEFAULT_EVENT_TAB, RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
-import { componentsInGroup } from "../../../../packages/core/algorithms/breakdown/index.js";
 import { Route as EventRouteImport } from "./event.$eventKey.js";
 
 const EPA_MANIFEST_ENTRY = { id: "epa", version: "7.0.0+baseline", codeVersion: "7.0.0", paramSetName: "baseline" };
@@ -138,7 +137,7 @@ const ELIMS_PLAYED_MATCH = {
 };
 
 interface TabCase {
-  readonly tab: "breakdown" | "insights" | "quals" | "alliances" | "elims";
+  readonly tab: "insights" | "quals" | "alliances" | "elims";
   readonly triggerName: string;
   readonly scrollTestId: string;
   readonly artifact: () => Response;
@@ -146,7 +145,6 @@ interface TabCase {
 
 /** One case per registered tab whose 404/500/pending/panel/scroll-sibling/click-preserves-search behaviour is otherwise byte-identical. Simulation is excluded — its SPR-gating gets its own describe block below. */
 const TAB_CASES: readonly TabCase[] = [
-  { tab: "breakdown", triggerName: "Breakdown", scrollTestId: "breakdown-table-scroll", artifact: () => eventArtifactResponse() },
   { tab: "insights", triggerName: "Insights", scrollTestId: "insights-table-scroll", artifact: () => eventArtifactResponse() },
   { tab: "quals", triggerName: "Qualifications", scrollTestId: "quals-table-scroll", artifact: () => eventArtifactResponse({ matches: [], upcoming: [] }) },
   {
@@ -187,8 +185,8 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
   });
 
-  // Breakdown and Insights render `[data-slot="skeleton"]` without a
-  // `-table-scroll` testid in their pending state; Quals/Alliances/Elims
+  // Insights renders `[data-slot="skeleton"]` without a
+  // `-table-scroll` testid in its pending state; Quals/Alliances/Elims
   // (all built on `EventMatchTableSkeleton`) render both. Waiting on the
   // skeleton slot rather than `scrollTestId` covers every case without
   // weakening either original assertion (both are still true where the
@@ -206,7 +204,7 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
     renderEventRoute(`/event/2024casf?algorithm=spr&tab=${tab}`);
 
     await waitFor(() => expect(screen.getByTestId(`${tab}-panel`).hasAttribute("hidden")).toBe(false));
-    const otherTab = tab === "breakdown" ? "insights" : "breakdown";
+    const otherTab = tab === "insights" ? "quals" : "insights";
     expect(screen.getByTestId(`${otherTab}-panel`).hasAttribute("hidden")).toBe(true);
   });
 
@@ -226,7 +224,7 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
 
   it.each(TAB_CASES)("$tab: clicking the trigger navigates to ?tab=$tab while preserving the existing year and algorithm search params", async ({ tab, triggerName, artifact }) => {
     stubFetch(artifact);
-    const startTab = tab === "breakdown" ? "insights" : "breakdown";
+    const startTab = tab === "insights" ? "quals" : "insights";
     const router = renderEventRoute(`/event/2024casf?algorithm=spr&year=2024&tab=${startTab}`);
 
     const trigger = await screen.findByRole("tab", { name: triggerName });
@@ -247,49 +245,15 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
 });
 
 describe("/event/$eventKey route — tab strip and states", () => {
-  // Merges what were once four duplicated "six tabs in order from first
+  // Merges what were once four duplicated "tabs in order from first
   // paint" tests into one.
-  it("exactly six tabs exist, named Insights, Breakdown, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (Simulation is the last of EVENT_TABS)", async () => {
+  it("exactly five tabs exist, named Insights, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (Simulation is the last of EVENT_TABS)", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr");
 
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Qualifications", "Alliances", "Playoffs", "Simulation"]);
-  });
-
-  it("spr: the Breakdown tab renders Team #, Team Name, Total and the three phase columns only, with no Fouls Committed column and no phase toggles", async () => {
-    stubFetch(() => eventArtifactResponse());
-    // Explicit ?tab=breakdown (the no-param default is insights) — this
-    // case tests Breakdown's OWN column set, not "whichever tab is active
-    // by default".
-    renderEventRoute("/event/2024casf?year=2026&algorithm=spr&tab=breakdown");
-
-    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/)).toHaveLength(6));
-    expect(screen.getAllByTestId(/^breakdown-header-/).map((el) => el.getAttribute("data-testid"))).toEqual(
-      ["teamNumber", "nickname", "total", "phaseAuto", "phaseTeleop", "phaseEndgame"].map((id) => `breakdown-header-${id}`),
-    );
-    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
-  });
-
-  it("epa: a populated artifact whose season is 2024, loaded at ?year=2026, shows NO phase toggles, because every 2024 group has one member while every 2026 group has several — the column set follows artifact.season, not ?year=", async () => {
-    global.fetch = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("manifest")) return Promise.resolve(manifestResponse([EPA_MANIFEST_ENTRY]));
-      return Promise.resolve(eventArtifactResponse({ algorithmId: EPA_MANIFEST_ENTRY.id, algorithmVersion: EPA_MANIFEST_ENTRY.version }));
-    });
-    renderEventRoute("/event/2024casf?year=2026&algorithm=epa&tab=breakdown");
-
-    const headerIds = () => screen.getAllByTestId(/^breakdown-header-/).map((el) => el.getAttribute("data-testid")?.replace("breakdown-header-", ""));
-    // Collapsed: Team #, Team Name, Total, the three phase columns, Fouls Committed.
-    await waitFor(() => expect(headerIds()).toEqual(["teamNumber", "nickname", "total", "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]));
-    // The two seasons differ in exactly the way this can see: a 2024 group
-    // expands into one identical column, so it gets no toggle and the band row
-    // is absent; reading the season off `?year=2026` would render three.
-    expect(componentsInGroup(2024, "auto")).toHaveLength(1);
-    expect(componentsInGroup(2026, "auto").length).toBeGreaterThan(1);
-    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
-    expect(screen.queryAllByTestId(/^breakdown-group-toggle-/)).toHaveLength(0);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Qualifications", "Alliances", "Playoffs", "Simulation"]);
   });
 
   it("DEFAULT_EVENT_TAB is the string 'insights'", () => {
@@ -297,40 +261,40 @@ describe("/event/$eventKey route — tab strip and states", () => {
   });
 
   // A bare event URL renders the Insights panel — the default tab.
-  it("Test 5: a bare event URL (no ?tab=) renders the Insights panel, not the Breakdown panel", async () => {
+  it("Test 5: a bare event URL (no ?tab=) renders the Insights panel, not the Qualifications panel", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
-    expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("quals-panel").hasAttribute("hidden")).toBe(true);
   });
 
   // The registration invariant, pinned as a test rather than merely relied
   // upon. `?algorithm=spr` is required: the Simulation trigger exists (has
   // role "tab") whether enabled or disabled (presentation, not DOM
   // absence), so this count assertion is unaffected either way.
-  it("Test 6: REGISTERED_EVENT_TABS and EVENT_TABS hold the same six ids", async () => {
+  it("Test 6: REGISTERED_EVENT_TABS and EVENT_TABS hold the same five ids", async () => {
     const { EVENT_TABS } = await import("../lib/searchParams.js");
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr");
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const registeredNames = screen.getAllByRole("tab").map((tab) => tab.textContent);
     expect(registeredNames).toHaveLength(EVENT_TABS.length);
   });
 
-  // An explicit non-default tab still renders — contrast case proving the
-  // default does not turn every route into Insights regardless of ?tab=.
-  it("Test 7: ?tab=breakdown still renders the Breakdown panel as active, explicit tab wins over the new default", async () => {
+  // A link carrying a retired tab id resolves to the default tab through
+  // `EventSearchSchema`'s `.catch()`, never to an empty panel.
+  it("Test 7: a retired ?tab=breakdown link renders the Insights panel as active", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr&tab=breakdown");
 
-    await waitFor(() => expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(false));
-    expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    expect(screen.getByTestId("quals-panel").hasAttribute("hidden")).toBe(true);
   });
 });
 
 describe("/event/$eventKey route — the Insights tab registered", () => {
-  it("?tab=insights in the pending state renders the Insights skeleton and zero progressbar elements; ?tab=breakdown in the same state still renders the Breakdown skeleton", async () => {
+  it("?tab=insights in the pending state renders the Insights skeleton and zero progressbar elements", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
 
@@ -502,7 +466,7 @@ describe("/event/$eventKey route — the identity header", () => {
     renderEventRoute("/event/2024casf?algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("event-header-skeleton")).toBeDefined());
-    expect(screen.getByRole("tab", { name: "Breakdown" })).toBeDefined();
+    expect(screen.getByRole("tab", { name: "Qualifications" })).toBeDefined();
   });
 
   it("Test 15: a mocked 404 and separately a mocked 500 render no header and no header skeleton, and the existing empty/error state assertions still pass", async () => {

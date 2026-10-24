@@ -2,13 +2,13 @@
  * 07-UAT.md G-5: the event tab strip's `TabsList` force-equalized every
  * trigger to an identical box width (`flex-1`) regardless of its own
  * label's width. Measured live at 390px: every box forced to 67px while
- * label text varied 36-76px, and "Breakdown"'s own 76px text overflowed its
- * 67px box.
+ * label text varied 36-76px, and the former Breakdown tab's label (76px of
+ * text) overflowed its 67px box.
  *
  * Proven RED against the currently deployed origin (pre-fix): the
  * uniform-gap assertion below fails (gaps ranged ~6-22px per 07-UAT.md's
  * own table) and at least one trigger's own scrollWidth exceeds its
- * clientWidth ("Breakdown" overflowing its box). See this task's commit
+ * clientWidth (the former Breakdown tab's label overflowing its box). See this task's commit
  * message / SUMMARY for the captured failure output.
  *
  * Since 3df8e116 the strip WRAPS at phone width instead of scrolling (user:
@@ -63,8 +63,8 @@ test.describe("tab strip triggers size to their own content, with a uniform visu
       measurements.push({ label, labelBox, scrollWidth, clientWidth });
     }
 
-    // No label may exceed its own box — the exact "Breakdown" overflow
-    // 07-UAT.md measured (76px text inside a 67px box).
+    // No label may exceed its own box — the exact overflow of the former Breakdown
+    // tab's label that 07-UAT.md measured (76px text inside a 67px box).
     for (const m of measurements) {
       expect(
         m.scrollWidth,

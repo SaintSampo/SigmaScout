@@ -39,7 +39,6 @@ interface RegionCase {
 const REGIONS: RegionCase[] = [
   { name: "event tab strip", url: `/event/${EVENT_KEY}?algorithm=spr&tab=insights`, testId: "event-tab-strip-scroll" },
   { name: "Insights table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=insights`, testId: "insights-table-scroll" },
-  { name: "Breakdown table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=breakdown`, testId: "breakdown-table-scroll" },
   { name: "Quals table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=quals`, testId: "quals-table-scroll" },
   { name: "Alliances table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=alliances`, testId: "alliances-table-scroll" },
   { name: "Elims table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=elims`, testId: "elims-table-scroll" },

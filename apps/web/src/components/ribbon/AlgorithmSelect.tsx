@@ -11,8 +11,8 @@ import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../
  * Display labels for the published ids — a build-time constant, never
  * derived from the manifest. This is the SINGLE place the site's model name
  * is written: every other model-name render in the app (Teams-page rank
- * column header, Insights tab's fallback notice, Breakdown tab's
- * model-estimates caption, the home podium) reads through
+ * column header, Insights tab's fallback notice,
+ * the home podium) reads through
  * `algorithmDisplayLabel` below rather than holding a second literal.
  */
 const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> = {
@@ -70,7 +70,7 @@ export function useAlgorithmOptions(): AlgorithmOption[] {
  * The base (no version suffix) display label for one published algorithm id
  * — the SAME `ALGORITHM_DISPLAY_LABELS` entry `useAlgorithmOptions` above
  * already reads, exposed as a plain function so a non-hook call site (e.g.
- * the Breakdown tab's model-estimates caption) can read it without a
+ * the home podium) can read it without a
  * manifest fetch.
  */
 export function algorithmDisplayLabel(algorithmId: PublishedAlgorithmId): string {

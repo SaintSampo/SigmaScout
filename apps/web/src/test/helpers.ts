@@ -20,8 +20,8 @@ import {
  * narrow-viewport branch every caller of this helper tests), and returns a
  * restore function the caller must call in cleanup/afterEach. Byte-identical
  * copy of the five pre-260913-nvn duplicates in AlliancesTab.test.tsx,
- * BreakdownTab.test.tsx, InsightsTab.test.tsx, RankDistributionTable.test.tsx
- * and TeamsTable.test.tsx.
+ * InsightsTab.test.tsx, RankDistributionTable.test.tsx and
+ * TeamsTable.test.tsx (plus a sixth in a test file since deleted).
  */
 export function mockNarrowViewport(): () => void {
   const original = window.matchMedia;
@@ -59,7 +59,7 @@ type EventArtifactTeam = EventArtifact["teams"][number];
  * real schema, proving the fixture matches the published shape. Fixed at
  * `spr` / `2.0.0+tuned-2026-08` / `2024casf` / season 2024 with empty
  * `matches`/`upcoming`, matching the pre-260913-nvn duplicate this collapses
- * (BreakdownTab.test.tsx and InsightsTab.test.tsx).
+ * (InsightsTab.test.tsx and a test file since deleted).
  */
 export function makeEventArtifact(
   teams: EventArtifactTeam[],

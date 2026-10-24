@@ -27,10 +27,9 @@ export const TOTAL_KEY = TOTAL_METRIC_KEY;
  *
  * TOTAL_KEY leads, followed by the season's components in their own
  * declared order — deliberately, not incidentally. This one array is the
- * column order for the Teams table's components view, the event Breakdown
- * tab and Breakdown's skeleton, so leading with Total here lands the "Total
- * sits immediately right of the team-name column" requirement in all three
- * places from one change.
+ * column order for the Teams table's components view, so leading with Total
+ * here lands the "Total sits immediately right of the team-name column"
+ * requirement from one change.
  *
  * `ADJUST_COMPONENT` is filtered out here: it is TBA's manual scorekeeper
  * correction, not a team-skill signal, so no table shows it as a column.
@@ -52,25 +51,6 @@ export function metricKeysFor(algorithmId: string, season: number): readonly str
  * column keys.
  */
 export const GROUP_METRIC_KEYS: readonly string[] = COMPONENT_GROUP_IDS.map((id) => COMPONENT_GROUP_METRIC_KEYS[id]);
-
-/**
- * Whether this algorithm's EVENT artifacts publish per-team component
- * metrics (the season components, including `foulsCommitted`) that the
- * event Breakdown tab can expand a phase into. True for EPA; false for SPR,
- * whose phase components are display-only and whose event artifacts publish
- * exactly `total`, `phaseAuto`, `phaseTeleop` and `phaseEndgame` (plus
- * sigma), so expansion there would reveal only empty columns; false for
- * OPR, which publishes Total alone. Derived from the algorithm id, never
- * from inspecting fetched rows — the same column-set discipline
- * `metricKeysFor` states above.
- *
- * Distinct from `hasGroupedTeamsView` below, which still answers whether
- * the phase columns and sort buttons show at all. Consumed by the event
- * Breakdown tab only — the Teams list components view does not read it.
- */
-export function publishesComponentMetrics(algorithmId: string): boolean {
-  return algorithmId === "epa";
-}
 
 /**
  * Whether the grouped Teams-table view can render REAL values (published or

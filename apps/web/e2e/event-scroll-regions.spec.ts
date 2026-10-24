@@ -32,12 +32,11 @@ import { runSimulation, selectStartMatch, SIMULATION_TEST_IDS } from "./support/
 
 const TAB_STRIP = '[data-testid="event-tab-strip-scroll"]';
 
-/** The primary multi-tab structural target: 2024 is the widest component season, so this one event exercises all five tabs' structural sibling/no-trap invariants at once. `2024new` also carries pmfs on all 125 of its qm rows, so it doubles as the sixth (`simulation`) tab's own structural fixture — one event exercising all six tabs' invariants at once. */
+/** The primary multi-tab structural target: 2024 is the widest component season, so this one event exercises all four non-simulation tabs' structural sibling/no-trap invariants at once. `2024new` also carries pmfs on all 125 of its qm rows, so it doubles as the fifth (`simulation`) tab's own structural fixture — one event exercising all five tabs' invariants at once. */
 const STRUCTURAL_EVENT_KEY = "2024new";
 
 const TAB_SCROLL_TESTID: Record<string, string> = {
   insights: "insights-table-scroll",
-  breakdown: "breakdown-table-scroll",
   quals: "quals-table-scroll",
   alliances: "alliances-table-scroll",
   elims: "elims-table-scroll",
@@ -48,11 +47,11 @@ const TAB_SCROLL_TESTID: Record<string, string> = {
   simulation: SIMULATION_TEST_IDS.rankTableScroll,
 };
 
-// `simulation` joins as the sixth element, behind a real run (see the
+// `simulation` joins as the fifth element, behind a real run (see the
 // shared `beforeEach` below) rather than a parallel, weaker structural
 // block of its own — the tab's scroll region does not exist until a run
 // completes.
-const TABS = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"] as const;
+const TABS = ["insights", "quals", "alliances", "elims", "simulation"] as const;
 
 function eventUrl(eventKey: string, tab: string): string {
   return `/event/${eventKey}?algorithm=spr&tab=${tab}`;
@@ -320,62 +319,22 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E4 — Breakdown under SPR: Team #, Team Name, Total and the three phase
-// columns = 6 (a013ca1e: SPR Breakdown shows Total and the three phases only,
-// pinned by BreakdownTab.test.tsx "spr desktop geometry ... six header cells")
-// ---------------------------------------------------------------------------
-
-test.describe("E4 — Breakdown tab, SPR column set", () => {
-  test("2024new: exactly 6 header columns, every column scrolls with a full-width drag (no sticky columns)", async ({ page }) => {
-    await page.goto(eventUrl("2024new", "breakdown"), { waitUntil: "networkidle" });
-    const region = page.locator('[data-testid="breakdown-table-scroll"]');
-    await region.waitFor({ state: "visible", timeout: 15_000 });
-
-    const headerCells = region.locator("thead th");
-    expect(await headerCells.count()).toBe(6);
-
-    await assertOverflows(region);
-
-    const teamNumberHeader = page.getByTestId("breakdown-header-teamNumber");
-    const nicknameHeader = page.getByTestId("breakdown-header-nickname");
-    const totalHeader = page.getByTestId("breakdown-header-total");
-
-    const teamNumberBefore = await teamNumberHeader.boundingBox();
-    const nicknameBefore = await nicknameHeader.boundingBox();
-    const totalBefore = await totalHeader.boundingBox();
-    if (teamNumberBefore === null || nicknameBefore === null || totalBefore === null) throw new Error("header cell missing a bounding box");
-
-    const { box, midY } = await visibleMidpoint(page, region);
-    await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
-
-    const teamNumberAfter = await teamNumberHeader.boundingBox();
-    const nicknameAfter = await nicknameHeader.boundingBox();
-    const totalAfter = await totalHeader.boundingBox();
-    if (teamNumberAfter === null || nicknameAfter === null || totalAfter === null) throw new Error("header cell missing a bounding box after the drag");
-
-    expect(teamNumberAfter.x).not.toBeCloseTo(teamNumberBefore.x, 0);
-    expect(nicknameAfter.x).not.toBeCloseTo(nicknameBefore.x, 0);
-    expect(totalAfter.x).not.toBeCloseTo(totalBefore.x, 0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// E2 — the tab strip itself: six labels that WRAP rather than scroll
+// E2 — the tab strip itself: five labels that WRAP rather than scroll
 // (3df8e116, user: "I should not be able to scroll the events tab bar, it
 // shouldn't move"). Labels renamed Qualifications/Playoffs in ed49b8a0 and
-// 3f160098, pinned by event.$eventKey.test.tsx's six-tabs-in-order test.
+// 3f160098, pinned by event.$eventKey.test.tsx's five-tabs-in-order test.
 // ---------------------------------------------------------------------------
 
-const EXPECTED_TAB_LABELS = ["Insights", "Breakdown", "Qualifications", "Alliances", "Playoffs", "Simulation"] as const;
+const EXPECTED_TAB_LABELS = ["Insights", "Qualifications", "Alliances", "Playoffs", "Simulation"] as const;
 
-test.describe("E2 — the tab strip: 6 tabs, wrapping at phone width", () => {
-  test(`${STRUCTURAL_EVENT_KEY}: exactly 6 role="tab" elements in the declared order, and the strip does not overflow at phone width`, async ({ page }) => {
+test.describe("E2 — the tab strip: 5 tabs, wrapping at phone width", () => {
+  test(`${STRUCTURAL_EVENT_KEY}: exactly 5 role="tab" elements in the declared order, and the strip does not overflow at phone width`, async ({ page }) => {
     await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
 
     const tabs = page.getByRole("tab");
-    expect(await tabs.count()).toBe(6);
+    expect(await tabs.count()).toBe(5);
     const labels = await tabs.allTextContents();
     expect(labels.map((l) => l.trim())).toEqual([...EXPECTED_TAB_LABELS]);
 

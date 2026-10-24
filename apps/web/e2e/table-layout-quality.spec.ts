@@ -5,8 +5,8 @@
  * data reachable on screen passed every one of them, which is why a human
  * found G-1/G-2 on a real phone and CI did not.
  *
- * This file adds the three assertion classes G-3 calls for, over the three
- * tables G-1/G-2 fixed (Insights, Breakdown, TeamsTable):
+ * This file adds the three assertion classes G-3 calls for, over the two
+ * tables G-1/G-2 fixed (Insights, TeamsTable):
  *
  *  1. Declared-vs-actual column width: for every SIZED column, the
  *     rendered width equals the declared `size` (within a 1px subpixel
@@ -34,7 +34,7 @@
  *     whole screen is identity columns," independent of any single pixel
  *     constant either side might later drift toward.
  *
- *     The event tables (Insights, Breakdown) have no pinned columns at
+ *     The event table (Insights) has no pinned columns at
  *     all — classes 2 and 3 above run against TeamsTable only.
  *
  * Runs on `phone-390`/`pixel-10` only (both at 390px UI-SPEC's own named
@@ -97,19 +97,6 @@ const TABLES: TableSpec[] = [
     identityColumnIds: ["rank", "teamNumber", "nickname"],
   },
   {
-    name: "Breakdown (2024new, widest column set)",
-    url: "/event/2024new?tab=breakdown&algorithm=spr",
-    regionTestId: "breakdown-table-scroll",
-    headerPrefix: "breakdown-header",
-    cellPrefix: "breakdown-cell",
-    rowTestId: "breakdown-row",
-    columns: [
-      { id: "teamNumber", pinned: false },
-      { id: "nickname", pinned: false },
-    ],
-    identityColumnIds: ["teamNumber", "nickname"],
-  },
-  {
     name: "TeamsTable (2024 season)",
     url: "/teams?year=2024&algorithm=spr&sort=total&sortDir=desc",
     regionTestId: "teams-table-scroll",
@@ -157,7 +144,7 @@ for (const spec of TABLES) {
     });
 
     // Generated only for specs that declare at least one pinned column —
-    // the event tables (Insights, Breakdown) pin nothing, so this class
+    // the event table (Insights) pins nothing, so this class
     // of check runs against TeamsTable only.
     if (spec.columns.some((c) => c.pinned)) {
       test("sticky offset correctness: each pinned column's right edge meets the next pinned column's left edge with a 0px gap", async ({ page }) => {
@@ -329,7 +316,7 @@ test.describe("at least one full data column visible at scroll 0 (no scrolling)"
       // 07-UAT.md G-2's own acceptance wording ("two real metric columns
       // visible on first paint") is about.
       //
-      // Specs with NO pinned column at all (Insights, Breakdown — no column
+      // Specs with NO pinned column at all (Insights — no column
       // is frozen) have no `data-pinned` attribute to key off, so this
       // excludes each of the spec's own `identityColumnIds` by
       // testid suffix instead — the same "identity columns are not the data

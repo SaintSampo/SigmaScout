@@ -1,7 +1,7 @@
 /**
  * Human display labels for published metric keys (2026-09-01 redesign):
  * the site never again shows a raw artifact key like `hubShift2` as a
- * column header. One shared function so the Teams table, the Breakdown tab
+ * column header. One shared function so the Teams table
  * and any future surface can never disagree about what a key is called.
  *
  * Derivation, not a hand map: the component key sets differ per season

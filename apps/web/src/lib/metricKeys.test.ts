@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasGroupedTeamsView, metricKeysFor, publishesComponentMetrics, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
+import { hasGroupedTeamsView, metricKeysFor, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
 import { CURRENT_SEASON, EXCLUDED_SEASONS, FIRST_SEASON, SEASONS } from "./seasons.js";
 import { componentMapForSeason } from "../../../../packages/core/algorithms/breakdown/index.js";
 
@@ -54,12 +54,6 @@ describe("hasGroupedTeamsView", () => {
 
   it("teamsSortKeyUniverse('epa', 2026) contains phaseAuto now that EPA has a grouped view", () => {
     expect(teamsSortKeyUniverse("epa", 2026)).toContain("phaseAuto");
-  });
-
-  it("publishesComponentMetrics is true for epa only, false for spr and opr", () => {
-    expect(publishesComponentMetrics("epa")).toBe(true);
-    expect(publishesComponentMetrics("spr")).toBe(false);
-    expect(publishesComponentMetrics("opr")).toBe(false);
   });
 });
 

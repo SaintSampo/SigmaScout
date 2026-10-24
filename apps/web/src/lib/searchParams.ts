@@ -269,8 +269,8 @@ export const TeamSearchSchema = RootSearchSchema.extend({
 export type TeamSearch = z.infer<typeof TeamSearchSchema>;
 
 /**
- * The event page's six tab ids, in the fixed order the tab strip renders:
- * Insights, Breakdown, Quals, Alliances, Elims, Simulation. The route's own
+ * The event page's five tab ids, in the fixed order the tab strip renders:
+ * Insights, Quals, Alliances, Elims, Simulation. The route's own
  * `REGISTERED_EVENT_TABS` array is the narrower, currently-registered
  * subset (has a trigger and a content panel) — keeping this URL contract
  * stable means a later plan registering a new tab is a no-op here; only
@@ -283,7 +283,7 @@ export type TeamSearch = z.infer<typeof TeamSearchSchema>;
  * algorithms. That reachability rule lives in the route
  * (`event.$eventKey.tsx`), not here.
  */
-export const EVENT_TABS = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"] as const;
+export const EVENT_TABS = ["insights", "quals", "alliances", "elims", "simulation"] as const;
 
 /**
  * The event page's default tab — Insights, the event's landing tab. This
@@ -297,7 +297,7 @@ export const DEFAULT_EVENT_TAB = "insights";
 
 /**
  * Extends `RootSearchSchema` with exactly one field, `tab` — mirroring
- * `TeamSearchSchema` exactly. Neither Insights nor Breakdown exposes a
+ * `TeamSearchSchema` exactly. The Insights tab exposes no
  * clickable-to-resort header, so there is no sort state to carry:
  * `sort`/`sortDir` are deliberately NOT extended in here.
  */

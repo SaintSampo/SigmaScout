@@ -33,8 +33,7 @@ export const PINNED_COLUMN_IDS = ["rank", "teamNumber", "nickname"] as const;
  * prediction metric on a 390px screen; team number is FRC's canonical row
  * identity and rank is implicit in row order on a rank-ordered table, so
  * nickname is the one that gives way. `Insights` and `TeamsTable` share
- * this identical derivation (`Breakdown` has its own copy since it has no
- * rank column to derive from).
+ * this identical derivation.
  */
 export const MOBILE_PINNED_COLUMN_IDS = PINNED_COLUMN_IDS.filter((id) => id !== "nickname");
 
@@ -68,8 +67,8 @@ export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 72;
  * 90 is the largest width that still leaves TeamsTable's tightest layout —
  * the only one of the three tables where a full 120px metric column sits
  * immediately after nickname — with a real, fully-visible metric column at
- * scroll 0 (measured with 4px to spare against the scroller). Insights and
- * Breakdown clear it with more room. A single shared constant, not a
+ * scroll 0 (measured with 4px to spare against the scroller). Insights clears
+ * it with more room. A single shared constant, not a
  * per-table number, matching the identity-column constants' own "one
  * number, not independently-drifting copies" precedent.
  *

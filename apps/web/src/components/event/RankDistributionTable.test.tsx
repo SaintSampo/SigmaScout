@@ -1,7 +1,7 @@
 /**
  * 08-14-PLAN.md Task 3's render contract for `RankDistributionTable`. Every
  * render goes through the same self-contained router `TestHarness` technique
- * `BreakdownTab.test.tsx` established (TanStack Router resolves its first
+ * every event tab test uses (TanStack Router resolves its first
  * match asynchronously, so every assertion follows the `await waitFor(...)`
  * convention), because the Team # and Nickname cells are real router links.
  */

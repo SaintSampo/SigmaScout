@@ -3,11 +3,10 @@
  * order, columns # / Captain / Pick 1 / Pick 2 / Pick 3 / Combined
  * Total / Record. This is the ONLY component in the application that
  * computes a number rather than rendering a published one. It is
- * legitimate here (unlike the identical move on Breakdown) because an
- * alliance's cross-team covariance is zero by the model's own construction
- * — no cross-team covariance model exists in this codebase, so there is
- * nothing to consult — whereas a component group's off-diagonal terms are
- * real and unpublished.
+ * legitimate here because an alliance's cross-team covariance is zero by
+ * the model's own construction — no cross-team covariance model exists in
+ * this codebase, so there is nothing to consult — whereas a component
+ * group's off-diagonal terms are real and unpublished.
  *
  * Drops every nickname (team numbers only); pick-column indices map
  * directly to TBA's own `picks` array (index 1 is the FIRST additional
@@ -734,7 +733,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
       <div data-testid="alliances-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         {/*
           `table-layout: fixed`, matching every other event table
-          (Insights/Breakdown/TeamsTable): every pick cell renders only a
+          (Insights/TeamsTable): every pick cell renders only a
           team number plus a bounded metric cell (`MetricValue` or
           `TotalSigmaValue`'s pill) whose width is bounded by CSS
           (`.metric-tier`'s own `min-width`, `.metric-pill`'s own halves,
@@ -744,7 +743,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           `width` is the EXACT sum of the column sizes
           (`table.getTotalSize()`), never `100%`: with `width: "100%"` +
           `minWidth: table.getTotalSize()` (the pattern
-          Insights/Breakdown/TeamsTable still use), shrinking this tab's
+          Insights/TeamsTable still use), shrinking this tab's
           columns below the content area lets `100%` win over `minWidth`,
           and `table-layout: fixed` redistributes the freed space
           proportionally BACK across every column, silently undoing the

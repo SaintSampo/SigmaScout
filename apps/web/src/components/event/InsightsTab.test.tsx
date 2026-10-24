@@ -2,14 +2,14 @@
  * 07-VALIDATION.md's Wave 0 EVNT-02 test file, authored before the component
  * (07-11-PLAN.md Task 1, TDD). Every fixture is a hand-written
  * `EventArtifact`-shaped object, never a network response and never a
- * helper that reads a real artifact off disk — mirrors
- * `BreakdownTab.test.tsx`'s established fixture discipline exactly.
+ * helper that reads a real artifact off disk — the same fixture discipline
+ * every event tab test follows.
  *
  * This first describe-block set covers Task 1's pure data layer
  * (`buildInsightsRows`, `formatEventRecord`, `insightsFallbackNotice`) only.
- * Task 2 extends this same file with the rendered-table cases, reusing
- * `BreakdownTab.test.tsx`'s own `TestHarness` router-context technique since
- * the Team #/Nickname cells are real router `Link`s here too.
+ * Task 2 extends this same file with the rendered-table cases, using a
+ * self-contained `TestHarness` router-context since the Team #/Nickname
+ * cells are real router `Link`s here too.
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -296,7 +296,7 @@ describe("InsightsTab — column set", () => {
     expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total ± Sigma", "Auto", "Teleop", "Endgame"]);
   });
 
-  it("opr/2024: also exactly nine headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
+  it("opr/2024: also exactly nine headers — the column count is algorithm independent", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",

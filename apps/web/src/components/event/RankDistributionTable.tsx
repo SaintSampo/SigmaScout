@@ -1,7 +1,7 @@
 /**
  * The rank-distribution table — the Simulation tab's central visualization.
- * Four columns: Team #, Nickname (both leading, matching `BreakdownTab.tsx`'s
- * own identity-column lead), Median (a plain display integer) and
+ * Four columns: Team #, Nickname (both leading, the same
+ * identity-column lead the other event tables use), Median (a plain display integer) and
  * Distribution (the three-layer plot cell on a shared 1..N rank axis drawn
  * exactly once in the column header). No column is frozen horizontally.
  *
@@ -152,7 +152,7 @@ const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
  * every row's team-page links share the same values the caller passed to the
  * table. `algorithmId` is typed as plain `string` here and cast to
  * `PublishedAlgorithmId` at the one call site that needs it — the same
- * loose-cast escape hatch `InsightsTab.tsx`/`BreakdownTab.tsx` already use for
+ * loose-cast escape hatch `InsightsTab.tsx` already uses for
  * a value the type system widened crossing a component-prop boundary (it was
  * already validated upstream through `RootSearchSchema.algorithm` before this
  * table ever rendered).

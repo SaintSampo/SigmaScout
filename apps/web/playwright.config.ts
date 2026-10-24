@@ -126,7 +126,7 @@ export default defineConfig({
       // one of them needs the REPUBLISHED district artifact, which only the
       // deployed origin serves.
       testMatch:
-        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts|districts-ledger\.spec\.ts/,
+        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts|districts-ledger\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
@@ -165,7 +165,7 @@ export default defineConfig({
       // spec runs here at the width its OWN premise holds:
       //  - no-page-pan / event-header-overflow / zebra-stripe-full-row: real
       //    at both widths (mirrors their deployed-origin assignment above).
-      //  - breakdown-desktop-overflow / search-results-overflow /
+      //  - search-results-overflow /
       //    metric-history-axis-legibility / simulation-run: each sets its
       //    OWN viewport size per test, or needs this project's local-origin
       //    `/v1` proxy to reach real published artifact bytes.
@@ -176,7 +176,7 @@ export default defineConfig({
       // / touch-scroll (all drive real touch drags via `touchDrag`, which
       // needs `hasTouch` — this plain-chromium project has no device
       // descriptor and so no `hasTouch: true`).
-      testMatch: /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts|simulation-run\.spec\.ts/,
+      testMatch: /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts|simulation-run\.spec\.ts/,
       // no-page-pan.spec.ts's "each of the team page's per-section
       // scrollers is individually wider than its own viewport" test
       // carries its OWN premise guard, unconditional, for EVERY section

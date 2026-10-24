@@ -38,7 +38,7 @@ import type { EventArtifact } from "../../../../../packages/harness/pageArtifact
  * `RankDistributionTable` (Team #/Nickname router `Link`s) — every other
  * case in this file stays exactly as 08-09/08-11/08-13 left it and needs no
  * router context, since it never reaches a completed result. This harness
- * mirrors `BreakdownTab.test.tsx`'s own self-contained-tree technique,
+ * uses a self-contained router tree,
  * scoped to only the two call sites that need it.
  */
 const ChildrenContext = createContext<ReactNode>(null);

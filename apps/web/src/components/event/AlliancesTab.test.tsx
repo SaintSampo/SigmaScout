@@ -1,8 +1,7 @@
 /**
  * Every fixture is a hand-written `EventArtifact`-shaped object literal,
  * never a network response and never a helper that reads a real artifact
- * off disk — mirrors `BreakdownTab.test.tsx`'s established fixture
- * discipline exactly.
+ * off disk — the same fixture discipline every event tab test follows.
  *
  * Covers the tracer path: `combineAlliancePicks`'s arithmetic (both
  * hand-computed fixtures), `buildAllianceRows`'s ordering, and the

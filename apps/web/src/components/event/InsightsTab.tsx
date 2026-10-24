@@ -16,7 +16,7 @@
  * The second section is the rendered table: the identity columns (rank,
  * teamNumber, nickname) simply lead the column set in definition order —
  * tier-boxed Auto/Teleop/Endgame cells via the identical
- * `tierForPercentile` derivation `BreakdownTab.tsx` uses, a plain bare RP
+ * `tierForPercentile` derivation the Teams list table uses, a plain bare RP
  * cell that can never wear a tier, and the fallback banner. No column in
  * this table is frozen during horizontal scroll.
  */
@@ -68,7 +68,7 @@ export interface InsightsRowModel {
   orderSource: InsightsOrderSource;
 }
 
-/** Ascending team-number comparator — the same deterministic total-order tie-break `teams-table/rowModel.ts`'s `byTeamNumberAscending` and `BreakdownTab.tsx`'s own copy already use. Copied rather than imported across the module boundary, matching `BreakdownTab.tsx`'s own established precedent for this exact rule. */
+/** Ascending team-number comparator — the same deterministic total-order tie-break `teams-table/rowModel.ts`'s `byTeamNumberAscending` already uses. Copied rather than imported across the module boundary. */
 function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: number }): number {
   return a.teamNumber - b.teamNumber;
 }
@@ -92,7 +92,7 @@ function byOfficialRank(a: InsightsRowBase, b: InsightsRowBase): number {
   return byTeamNumberAscending(a, b);
 }
 
-/** Descending `TOTAL_KEY` value, exact ties broken by ascending team number, a row missing `TOTAL_KEY` sorting last regardless of direction — the same three rules `teams-table/rowModel.ts`'s `buildTeamRows` and `BreakdownTab.tsx`'s `buildBreakdownRows` both already encode, copied here rather than imported across either module boundary. */
+/** Descending `TOTAL_KEY` value, exact ties broken by ascending team number, a row missing `TOTAL_KEY` sorting last regardless of direction — the same three rules `teams-table/rowModel.ts`'s `buildTeamRows` already encodes, copied here rather than imported across the module boundary. */
 function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
   const totalA = a.metrics[TOTAL_KEY]?.value;
   const totalB = b.metrics[TOTAL_KEY]?.value;
@@ -352,9 +352,8 @@ function buildInsightsColumns(
         <TotalSigmaValue
           total={entry}
           totalTier={resolveMetricTier(entry, TOTAL_KEY, tierCuts)}
-          // sigma keeps tierForPercentile alone — see BreakdownTab.tsx's
-          // identical comment: the merge carries its percentile forward and
-          // no sigma cut is ever published.
+          // sigma keeps tierForPercentile alone: the merge carries its
+          // percentile forward and no sigma cut is ever published.
           sigma={sigmaEntry !== undefined ? { value: sigmaEntry.value, tier: tierForPercentile(sigmaEntry.percentile) } : undefined}
         />
       );
@@ -366,9 +365,8 @@ function buildInsightsColumns(
       id: group.metricKey,
       header: group.label,
       size: 120,
-      // The identical `resolveMetricTier` derivation `BreakdownTab.tsx`
-      // uses — one derivation path, so an Insights tier and a Breakdown
-      // tier for the same team/metric/season can never disagree. Tiered
+      // The `resolveMetricTier` derivation, one derivation path for every
+      // tier on this table. Tiered
       // unconditionally, including this sorted column: this knowingly
       // accepts the redundancy of adjacent rows sharing a tier in exchange
       // for one rule and more colour.
@@ -417,7 +415,7 @@ function buildInsightsColumns(
       // 220 at/above the breakpoint (unchanged), `NICKNAME_COLUMN_WIDTH_NARROW_PX`
       // below it — see that constant's own doc comment in
       // `teams-table/columns.tsx` for the real-geometry derivation shared
-      // with `TeamsTable`/`BreakdownTab`.
+      // with `TeamsTable`.
       size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
       cell: (info) => (
         <Link
@@ -462,7 +460,7 @@ export interface InsightsTabProps {
   season: number;
 }
 
-/** The pending state's skeleton row count — matching `BREAKDOWN_SKELETON_ROW_COUNT`'s role in `BreakdownTab.tsx`. */
+/** The pending state's skeleton row count. */
 export const INSIGHTS_SKELETON_ROW_COUNT = 8;
 
 /**

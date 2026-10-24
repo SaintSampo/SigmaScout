@@ -91,8 +91,8 @@ function TabsTrigger({
         // The base `flex-1` above force-equalizes every
         // trigger in this list to an identical box width regardless of its
         // own label's width (measured live: every box forced to 67px while
-        // label text varied 36-76px, and "Breakdown"'s own 76px text
-        // overflowed its 67px box). `line`-variant triggers (the tab strip
+        // label text varied 36-76px, and the former Breakdown tab's 76px
+        // label overflowed its 67px box). `line`-variant triggers (the tab strip
         // this bug was found on) instead size to their own content — padding
         // (`px-1.5`) and the list's own `gap-1` are already uniform, so a
         // content-sized trigger is what makes the VISUAL gap between labels

@@ -77,12 +77,12 @@ describe("TeamSearchSchema", () => {
 describe("EventSearchSchema", () => {
   // Ordering asserted separately from the default so the two facts (WHICH
   // tab is active vs. WHERE tabs sit in the strip) cannot be conflated.
-  it("EVENT_TABS is the six fixed ids in tab-strip order, with the default's id first and 'simulation' last", () => {
-    expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims", "simulation"]);
+  it("EVENT_TABS is the five fixed ids in tab-strip order, with the default's id first and 'simulation' last", () => {
+    expect(EVENT_TABS).toEqual(["insights", "quals", "alliances", "elims", "simulation"]);
   });
 
-  it("parses each of the six explicit tab ids back unchanged (six iterations)", () => {
-    expect(EVENT_TABS).toHaveLength(6);
+  it("parses each of the five explicit tab ids back unchanged (five iterations)", () => {
+    expect(EVENT_TABS).toHaveLength(5);
     for (const tab of EVENT_TABS) {
       expect(EventSearchSchema.parse({ tab }).tab).toBe(tab);
     }
@@ -94,6 +94,10 @@ describe("EventSearchSchema", () => {
 
   it("defaults to insights when tab is absent", () => {
     expect(EventSearchSchema.parse({}).tab).toBe("insights");
+  });
+
+  it("resolves the retired breakdown tab id to the default tab", () => {
+    expect(EventSearchSchema.parse({ tab: "breakdown" }).tab).toBe(DEFAULT_EVENT_TAB);
   });
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
