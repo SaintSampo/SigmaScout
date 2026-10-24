@@ -14,7 +14,7 @@
 import { z } from "zod";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
 import { DISTRICT_KEY_PATTERN } from "../../../../packages/core/districts/keys.js";
-import { CURRENT_SEASON, SEASONS } from "./seasons.js";
+import { DEFAULT_SEASON, SEASONS } from "./seasons.js";
 import { teamsSortKeyUniverse } from "./metricKeys.js";
 import { resolveSortKey } from "./resolveSortKey.js";
 
@@ -36,7 +36,11 @@ const DEFAULT_ALGORITHM: PublishedAlgorithmId = "spr";
  * (`seasons.ts`'s `SEASONS`) — anything else, INCLUDING a missing param
  * (`z.coerce.number()` on `undefined` produces `NaN`, which fails both the
  * base number check and the refinement below), falls back to
- * `CURRENT_SEASON` via `.catch()`.
+ * `DEFAULT_SEASON` via `.catch()`. The fallback is `DEFAULT_SEASON`, not
+ * `CURRENT_SEASON`: the newest listed season may be roster-only (events and
+ * rosters, no game yet), and the site always opens on a season with results.
+ * `KNOWN_SEASONS` is built from `SEASONS`, so a roster-only season is
+ * accepted exactly when it is listed.
  *
  * `algorithm`: an enum over the published algorithm ids
  * (`packages/harness/publishedAlgorithms.ts`'s `PUBLISHED_ALGORITHM_IDS`,
@@ -50,7 +54,7 @@ export const RootSearchSchema = z.object({
     .number()
     .int()
     .refine((year) => KNOWN_SEASONS.has(year))
-    .catch(CURRENT_SEASON),
+    .catch(DEFAULT_SEASON),
   algorithm: z.enum(PUBLISHED_ALGORITHM_IDS).catch(DEFAULT_ALGORITHM),
 });
 

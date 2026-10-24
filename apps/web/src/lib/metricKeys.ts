@@ -15,6 +15,7 @@
  */
 import { ADJUST_COMPONENT, componentMapForSeason, COMPONENT_GROUP_IDS, COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../../../../packages/core/algorithms/types.js";
+import { isRosterOnlySeason } from "./seasonGame.js";
 
 /** Re-exported, never re-declared as a literal — the one key every algorithm guarantees (`packages/core/algorithms/types.ts`'s `TOTAL_METRIC_KEY`). */
 export const TOTAL_KEY = TOTAL_METRIC_KEY;
@@ -24,6 +25,12 @@ export const TOTAL_KEY = TOTAL_METRIC_KEY;
  * publishes only `TOTAL_KEY`. `componentMapForSeason` throws for an
  * unmapped season rather than returning a default — that throw propagates
  * here unguarded: an unmapped season has no defensible column set.
+ *
+ * A ROSTER-ONLY season (`seasonGame.ts`'s `isRosterOnlySeason`: newer than
+ * every registered game season, listed for its events and rosters before its
+ * game is out) has no components yet, so Total is its only declared key.
+ * `componentMapForSeason` is NOT loosened: it still throws for any unmapped
+ * season, 2021 included, which is a permanent exclusion and not roster-only.
  *
  * TOTAL_KEY leads, followed by the season's components in their own
  * declared order — deliberately, not incidentally. This one array is the
@@ -39,6 +46,9 @@ export const TOTAL_KEY = TOTAL_METRIC_KEY;
  */
 export function metricKeysFor(algorithmId: string, season: number): readonly string[] {
   if (algorithmId === "opr") {
+    return [TOTAL_KEY];
+  }
+  if (isRosterOnlySeason(season)) {
     return [TOTAL_KEY];
   }
   const { components } = componentMapForSeason(season);
