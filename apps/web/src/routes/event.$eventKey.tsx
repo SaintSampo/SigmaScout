@@ -8,7 +8,8 @@ import { eventQueryOptions } from "../lib/api/event.js";
 import { preScheduleQueryOptions } from "../lib/api/preSchedule.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
-import { EmptyState, ErrorState } from "../components/StateViews.js";
+import { EmptyState, ErrorState, GameNotOutState } from "../components/StateViews.js";
+import { GAME_NOT_OUT_MATCHES_BODY, GAME_NOT_OUT_SIMULATION_BODY, isRosterOnlySeason } from "../lib/seasonGame.js";
 import { EventHeader, EventHeaderSkeleton } from "../components/event/EventHeader.js";
 import { TeamsTab, TeamsTabSkeleton } from "../components/event/TeamsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
@@ -134,6 +135,12 @@ function EventPage() {
   const navigate = Route.useNavigate();
 
   const isValidKey = isValidEventKey(eventKey);
+  // A ROSTER-ONLY season (`lib/seasonGame.ts`): listed for its events and
+  // rosters before its game is out, so its event pages carry a roster and
+  // nothing the game decides. Guarded by `isValidKey` because
+  // `seasonFromEventKey` throws on an invalid key, and computed before the
+  // hooks because the pre-schedule gate below reads it.
+  const rosterOnly = isValidKey && isRosterOnlySeason(seasonFromEventKey(eventKey));
 
   // The established pattern, mirrored by `team.$teamNumber.tsx`: the
   // artifact query stays DISABLED until the algorithms manifest resolves a
@@ -185,8 +192,14 @@ function EventPage() {
    * trigger is disabled, `resolveActiveTab` sends `?tab=simulation` back to
    * the default tab, and no sidecar exists for it anyway (it models no
    * ranking points, so no pre-schedule sidecar is ever published for it).
+   *
+   * `!rosterOnly` is part of the gate too: no sidecar is ever published for a
+   * season without its game (the publisher writes only roster event pages
+   * for it), so the query is never enabled there and no request is made for
+   * an object that will never exist. The Simulation trigger itself stays
+   * enabled so a reader can open the tab and read why.
    */
-  const isPreScheduleEnabled = isValidKey && version !== undefined && !isSimulationDisabled && activeTab === "simulation";
+  const isPreScheduleEnabled = isValidKey && version !== undefined && !isSimulationDisabled && !rosterOnly && activeTab === "simulation";
   const { data: preSchedule, isPending: isPreScheduleQueryPending } = useQuery({
     ...preScheduleQueryOptions({ eventKey, algorithmId: algorithm, version: version ?? "" }),
     enabled: isPreScheduleEnabled,
@@ -247,7 +260,12 @@ function EventPage() {
       season,
       onRetry: () => void refetch(),
       renderPending: () => <QualsTabSkeleton />,
-      renderPopulated: (artifact) => <QualsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+      renderPopulated: (artifact) =>
+        rosterOnly ? (
+          <GameNotOutState season={artifact.season} body={GAME_NOT_OUT_MATCHES_BODY} />
+        ) : (
+          <QualsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />
+        ),
     });
   }
 
@@ -288,7 +306,12 @@ function EventPage() {
       season,
       onRetry: () => void refetch(),
       renderPending: () => <ElimsTabSkeleton />,
-      renderPopulated: (artifact) => <ElimsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+      renderPopulated: (artifact) =>
+        rosterOnly ? (
+          <GameNotOutState season={artifact.season} body={GAME_NOT_OUT_MATCHES_BODY} />
+        ) : (
+          <ElimsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />
+        ),
     });
   }
 
@@ -302,24 +325,27 @@ function EventPage() {
       season,
       onRetry: () => void refetch(),
       renderPending: () => <SimulationTabSkeleton />,
-      renderPopulated: (artifact) => (
-        <SimulationTab
-          artifact={artifact}
-          algorithmId={algorithm}
-          season={artifact.season}
-          // `?? null` collapses the two ABSENT states the query can report
-          // — "not fetched yet" (`undefined`) and "fetched, no sidecar
-          // published for this event" (`null`, the fetcher's own 404
-          // answer) — into the one thing the tab needs to know: there is no
-          // baked result to show. The pending flag beside it is what keeps
-          // those two distinguishable where it matters.
-          preSchedule={preSchedule ?? null}
-          preScheduleIsPending={preScheduleIsPending}
-          // An SPR rewind's as-of objects, fetched through the cache only when
-          // Run is pressed (`simulationAsOf.ts`), never on a page load.
-          asOfFetchers={simulationAsOfFetchers(queryClient, artifact)}
-        />
-      ),
+      renderPopulated: (artifact) =>
+        rosterOnly ? (
+          <GameNotOutState season={artifact.season} body={GAME_NOT_OUT_SIMULATION_BODY} />
+        ) : (
+          <SimulationTab
+            artifact={artifact}
+            algorithmId={algorithm}
+            season={artifact.season}
+            // `?? null` collapses the two ABSENT states the query can report
+            // — "not fetched yet" (`undefined`) and "fetched, no sidecar
+            // published for this event" (`null`, the fetcher's own 404
+            // answer) — into the one thing the tab needs to know: there is no
+            // baked result to show. The pending flag beside it is what keeps
+            // those two distinguishable where it matters.
+            preSchedule={preSchedule ?? null}
+            preScheduleIsPending={preScheduleIsPending}
+            // An SPR rewind's as-of objects, fetched through the cache only when
+            // Run is pressed (`simulationAsOf.ts`), never on a page load.
+            asOfFetchers={simulationAsOfFetchers(queryClient, artifact)}
+          />
+        ),
     });
   }
 

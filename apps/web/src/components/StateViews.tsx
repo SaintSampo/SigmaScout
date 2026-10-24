@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { gameNotOutHeading } from "@/lib/seasonGame";
 
 /**
  * The one empty-state view every wave-4 table renders. `heading` and
@@ -33,6 +34,18 @@ export function EmptyState({
       )}
     </div>
   );
+}
+
+/**
+ * `GameNotOutState({ season, body })`: the empty state every tab or page that
+ * needs the game shows for a ROSTER-ONLY season (listed for its events and
+ * rosters before its game is out; `lib/seasonGame.ts`). The heading is the
+ * shared `gameNotOutHeading(season)`; the caller passes the one plain line
+ * that says what starts once the game comes out. It is `EmptyState` with
+ * fixed heading copy, no new styling.
+ */
+export function GameNotOutState({ season, body }: { season: number; body: string }) {
+  return <EmptyState heading={gameNotOutHeading(season)} body={body} />;
 }
 
 /**

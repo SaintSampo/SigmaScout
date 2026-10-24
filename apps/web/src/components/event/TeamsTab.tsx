@@ -54,6 +54,8 @@ import {
 import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
+import { isRosterOnlySeason, NO_TEAMS_SIGNED_UP_HEADING, noTeamsSignedUpBody, rosterOnlyTeamsBanner } from "@/lib/seasonGame";
+import { DEFAULT_SEASON } from "@/lib/seasons";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -355,6 +357,10 @@ function cellClassName(columnId: string): string {
  * order — never derived from a fetched row's own `metrics` key order.
  * Column ids match the Teams table's own identity ids (`rank`,
  * `teamNumber`, `nickname`).
+ *
+ * `linkYear` is the `year` the team links carry. It is the event's season
+ * except for a roster-only season, whose team pages have nothing yet; there
+ * the caller passes `DEFAULT_SEASON`, the team's newest season with results.
  */
 function buildTeamsColumns(
   algorithmId: string,
@@ -362,6 +368,7 @@ function buildTeamsColumns(
   orderSource: TeamsOrderSource,
   isNarrow: boolean,
   tierCuts: SeasonTierCuts | undefined,
+  linkYear: number = season,
   metricFirst: boolean = isNarrow
 ) {
   // `algorithmId` reaching this function was already validated upstream
@@ -475,7 +482,7 @@ function buildTeamsColumns(
       header: "Team #",
       size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
-        <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
+        <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: linkYear, algorithm, tab: "overview" }}>
           {info.getValue()}
         </Link>
       ),
@@ -493,7 +500,7 @@ function buildTeamsColumns(
         <Link
           to="/team/$teamNumber"
           params={{ teamNumber: String(info.row.original.teamNumber) }}
-          search={{ year: season, algorithm, tab: "overview" }}
+          search={{ year: linkYear, algorithm, tab: "overview" }}
           title={info.getValue()}
           // `truncate` (not just `block max-w-full`): the CELL's own
           // `overflow:hidden`/`text-overflow:ellipsis` (`cellClassName`
@@ -548,15 +555,18 @@ export const TEAMS_SKELETON_ROW_COUNT = 8;
  * when the real data lands under a Sigma-enabled algorithm.
  */
 export function TeamsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
-  void season;
   // Total leads the metric block, matching the live table's own
   // `metricGroupColumns` order — never a re-typed literal that could
-  // drift from it.
-  const headers = ["Rank", "Team #", "Team Name", "Record", "RP", totalColumnHeader(algorithmId), ...METRIC_GROUPS.map((group) => group.label)];
+  // drift from it. A roster-only season shows only the two identity
+  // headers its live table has, so no rating header flashes in and out.
+  const rosterOnly = isRosterOnlySeason(season);
+  const headers = rosterOnly
+    ? ["Team #", "Team Name"]
+    : ["Rank", "Team #", "Team Name", "Record", "RP", totalColumnHeader(algorithmId), ...METRIC_GROUPS.map((group) => group.label)];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
-      <TierKeyRow />
+      {!rosterOnly && <TierKeyRow />}
       <div className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
@@ -587,6 +597,13 @@ export function TeamsTabSkeleton({ algorithmId, season }: { algorithmId: string;
  * Every string that originates in the published artifact — nickname, event
  * name, event key — renders as a plain JSX text node or a `title` attribute
  * value, never through a raw-markup sink.
+ *
+ * A ROSTER-ONLY season (`lib/seasonGame.ts`: listed before its game is out)
+ * has no ratings, so the tab shows only the Team # and Team Name columns in
+ * ascending team number order, one plain banner in place of the tier key and
+ * the order notices, and team links that open `DEFAULT_SEASON`. No sortable
+ * header remains, which is right for a list with nothing to rank. An empty
+ * roster there reads as "no teams signed up yet".
  */
 export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
   // Same sitewide breakpoint hook `TeamsTable.tsx` reuses — see that
@@ -594,13 +611,23 @@ export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
   // whole page, live on resize/rotation via `matchMedia`'s `change` event).
   const isNarrow = useIsMobile();
   const isF3Width = useIsF3MetricFirstWidth();
-  const { rows, orderSource } = useMemo(() => buildTeamsRows(artifact, algorithmId), [artifact, algorithmId]);
+  const rosterOnly = isRosterOnlySeason(season);
+  const { rows, orderSource } = useMemo(() => {
+    const model = buildTeamsRows(artifact, algorithmId);
+    return rosterOnly ? { ...model, rows: [...model.rows].sort(byTeamNumberAscending) } : model;
+  }, [artifact, algorithmId, rosterOnly]);
   const notice = teamsNoticeFor(artifact, orderSource);
   const algorithmLabel = algorithmDisplayLabel(algorithmId as PublishedAlgorithmId);
-  const columns = useMemo(
-    () => buildTeamsColumns(algorithmId, season, orderSource, isNarrow, artifact.tierCuts),
-    [algorithmId, season, orderSource, isNarrow, artifact.tierCuts],
-  );
+  const columns = useMemo(() => {
+    const all = buildTeamsColumns(algorithmId, season, orderSource, isNarrow, artifact.tierCuts, rosterOnly ? DEFAULT_SEASON : season);
+    if (!rosterOnly) return all;
+    // Identity columns only: a roster-only season has no rank, record, RP or rating to show.
+    return all.filter((column) => {
+      const def = column as { id?: string; accessorKey?: string };
+      const id = def.id ?? def.accessorKey;
+      return id === "teamNumber" || id === "nickname";
+    });
+  }, [algorithmId, season, orderSource, isNarrow, artifact.tierCuts, rosterOnly]);
 
   // Local component state by decision (quick task 261024-jvv): `null` is the
   // default order `buildTeamsRows` returned. The click handler and the
@@ -622,13 +649,25 @@ export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
 
   if (artifact.teams.length === 0) {
     const eventName = artifact.name ?? artifact.eventKey;
+    if (rosterOnly) {
+      return <EmptyState heading={NO_TEAMS_SIGNED_UP_HEADING} body={noTeamsSignedUpBody(eventName)} />;
+    }
     return <EmptyState heading={`No teams for ${eventName}`} body={`No teams found for ${eventName}. Check back later.`} />;
   }
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
-      <TierKeyRow />
-      {notice === "no-official" && (
+      {!rosterOnly && <TierKeyRow />}
+      {rosterOnly && (
+        <div
+          data-testid="teams-roster-only-banner"
+          className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
+        >
+          <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
+          <span>{rosterOnlyTeamsBanner(season)}</span>
+        </div>
+      )}
+      {!rosterOnly && notice === "no-official" && (
         <div
           data-testid="teams-fallback-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
@@ -637,7 +676,7 @@ export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
           <span>{teamsFallbackNotice(algorithmLabel)}</span>
         </div>
       )}
-      {(notice === "pre-event" || notice === "awaiting-official") && (
+      {!rosterOnly && (notice === "pre-event" || notice === "awaiting-official") && (
         <div
           data-testid="teams-pending-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
@@ -646,7 +685,7 @@ export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
           <span>{notice === "pre-event" ? teamsPreEventNotice(algorithmLabel) : teamsAwaitingOfficialNotice(algorithmLabel)}</span>
         </div>
       )}
-      {notice === "counted" && (
+      {!rosterOnly && notice === "counted" && (
         <div
           data-testid="teams-live-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
