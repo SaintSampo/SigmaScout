@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openCorpus, upsertEvent, upsertEventTeam, upsertTeam, type Corpus } from "../packages/corpus/db.js";
+import { openCorpus, openCorpusReadOnly, upsertEvent, upsertEventTeam, upsertTeam, type Corpus } from "../packages/corpus/db.js";
 import type { CorpusEvent } from "../packages/ingest/normalize.js";
 import { buildEventArtifact, buildEventsArtifact, buildTeamsArtifact } from "../packages/harness/publish.js";
 import { buildAlgorithmsManifest, PUBLISHED_ALGORITHM_MODULES } from "../packages/harness/manifests.js";
@@ -118,8 +118,8 @@ describe("verifyRosterSeasons", () => {
   });
 
   function deps(fetchFresh: VerifyRosterSeasonsDeps["fetchFresh"]): VerifyRosterSeasonsDeps {
-    // The verifier closes what openDb hands it, so hand it a fresh read of the same file each time.
-    return { fetchFresh, openDb: () => openCorpus(join(dir, "corpus.sqlite")), nowMs: NOW_MS, log: () => undefined };
+    // The verifier closes what openDb hands it, so hand it a fresh read-only handle on the same file each time.
+    return { fetchFresh, openDb: () => openCorpusReadOnly(join(dir, "corpus.sqlite")), nowMs: NOW_MS, log: () => undefined };
   }
 
   it("returns no problems and a VERIFIED line when every 2027 object matches the corpus", async () => {
