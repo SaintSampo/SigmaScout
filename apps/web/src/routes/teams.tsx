@@ -14,6 +14,8 @@ import { TeamsFilters } from "../components/teams-table/TeamsFilters.js";
 import { applyTeamFilters, type TeamFilters as TeamFiltersModel } from "../components/teams-table/teamFilterModel.js";
 import { TeamsBubbleChart } from "../components/teams-table/TeamsBubbleChart.js";
 import { TierKeyRow } from "../components/team/TierKeyRow.js";
+import { GameNotOutState } from "../components/StateViews.js";
+import { gameNotOutTeamsBody, isRosterOnlySeason } from "../lib/seasonGame.js";
 import type { BubbleColorBy, BubblePoint } from "../components/teams-table/teamsBubbleModel.js";
 
 export const Route = createFileRoute("/teams")({
@@ -51,6 +53,11 @@ function TeamsPage() {
   // version.
   const version = useAlgorithmVersion(algorithm);
 
+  // A ROSTER-ONLY season (2027 until its game is out, quick task 261024-lfa) has no ratings, and the
+  // teams list the publisher writes for it is empty. The query stays off and the page shows the plain
+  // game not out state instead. The ribbon search box still loads that empty list on its own.
+  const rosterOnly = isRosterOnlySeason(year);
+
   // `placeholderData: keepPreviousData` keeps the PREVIOUS artifact on
   // screen while a year/algorithm switch's new query resolves, rather than
   // dropping to the loading skeleton (which collapses the virtualized
@@ -61,7 +68,7 @@ function TeamsPage() {
   // (`MetricValue`'s own absent-metric case) until fresh data lands.
   const { data, isPending, error, refetch } = useQuery({
     ...teamsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
-    enabled: version !== undefined,
+    enabled: version !== undefined && !rosterOnly,
     placeholderData: keepPreviousData,
   });
 
@@ -199,93 +206,105 @@ function TeamsPage() {
       <div className="mx-auto flex w-fit max-w-full flex-col">
         <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
           <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams {year}</h1>
-          <div className="flex items-center gap-[var(--spacing-sm)]">
-            {/*
-              Rendered UNCONDITIONALLY, unlike the `cols` toggle below (gated
-              on `canToggleView`) — the chart view must always be reachable
-              regardless of which algorithm is selected. `aria-pressed`
-              carries the state; the visible LABEL stays the stable string
-              "Bubble chart" in both states so a screen-reader user is not
-              told the state twice. The pressed style (accent border + inset
-              background) gives the state a visible signal too, not
-              announced-only.
-            */}
-            <button
-              type="button"
-              data-testid="teams-chart-toggle"
-              onClick={handleChartToggle}
-              aria-pressed={isChart}
-              className={
-                isChart
-                  ? "text-role-label rounded-md border border-[var(--color-accent)] bg-[var(--color-bg-inset)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)]"
-                  : "text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
-              }
-            >
-              Bubble chart
-            </button>
-            {/* Hidden in chart mode -- it changes only table columns and would be a control with no effect there. */}
-            {canToggleView && !isChart && (
+          {!rosterOnly && (
+            <div className="flex items-center gap-[var(--spacing-sm)]">
+              {/*
+                Rendered UNCONDITIONALLY, unlike the `cols` toggle below (gated
+                on `canToggleView`) — the chart view must always be reachable
+                regardless of which algorithm is selected. `aria-pressed`
+                carries the state; the visible LABEL stays the stable string
+                "Bubble chart" in both states so a screen-reader user is not
+                told the state twice. The pressed style (accent border + inset
+                background) gives the state a visible signal too, not
+                announced-only.
+              */}
               <button
                 type="button"
-                data-testid="teams-view-toggle"
-                onClick={handleViewToggle}
-                className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+                data-testid="teams-chart-toggle"
+                onClick={handleChartToggle}
+                aria-pressed={isChart}
+                className={
+                  isChart
+                    ? "text-role-label rounded-md border border-[var(--color-accent)] bg-[var(--color-bg-inset)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)]"
+                    : "text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+                }
               >
-                {view === "components" ? "◂ Grouped view" : "All components ▸"}
+                Bubble chart
               </button>
-            )}
-          </div>
+              {/* Hidden in chart mode -- it changes only table columns and would be a control with no effect there. */}
+              {canToggleView && !isChart && (
+                <button
+                  type="button"
+                  data-testid="teams-view-toggle"
+                  onClick={handleViewToggle}
+                  className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+                >
+                  {view === "components" ? "◂ Grouped view" : "All components ▸"}
+                </button>
+              )}
+            </div>
+          )}
         </div>
         {/*
-          Gated on `data !== undefined` (the artifact fetch itself
-          succeeded), NOT on `status === "success"` — that local `status`
-          also folds in the filtered row count, and hiding the controls the
-          moment a filter empties the table would strand the reader with no
-          way back except the empty state's own Clear-filters link. Option
-          lists derive from `data.teams` UNFILTERED, so selecting a country
-          never empties the district list.
+          Branches BEFORE any markup that reads data: with the query disabled,
+          keepPreviousData can still hand back the previous year's artifact.
         */}
-        {data && (
-          <div className="mb-[var(--spacing-md)]">
-            <TeamsFilters rows={data.teams} filters={filters} onFiltersChange={handleFiltersChange} onClearFilters={handleClearFilters} />
-          </div>
-        )}
-        {/* Table mode only: the bubble chart carries its own tier legend. */}
-        {data && !isChart && (
-          <div className="mb-[var(--spacing-sm)]">
-            <TierKeyRow />
-          </div>
-        )}
-        {/*
-          `status === "success"` gates the chart body rather than the chart
-          component duplicating the loading skeleton, the error state with
-          its retry, and the filtered-to-zero empty state with its
-          Clear-filters link — `TeamsTable` already owns all three. Falling
-          back to `TeamsTable` for every non-success status means chart mode
-          inherits those behaviours for free, with no second, driftable
-          implementation of any of them.
-        */}
-        {isChart && status === "success" ? (
-          // The centred column is `mx-auto flex w-fit`, which sizes to its
-          // widest child — the svg has no intrinsic width to give it, so
-          // without a declared width here the column collapses to zero.
-          <div className="w-[1100px] max-w-full">
-            <TeamsBubbleChart rows={rows} onSelectTeam={handleSelectTeam} colorBy={colorBy} onColorByChange={handleColorByChange} />
-          </div>
+        {rosterOnly ? (
+          <GameNotOutState season={year} body={gameNotOutTeamsBody(year)} />
         ) : (
-          <TeamsTable
-            status={status}
-            rows={rows}
-            algorithmId={algorithm}
-            season={year}
-            view={view}
-            sortKey={effectiveSortKey}
-            sortDirection={sortDir}
-            onSortChange={handleSortChange}
-            onRetry={() => void refetch()}
-            hasActiveFilter={hasActiveFilter}
-            onClearFilters={handleClearFilters}
-          />
+          <>
+            {/*
+              Gated on `data !== undefined` (the artifact fetch itself
+              succeeded), NOT on `status === "success"` — that local `status`
+              also folds in the filtered row count, and hiding the controls the
+              moment a filter empties the table would strand the reader with no
+              way back except the empty state's own Clear-filters link. Option
+              lists derive from `data.teams` UNFILTERED, so selecting a country
+              never empties the district list.
+            */}
+            {data && (
+              <div className="mb-[var(--spacing-md)]">
+                <TeamsFilters rows={data.teams} filters={filters} onFiltersChange={handleFiltersChange} onClearFilters={handleClearFilters} />
+              </div>
+            )}
+            {/* Table mode only: the bubble chart carries its own tier legend. */}
+            {data && !isChart && (
+              <div className="mb-[var(--spacing-sm)]">
+                <TierKeyRow />
+              </div>
+            )}
+            {/*
+              `status === "success"` gates the chart body rather than the chart
+              component duplicating the loading skeleton, the error state with
+              its retry, and the filtered-to-zero empty state with its
+              Clear-filters link — `TeamsTable` already owns all three. Falling
+              back to `TeamsTable` for every non-success status means chart mode
+              inherits those behaviours for free, with no second, driftable
+              implementation of any of them.
+            */}
+            {isChart && status === "success" ? (
+              // The centred column is `mx-auto flex w-fit`, which sizes to its
+              // widest child — the svg has no intrinsic width to give it, so
+              // without a declared width here the column collapses to zero.
+              <div className="w-[1100px] max-w-full">
+                <TeamsBubbleChart rows={rows} onSelectTeam={handleSelectTeam} colorBy={colorBy} onColorByChange={handleColorByChange} />
+              </div>
+            ) : (
+              <TeamsTable
+                status={status}
+                rows={rows}
+                algorithmId={algorithm}
+                season={year}
+                view={view}
+                sortKey={effectiveSortKey}
+                sortDirection={sortDir}
+                onSortChange={handleSortChange}
+                onRetry={() => void refetch()}
+                hasActiveFilter={hasActiveFilter}
+                onClearFilters={handleClearFilters}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

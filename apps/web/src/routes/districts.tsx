@@ -6,7 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DEFAULT_DISTRICT_TAB, DISTRICT_TABS, DistrictsSearchSchema, type DistrictTab } from "../lib/searchParams.js";
 import { districtQueryOptions, districtsIndexQueryOptions } from "../lib/api/districts.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
-import { EmptyState, ErrorState } from "../components/StateViews.js";
+import { EmptyState, ErrorState, GameNotOutState } from "../components/StateViews.js";
+import { GAME_NOT_OUT_LOCKS_BODY, isRosterOnlySeason } from "../lib/seasonGame.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
 import { ChampLocksLedger } from "../components/districts/ChampLocksLedger.js";
 import { DistrictLedger } from "../components/districts/DistrictLedger.js";
@@ -142,7 +143,12 @@ function DistrictsPage() {
   const { year, algorithm, district, tab } = Route.useSearch();
   const navigate = Route.useNavigate();
 
-  const indexQuery = useQuery({ ...districtsIndexQueryOptions({ year }), placeholderData: keepPreviousData });
+  // A ROSTER-ONLY season (2027 until its game is out, quick task 261024-lfa) has no district file and no
+  // district index: locks need the game's rules. Both queries stay off and the page shows the plain game
+  // not out state. The stale-district effect below does nothing while the index is off.
+  const rosterOnly = isRosterOnlySeason(year);
+
+  const indexQuery = useQuery({ ...districtsIndexQueryOptions({ year }), enabled: !rosterOnly, placeholderData: keepPreviousData });
 
   // District keys are year-prefixed ("2026fnc"), so a ribbon year change
   // leaves `?district=` pointing at the old season. Once this year's index
@@ -166,7 +172,7 @@ function DistrictsPage() {
   // exists for the selected year.
   const districtQuery = useQuery({
     ...districtQueryOptions({ districtKey: effectiveDistrict ?? "", year }),
-    enabled: effectiveDistrict !== undefined,
+    enabled: effectiveDistrict !== undefined && !rosterOnly,
     placeholderData: keepPreviousData,
   });
 
@@ -229,18 +235,21 @@ function DistrictsPage() {
     <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       <h1 className="text-role-heading mb-[var(--spacing-md)]">Locks</h1>
 
-      {indexIs404 && (
+      {/* Branches before any markup that reads the index: keepPreviousData can still hand back the previous year's. */}
+      {rosterOnly && <GameNotOutState season={year} body={GAME_NOT_OUT_LOCKS_BODY} />}
+
+      {!rosterOnly && indexIs404 && (
         <EmptyState
           heading="No published district data yet"
           body="This usually means districts haven't been published for this year yet. Check back shortly."
         />
       )}
 
-      {!indexIs404 && indexOtherError && <ErrorState resource="district list" year={year} onRetry={() => void indexQuery.refetch()} />}
+      {!rosterOnly && !indexIs404 && indexOtherError && <ErrorState resource="district list" year={year} onRetry={() => void indexQuery.refetch()} />}
 
-      {!indexIs404 && !indexOtherError && (indexQuery.isPending || indexQuery.data === undefined) && <DistrictsIndexSkeleton />}
+      {!rosterOnly && !indexIs404 && !indexOtherError && (indexQuery.isPending || indexQuery.data === undefined) && <DistrictsIndexSkeleton />}
 
-      {!indexIs404 && !indexOtherError && indexQuery.data !== undefined && (
+      {!rosterOnly && !indexIs404 && !indexOtherError && indexQuery.data !== undefined && (
         <>
           <div className="mb-[var(--spacing-lg)]">
             <DistrictSelect districts={indexQuery.data.districts} value={effectiveDistrict} onValueChange={handleDistrictChange} />

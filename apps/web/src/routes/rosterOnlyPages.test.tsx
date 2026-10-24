@@ -197,7 +197,8 @@ describe("roster-only season pages (revealed state)", () => {
     await waitFor(() => expect(screen.getByText(gameNotOutHeading(ROSTER_SEASON))).toBeDefined());
     expect(screen.getByRole("heading", { level: 1, name: "Locks" })).toBeDefined();
     expect(screen.getByText(GAME_NOT_OUT_LOCKS_BODY)).toBeDefined();
-    await settle(urls);
+    // The Locks page reads no algorithm version, so there is no manifest to wait for: give any query a moment to fire.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(urls.filter((u) => u.includes(`/v1/districts/${ROSTER_SEASON}`) || u.includes(`/v1/district/${ROSTER_SEASON}`))).toEqual([]);
     expect(screen.queryByRole("group", { name: "District" })).toBeNull();
     expect(screen.queryByText("No published district data yet")).toBeNull();
