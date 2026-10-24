@@ -23,6 +23,15 @@ import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } fr
 import { DEFAULT_EVENT_TAB, RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
 import { Route as EventRouteImport } from "./event.$eventKey.js";
+import { DEFAULT_SEASON } from "../lib/seasons.js";
+import {
+  GAME_NOT_OUT_MATCHES_BODY,
+  GAME_NOT_OUT_SIMULATION_BODY,
+  gameNotOutHeading,
+  NO_TEAMS_SIGNED_UP_HEADING,
+  noTeamsSignedUpBody,
+  rosterOnlyTeamsBanner,
+} from "../lib/seasonGame.js";
 
 const EPA_MANIFEST_ENTRY = { id: "epa", version: "7.0.0+baseline", codeVersion: "7.0.0", paramSetName: "baseline" };
 
@@ -573,5 +582,92 @@ describe("/event/$eventKey route — the event Teams tab column sort (quick 2610
     expect(search.tab).toBe("teams");
     expect("sort" in search).toBe(false);
     expect("sortDir" in search).toBe(false);
+  });
+});
+
+describe("/event/$eventKey route — a roster-only season (2027)", () => {
+  const ROSTER_EVENT_NAME = "Abca Regional";
+  const ROSTER_TEAMS = [
+    { teamKey: "frc1114", teamNumber: 1114, nickname: "Simbotics", metrics: {} },
+    { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics: {} },
+    { teamKey: "frc4414", teamNumber: 4414, nickname: "HighTide", metrics: {} },
+  ];
+
+  function rosterArtifact(teams: readonly unknown[] = ROSTER_TEAMS) {
+    return eventArtifactResponse({
+      eventKey: "2027abca",
+      season: 2027,
+      name: ROSTER_EVENT_NAME,
+      startDate: "2027-03-04",
+      matches: [],
+      upcoming: [],
+      teams,
+    });
+  }
+
+  function fetchedUrls(): string[] {
+    return (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => String(call[0]));
+  }
+
+  it("the Teams tab lists the signed up teams by number under a plain no ratings banner, with no rating columns, no tier key, and team links that open the default season", async () => {
+    stubFetch(() => rosterArtifact());
+    renderEventRoute("/event/2027abca?algorithm=spr");
+
+    const banner = await screen.findByTestId("teams-roster-only-banner");
+    expect(banner.textContent).toBe(rosterOnlyTeamsBanner(2027));
+    expect(screen.getByRole("heading", { name: ROSTER_EVENT_NAME })).toBeTruthy();
+
+    const rows = screen.getAllByTestId("teams-row");
+    expect(rows.map((row) => row.getAttribute("data-team-number"))).toEqual(["254", "1114", "4414"]);
+
+    expect(screen.queryByTestId("teams-header-total")).toBeNull();
+    expect(screen.queryByTestId("teams-header-rank")).toBeNull();
+    expect(screen.queryByText("Auto")).toBeNull();
+    expect(screen.queryByText("Teleop")).toBeNull();
+    expect(screen.queryByText("Endgame")).toBeNull();
+    expect(screen.queryByTestId("tier-key-row")).toBeNull();
+    expect(screen.queryByTestId("teams-pending-banner")).toBeNull();
+
+    const teamLinks = screen.getAllByTestId("teams-cell-teamNumber").map((cell) => cell.querySelector("a"));
+    expect(teamLinks).toHaveLength(3);
+    for (const link of teamLinks) {
+      expect(link?.getAttribute("href")).toContain(`year=${DEFAULT_SEASON}`);
+    }
+  });
+
+  it("?tab=simulation shows the plain game not out state and never requests a presim sidecar", async () => {
+    stubFetch(() => rosterArtifact());
+    renderEventRoute("/event/2027abca?algorithm=spr&tab=simulation");
+
+    const panel = await screen.findByTestId("simulation-panel");
+    await waitFor(() => expect(panel.textContent).toContain(gameNotOutHeading(2027)));
+    expect(panel.textContent).toContain(GAME_NOT_OUT_SIMULATION_BODY);
+    expect(fetchedUrls().some((url) => url.includes("/event/2027abca/"))).toBe(true);
+    expect(fetchedUrls().some((url) => url.includes("/presim/"))).toBe(false);
+  });
+
+  it("non vacuity: a 2024 event on the Simulation tab does request its presim sidecar", async () => {
+    stubFetch(() => eventArtifactResponse());
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=simulation");
+
+    await waitFor(() => expect(fetchedUrls().some((url) => url.includes("/presim/"))).toBe(true));
+  });
+
+  it.each(["quals", "elims"] as const)("?tab=%s shows the plain game not out state with the match predictions line", async (tab) => {
+    stubFetch(() => rosterArtifact());
+    renderEventRoute(`/event/2027abca?algorithm=spr&tab=${tab}`);
+
+    const panel = await screen.findByTestId(`${tab}-panel`);
+    await waitFor(() => expect(panel.textContent).toContain(gameNotOutHeading(2027)));
+    expect(panel.textContent).toContain(GAME_NOT_OUT_MATCHES_BODY);
+  });
+
+  it("an empty roster shows the plain no teams signed up state with the event name", async () => {
+    stubFetch(() => rosterArtifact([]));
+    renderEventRoute("/event/2027abca?algorithm=spr");
+
+    await screen.findByText(NO_TEAMS_SIGNED_UP_HEADING);
+    expect(screen.getByText(noTeamsSignedUpBody(ROSTER_EVENT_NAME))).toBeTruthy();
+    expect(screen.queryByTestId("teams-roster-only-banner")).toBeNull();
   });
 });
