@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-24T18:50:11.095Z"
+last_updated: "2026-10-24T21:00:37.243Z"
 last_activity: 2026-10-24
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -788,6 +788,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 352 | Push instead of poll: TBA webhook fetch handler at /tba-webhook runs a one-event tick under a 20 s deadline; firehose is open to any account; secret and registration left to Jacob | 2026-10-20 | a4a79979 | [261019-ooj-push-instead-of-poll-a-worker-fetch-hand](./quick/261019-ooj-push-instead-of-poll-a-worker-fetch-hand/) |
 | 353 | Event page: remove the Breakdown tab, rename Insights to Teams, add column sorting to the Teams table | 2026-10-24 | e4bab555 | [261024-jvv-event-page-remove-the-breakdown-tab-rena](./quick/261024-jvv-event-page-remove-the-breakdown-tab-rena/) |
 | 354 | Events page Matches column updates live: the Worker patches events list rows it folds or prices, and the page polls the list 60 s while any event is in its 7 day window | 2026-10-24 | 878e2e90 | [261024-jdz-fix-events-page-matches-column-not-updat](./quick/261024-jdz-fix-events-page-matches-column-not-updat/) |
+| 355 | Add 2027 as a roster-only season: events, rosters and the year dropdown (2026 stays default); one command publish:roster-seasons left for Jacob; game rules, simulations and Locks for 2027 wait for January | 2026-10-24 | 63f2d6bc | [261024-lfa-add-2027-season](./quick/261024-lfa-add-2027-season/) |
 
 ### Roadmap Evolution
 
