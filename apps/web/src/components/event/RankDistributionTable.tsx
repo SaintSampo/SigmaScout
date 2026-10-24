@@ -152,7 +152,7 @@ const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
  * every row's team-page links share the same values the caller passed to the
  * table. `algorithmId` is typed as plain `string` here and cast to
  * `PublishedAlgorithmId` at the one call site that needs it — the same
- * loose-cast escape hatch `InsightsTab.tsx` already uses for
+ * loose-cast escape hatch `TeamsTab.tsx` already uses for
  * a value the type system widened crossing a component-prop boundary (it was
  * already validated upstream through `RootSearchSchema.algorithm` before this
  * table ever rendered).
@@ -162,7 +162,7 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
       header: RANK_TABLE_HEADERS[0],
-      // Same derivation InsightsTab.tsx sizes its own Team # column at; the
+      // Same derivation TeamsTab.tsx sizes its own Team # column at; the
       // narrow width is the shared exported constant, never a new literal.
       size: isNarrow ? RANK_COLUMN_WIDTHS.narrow.teamNumber : RANK_COLUMN_WIDTHS.wide.teamNumber,
       cell: (info) => (

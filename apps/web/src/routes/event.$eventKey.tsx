@@ -10,7 +10,7 @@ import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { EventHeader, EventHeaderSkeleton } from "../components/event/EventHeader.js";
-import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
+import { TeamsTab, TeamsTabSkeleton } from "../components/event/TeamsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
@@ -49,7 +49,7 @@ export const Route = createFileRoute("/event/$eventKey")({
  * `isSimulationDisabled` below), a second narrowing this array cannot express
  * on its own.
  */
-const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "quals", "alliances", "elims", "simulation"];
+const REGISTERED_EVENT_TABS: readonly EventTab[] = ["teams", "quals", "alliances", "elims", "simulation"];
 
 /**
  * `isAlliancesDisabled` and `isSimulationDisabled` extend this narrowing
@@ -223,7 +223,7 @@ function EventPage() {
   // — never the `?year=` search param, so a hand-edited year cannot produce
   // a mismatched column set. Both panels below pass `artifact.season` to
   // their populated renderer for that reason.
-  function renderInsightsContent() {
+  function renderTeamsContent() {
     return renderTabState({
       is404,
       error,
@@ -232,8 +232,8 @@ function EventPage() {
       eventKey,
       season,
       onRetry: () => void refetch(),
-      renderPending: () => <InsightsTabSkeleton algorithmId={algorithm} season={season} />,
-      renderPopulated: (artifact) => <InsightsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+      renderPending: () => <TeamsTabSkeleton algorithmId={algorithm} season={season} />,
+      renderPopulated: (artifact) => <TeamsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
     });
   }
 
@@ -323,7 +323,7 @@ function EventPage() {
     });
   }
 
-  // The widest event tables (the Insights tab's identity block plus its metric
+  // The widest event tables (the event Teams tab's identity block plus its metric
   // columns) are wider than the shared `max-w-[1200px]` (below) was ever sized
   // for. Each table declares an EXACT pixel `width` (never `"100%"`) and scrolls
   // inside its own card, so the outer page cap below can stay constant for
@@ -360,8 +360,8 @@ function EventPage() {
             a reader no cue that tabs were off-screen at all.
           */}
           <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
-            <TabsTrigger value="insights" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-              Insights
+            <TabsTrigger value="teams" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
+              Teams
             </TabsTrigger>
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Qualifications
@@ -403,8 +403,8 @@ function EventPage() {
             </span>
           </TabsList>
         </div>
-        <TabsContent value="insights" data-testid="insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
-          {renderInsightsContent()}
+        <TabsContent value="teams" data-testid="teams-panel" className="min-w-0 mt-[var(--spacing-lg)]">
+          {renderTeamsContent()}
         </TabsContent>
         <TabsContent value="quals" data-testid="quals-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderQualsContent()}

@@ -35,7 +35,7 @@ async function fetchEventArtifact(request: APIRequestContext, eventKey: string, 
 // ---------------------------------------------------------------------------
 
 test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + control", () => {
-  test("2025isios (offseason, reachable only via --include-offseason and a republish): no team carries a rank, and the Insights tab renders the fallback banner", async ({
+  test("2025isios (offseason, reachable only via --include-offseason and a republish): no team carries a rank, and the event Teams tab renders the fallback banner", async ({
     page,
     request,
   }) => {
@@ -47,8 +47,8 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
     const anyRanked = artifact.teams.some((team) => team.rank !== undefined);
     expect(anyRanked, "2025isios unexpectedly carries a rank on at least one team — the no-ranking fallback fixture no longer exhibits the shape under test").toBe(false);
 
-    await page.goto("/event/2025isios?tab=insights&algorithm=spr", { waitUntil: "networkidle" });
-    const banner = page.getByTestId("insights-fallback-banner");
+    await page.goto("/event/2025isios?tab=teams&algorithm=spr", { waitUntil: "networkidle" });
+    const banner = page.getByTestId("teams-fallback-banner");
     await expect(banner).toBeVisible();
     const text = await banner.innerText();
     expect(text.trim().length).toBeGreaterThan(0);
@@ -57,16 +57,16 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
   // The control: without this case, a build that ALWAYS renders the fallback
   // banner (a bug that would make the positive case above pass regardless of
   // whether the discriminant logic actually works) would go undetected.
-  test("2024new: every one of its 75 teams carries a rank, and the Insights tab renders NO fallback banner", async ({ page, request }) => {
+  test("2024new: every one of its 75 teams carries a rank, and the event Teams tab renders NO fallback banner", async ({ page, request }) => {
     const version = await resolveSprVersion(request);
     const artifact = await fetchEventArtifact(request, "2024new", version);
     expect(artifact.teams.length).toBe(75);
     const allRanked = artifact.teams.every((team) => team.rank !== undefined);
     expect(allRanked, "2024new no longer publishes a rank on every team — the no-ranking control fixture no longer exhibits the shape under test").toBe(true);
 
-    await page.goto("/event/2024new?tab=insights&algorithm=spr", { waitUntil: "networkidle" });
-    await expect(page.getByTestId("insights-row").first()).toBeVisible();
-    await expect(page.getByTestId("insights-fallback-banner")).toHaveCount(0);
+    await page.goto("/event/2024new?tab=teams&algorithm=spr", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("teams-row").first()).toBeVisible();
+    await expect(page.getByTestId("teams-fallback-banner")).toHaveCount(0);
   });
 });
 

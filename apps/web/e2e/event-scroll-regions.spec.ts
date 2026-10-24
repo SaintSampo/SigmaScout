@@ -36,7 +36,7 @@ const TAB_STRIP = '[data-testid="event-tab-strip-scroll"]';
 const STRUCTURAL_EVENT_KEY = "2024new";
 
 const TAB_SCROLL_TESTID: Record<string, string> = {
-  insights: "insights-table-scroll",
+  teams: "teams-table-scroll",
   quals: "quals-table-scroll",
   alliances: "alliances-table-scroll",
   elims: "elims-table-scroll",
@@ -51,7 +51,7 @@ const TAB_SCROLL_TESTID: Record<string, string> = {
 // shared `beforeEach` below) rather than a parallel, weaker structural
 // block of its own — the tab's scroll region does not exist until a run
 // completes.
-const TABS = ["insights", "quals", "alliances", "elims", "simulation"] as const;
+const TABS = ["teams", "quals", "alliances", "elims", "simulation"] as const;
 
 function eventUrl(eventKey: string, tab: string): string {
   return `/event/${eventKey}?algorithm=spr&tab=${tab}`;
@@ -278,10 +278,10 @@ for (const tab of TABS) {
 }
 
 // ---------------------------------------------------------------------------
-// E3 — Insights, the widest roster that exists (78 at 2023cur, 75 at 2024new)
+// E3 — Teams, the widest roster that exists (78 at 2023cur, 75 at 2024new)
 // ---------------------------------------------------------------------------
 
-test.describe("E3 — Insights tab at the widest real rosters", () => {
+test.describe("E3 — event Teams tab at the widest real rosters", () => {
   const CASES = [
     { eventKey: "2023cur", rowCount: 78 },
     { eventKey: "2024new", rowCount: 75 },
@@ -289,18 +289,18 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 
   for (const { eventKey, rowCount } of CASES) {
     test(`${eventKey}: exactly ${rowCount} rows, every column including rank and Team # scrolls with a full-width drag (no sticky columns)`, async ({ page }) => {
-      await page.goto(eventUrl(eventKey, "insights"), { waitUntil: "networkidle" });
-      const region = page.locator('[data-testid="insights-table-scroll"]');
+      await page.goto(eventUrl(eventKey, "teams"), { waitUntil: "networkidle" });
+      const region = page.locator('[data-testid="teams-table-scroll"]');
       await region.waitFor({ state: "visible", timeout: 15_000 });
 
-      const rows = page.getByTestId("insights-row");
+      const rows = page.getByTestId("teams-row");
       await expect(rows.first()).toBeVisible();
       expect(await rows.count()).toBe(rowCount);
 
       await assertOverflows(region);
 
       const headerIds = ["rank", "teamNumber", "nickname", "record"] as const;
-      const headers = headerIds.map((id) => page.getByTestId(`insights-header-${id}`));
+      const headers = headerIds.map((id) => page.getByTestId(`teams-header-${id}`));
 
       const before = await Promise.all(headers.map((h) => h.boundingBox()));
       if (before.some((b) => b === null)) throw new Error("header cell missing a bounding box");
@@ -325,11 +325,11 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 // 3f160098, pinned by event.$eventKey.test.tsx's five-tabs-in-order test.
 // ---------------------------------------------------------------------------
 
-const EXPECTED_TAB_LABELS = ["Insights", "Qualifications", "Alliances", "Playoffs", "Simulation"] as const;
+const EXPECTED_TAB_LABELS = ["Teams", "Qualifications", "Alliances", "Playoffs", "Simulation"] as const;
 
 test.describe("E2 — the tab strip: 5 tabs, wrapping at phone width", () => {
   test(`${STRUCTURAL_EVENT_KEY}: exactly 5 role="tab" elements in the declared order, and the strip does not overflow at phone width`, async ({ page }) => {
-    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
+    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "teams"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
 
@@ -346,7 +346,7 @@ test.describe("E2 — the tab strip: 5 tabs, wrapping at phone width", () => {
   });
 
   test("each trigger's label text node occupies exactly one line box, and no trigger's content is clipped inside its own box", async ({ page }) => {
-    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
+    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "teams"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
 
@@ -374,7 +374,7 @@ test.describe("E2 — the tab strip: 5 tabs, wrapping at phone width", () => {
   });
 
   test("without any scrolling, the Simulation trigger is reachable — its bounding box sits entirely inside the viewport, with non-empty text", async ({ page }) => {
-    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
+    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "teams"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
 

@@ -136,8 +136,11 @@ const ELIMS_PLAYED_MATCH = {
   actualBlueScore: 90,
 };
 
+/** Retired event tab ids, which existed once and now land on the default Teams tab: `insights` was renamed to `teams`, `breakdown` was removed (quick task 261024-jvv). */
+const RETIRED_EVENT_TAB_IDS = ["insights", "breakdown"] as const;
+
 interface TabCase {
-  readonly tab: "insights" | "quals" | "alliances" | "elims";
+  readonly tab: "teams" | "quals" | "alliances" | "elims";
   readonly triggerName: string;
   readonly scrollTestId: string;
   readonly artifact: () => Response;
@@ -145,7 +148,7 @@ interface TabCase {
 
 /** One case per registered tab whose 404/500/pending/panel/scroll-sibling/click-preserves-search behaviour is otherwise byte-identical. Simulation is excluded — its SPR-gating gets its own describe block below. */
 const TAB_CASES: readonly TabCase[] = [
-  { tab: "insights", triggerName: "Insights", scrollTestId: "insights-table-scroll", artifact: () => eventArtifactResponse() },
+  { tab: "teams", triggerName: "Teams", scrollTestId: "teams-table-scroll", artifact: () => eventArtifactResponse() },
   { tab: "quals", triggerName: "Qualifications", scrollTestId: "quals-table-scroll", artifact: () => eventArtifactResponse({ matches: [], upcoming: [] }) },
   {
     tab: "alliances",
@@ -185,7 +188,7 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
   });
 
-  // Insights renders `[data-slot="skeleton"]` without a
+  // The event Teams tab renders `[data-slot="skeleton"]` without a
   // `-table-scroll` testid in its pending state; Quals/Alliances/Elims
   // (all built on `EventMatchTableSkeleton`) render both. Waiting on the
   // skeleton slot rather than `scrollTestId` covers every case without
@@ -204,7 +207,7 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
     renderEventRoute(`/event/2024casf?algorithm=spr&tab=${tab}`);
 
     await waitFor(() => expect(screen.getByTestId(`${tab}-panel`).hasAttribute("hidden")).toBe(false));
-    const otherTab = tab === "insights" ? "quals" : "insights";
+    const otherTab = tab === "teams" ? "quals" : "teams";
     expect(screen.getByTestId(`${otherTab}-panel`).hasAttribute("hidden")).toBe(true);
   });
 
@@ -224,7 +227,7 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
 
   it.each(TAB_CASES)("$tab: clicking the trigger navigates to ?tab=$tab while preserving the existing year and algorithm search params", async ({ tab, triggerName, artifact }) => {
     stubFetch(artifact);
-    const startTab = tab === "insights" ? "quals" : "insights";
+    const startTab = tab === "teams" ? "quals" : "teams";
     const router = renderEventRoute(`/event/2024casf?algorithm=spr&year=2024&tab=${startTab}`);
 
     const trigger = await screen.findByRole("tab", { name: triggerName });
@@ -247,25 +250,25 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
 describe("/event/$eventKey route — tab strip and states", () => {
   // Merges what were once four duplicated "tabs in order from first
   // paint" tests into one.
-  it("exactly five tabs exist, named Insights, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (Simulation is the last of EVENT_TABS)", async () => {
+  it("exactly five tabs exist, named Teams, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (Simulation is the last of EVENT_TABS)", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr");
 
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Qualifications", "Alliances", "Playoffs", "Simulation"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Teams", "Qualifications", "Alliances", "Playoffs", "Simulation"]);
   });
 
-  it("DEFAULT_EVENT_TAB is the string 'insights'", () => {
-    expect(DEFAULT_EVENT_TAB).toBe("insights");
+  it("DEFAULT_EVENT_TAB is the string 'teams'", () => {
+    expect(DEFAULT_EVENT_TAB).toBe("teams");
   });
 
-  // A bare event URL renders the Insights panel — the default tab.
-  it("Test 5: a bare event URL (no ?tab=) renders the Insights panel, not the Qualifications panel", async () => {
+  // A bare event URL renders the Teams panel — the default tab.
+  it("Test 5: a bare event URL (no ?tab=) renders the Teams panel, not the Qualifications panel", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr");
 
-    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    await waitFor(() => expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(false));
     expect(screen.getByTestId("quals-panel").hasAttribute("hidden")).toBe(true);
   });
 
@@ -284,26 +287,26 @@ describe("/event/$eventKey route — tab strip and states", () => {
 
   // A link carrying a retired tab id resolves to the default tab through
   // `EventSearchSchema`'s `.catch()`, never to an empty panel.
-  it("Test 7: a retired ?tab=breakdown link renders the Insights panel as active", async () => {
+  it.each(RETIRED_EVENT_TAB_IDS)("Test 7: a retired ?tab=%s link renders the Teams panel as active", async (retiredId) => {
     stubFetch(() => eventArtifactResponse());
-    renderEventRoute("/event/2024casf?algorithm=spr&tab=breakdown");
+    renderEventRoute(`/event/2024casf?algorithm=spr&tab=${retiredId}`);
 
-    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    await waitFor(() => expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(false));
     expect(screen.getByTestId("quals-panel").hasAttribute("hidden")).toBe(true);
   });
 });
 
-describe("/event/$eventKey route — the Insights tab registered", () => {
-  it("?tab=insights in the pending state renders the Insights skeleton and zero progressbar elements", async () => {
+describe("/event/$eventKey route — the event Teams tab registered", () => {
+  it("?tab=teams in the pending state renders the Teams skeleton and zero progressbar elements", async () => {
     stubFetch("pending");
-    renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=teams");
 
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByRole("progressbar")).toBeNull();
-    // Under spr (a Sigma-enabled algorithm) the Insights skeleton's Total
-    // header reads "Total ± Sigma" (`InsightsTabSkeleton`'s own
+    // Under spr (a Sigma-enabled algorithm) the Teams skeleton's Total
+    // header reads "Total ± Sigma" (`TeamsTabSkeleton`'s own
     // `totalColumnHeader` call) — this route renders through the whole
-    // route rather than `InsightsTab` directly.
+    // route rather than `TeamsTab` directly.
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Rank",
       "Team #",
@@ -317,11 +320,11 @@ describe("/event/$eventKey route — the Insights tab registered", () => {
     ]);
   });
 
-  it("?tab=insights with a populated ranked artifact renders the nine Insights headers and no fallback banner; with an unranked artifact it renders the pending banner, and the fallback banner once a qualification match is played", async () => {
+  it("?tab=teams with a populated ranked artifact renders the nine Teams headers and no fallback banner; with an unranked artifact it renders the pending banner, and the fallback banner once a qualification match is played", async () => {
     stubFetch(() => eventArtifactResponse());
-    renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=teams");
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    expect(screen.queryByTestId("teams-fallback-banner")).toBeNull();
     cleanup();
 
     global.fetch = vi.fn((input: RequestInfo | URL) => {
@@ -332,10 +335,10 @@ describe("/event/$eventKey route — the Insights tab registered", () => {
         eventArtifactResponse({ teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }] }),
       );
     });
-    renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=teams");
     // Nothing played yet (quick task 261004-uyc): the pending banner, not the claim that TBA has no ranking.
-    await waitFor(() => expect(screen.getByTestId("insights-pending-banner")).toBeDefined());
-    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("teams-pending-banner")).toBeDefined());
+    expect(screen.queryByTestId("teams-fallback-banner")).toBeNull();
     cleanup();
 
     // With a played qualification row and still no rank and no marker, the original sentence stands.
@@ -362,8 +365,8 @@ describe("/event/$eventKey route — the Insights tab registered", () => {
         eventArtifactResponse({ matches: [playedQual], teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }] }),
       );
     });
-    renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
-    await waitFor(() => expect(screen.getByTestId("insights-fallback-banner")).toBeDefined());
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=teams");
+    await waitFor(() => expect(screen.getByTestId("teams-fallback-banner")).toBeDefined());
   });
 });
 
@@ -438,8 +441,8 @@ describe("/event/$eventKey route — the Alliances tab registered, with its no-a
     stubFetch(() => eventArtifactResponse());
     const router = renderEventRoute("/event/2024casf?algorithm=spr&tab=alliances");
 
-    // The DEFAULT tab's panel is Insights.
-    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    // The DEFAULT tab's panel is Teams.
+    await waitFor(() => expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(false));
     // Radix keeps every `TabsContent` mounted (hidden via the `hidden`
     // attribute for the inactive ones) — matching this file's own
     // established convention of asserting on `hidden`, never on DOM
@@ -523,11 +526,11 @@ describe("/event/$eventKey route — the Simulation tab, gated on ranking-point 
     expect(oprTrigger.parentElement?.getAttribute("title")).toBe("Simulation is available on SPR and EPA. Switch the algorithm selector to SPR or EPA.");
   });
 
-  it("?algorithm=opr&tab=simulation shows the Insights panel while the URL's tab search param still reads 'simulation' (resolve-only, never rewritten); ?algorithm=spr&tab=simulation and ?algorithm=epa&tab=simulation show the Simulation panel", async () => {
+  it("?algorithm=opr&tab=simulation shows the Teams panel while the URL's tab search param still reads 'simulation' (resolve-only, never rewritten); ?algorithm=spr&tab=simulation and ?algorithm=epa&tab=simulation show the Simulation panel", async () => {
     stubFetch(() => eventArtifactResponse());
     const oprRouter = renderEventRoute("/event/2024casf?algorithm=opr&tab=simulation");
 
-    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    await waitFor(() => expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(false));
     expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(true);
     expect((oprRouter.state.location.search as Record<string, unknown>).tab).toBe("simulation");
     cleanup();
@@ -536,13 +539,13 @@ describe("/event/$eventKey route — the Simulation tab, gated on ranking-point 
     renderEventRoute("/event/2024casf?algorithm=spr&tab=simulation");
 
     await waitFor(() => expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(false));
-    expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(true);
     cleanup();
 
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=epa&tab=simulation");
 
     await waitFor(() => expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(false));
-    expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("teams-panel").hasAttribute("hidden")).toBe(true);
   });
 });

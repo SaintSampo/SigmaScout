@@ -1,11 +1,11 @@
 /**
- * The Insights tab: the event's teams in TBA's official event-rank order —
+ * The event Teams tab: the event's teams in TBA's official event-rank order —
  * or, when no official ranking exists, the selected algorithm's own Total
  * order with a stated notice. Nine columns: Rank, Team #, Team Name,
  * Record, RP, Total, Auto, Teleop, Endgame — Total leads the metric block.
  *
  * The first section below is the pure data layer — no React, no TanStack
- * anything. `buildInsightsRows` is the ONE function that returns both the
+ * anything. `buildTeamsRows` is the ONE function that returns both the
  * ordered rows and the `orderSource` discriminant driving the fallback
  * banner, deliberately NOT split into a separate `hasOfficialRanking`
  * predicate a caller could consult independently: one rule expressed as
@@ -50,10 +50,10 @@ type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
 type EventTeamRecord = NonNullable<EventTeam["record"]>;
 
-export type InsightsOrderSource = "official" | "fallback" | "live";
+export type TeamsOrderSource = "official" | "fallback" | "live";
 
-/** One team's Insights row. `displayRank` is `undefined` for an unranked team inside an otherwise-ranked event; `record`/`rp` pass through the published artifact verbatim, never defaulted. */
-export interface InsightsRow {
+/** One team's Teams row. `displayRank` is `undefined` for an unranked team inside an otherwise-ranked event; `record`/`rp` pass through the published artifact verbatim, never defaulted. */
+export interface TeamsRow {
   teamKey: string;
   teamNumber: number;
   nickname: string;
@@ -63,9 +63,9 @@ export interface InsightsRow {
   metrics: EventTeamMetrics;
 }
 
-export interface InsightsRowModel {
-  rows: InsightsRow[];
-  orderSource: InsightsOrderSource;
+export interface TeamsRowModel {
+  rows: TeamsRow[];
+  orderSource: TeamsOrderSource;
 }
 
 /** Ascending team-number comparator — the same deterministic total-order tie-break `teams-table/rowModel.ts`'s `byTeamNumberAscending` already uses. Copied rather than imported across the module boundary. */
@@ -73,7 +73,7 @@ function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: numbe
   return a.teamNumber - b.teamNumber;
 }
 
-interface InsightsRowBase {
+interface TeamsRowBase {
   teamKey: string;
   teamNumber: number;
   nickname: string;
@@ -84,7 +84,7 @@ interface InsightsRowBase {
 }
 
 /** Ascending `rank`, exact ties broken by ascending team number, an unranked row sorting last regardless of direction — a total order that never relies on the sort engine's stability. */
-function byOfficialRank(a: InsightsRowBase, b: InsightsRowBase): number {
+function byOfficialRank(a: TeamsRowBase, b: TeamsRowBase): number {
   if (a.rank === undefined && b.rank === undefined) return byTeamNumberAscending(a, b);
   if (a.rank === undefined) return 1;
   if (b.rank === undefined) return -1;
@@ -93,7 +93,7 @@ function byOfficialRank(a: InsightsRowBase, b: InsightsRowBase): number {
 }
 
 /** Descending `TOTAL_KEY` value, exact ties broken by ascending team number, a row missing `TOTAL_KEY` sorting last regardless of direction — the same three rules `teams-table/rowModel.ts`'s `buildTeamRows` already encodes, copied here rather than imported across the module boundary. */
-function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
+function byFallbackTotal(a: TeamsRowBase, b: TeamsRowBase): number {
   const totalA = a.metrics[TOTAL_KEY]?.value;
   const totalB = b.metrics[TOTAL_KEY]?.value;
   if (totalA === undefined && totalB === undefined) return byTeamNumberAscending(a, b);
@@ -104,7 +104,7 @@ function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
 }
 
 /**
- * `buildInsightsRows(artifact, algorithmId)`: the ONE function returning
+ * `buildTeamsRows(artifact, algorithmId)`: the ONE function returning
  * both the ordered rows and the `orderSource` discriminant the fallback
  * banner and the row order both read — see this module's header doc
  * comment for why that must never be two independently-consulted facts.
@@ -127,13 +127,13 @@ function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
  * otherwise fully-ranked event, and relabelling the whole table for that
  * one row would be wrong.
  */
-export function buildInsightsRows(artifact: EventArtifact, algorithmId: string): InsightsRowModel {
+export function buildTeamsRows(artifact: EventArtifact, algorithmId: string): TeamsRowModel {
   void algorithmId; // reserved for signature symmetry with the column builder; the fallback ordering axis (TOTAL_KEY) is algorithm-agnostic once published
 
-  const orderSource: InsightsOrderSource =
+  const orderSource: TeamsOrderSource =
     artifact.standings?.ranked === true ? "live" : artifact.teams.some((team) => team.rank !== undefined) ? "official" : "fallback";
 
-  const base: InsightsRowBase[] = artifact.teams.map((team) => {
+  const base: TeamsRowBase[] = artifact.teams.map((team) => {
     const teamNumber = team.teamNumber ?? teamNumberFromKey(team.teamKey);
     return {
       teamKey: team.teamKey,
@@ -155,7 +155,7 @@ export function buildInsightsRows(artifact: EventArtifact, algorithmId: string):
   // comment.
   const ordered = [...base].sort(orderSource === "fallback" ? byFallbackTotal : byOfficialRank);
 
-  const rows: InsightsRow[] = ordered.map((row, index) => ({
+  const rows: TeamsRow[] = ordered.map((row, index) => ({
     teamKey: row.teamKey,
     teamNumber: row.teamNumber,
     nickname: row.nickname,
@@ -187,16 +187,16 @@ export function formatEventRecord(record: EventTeamRecord | undefined): string {
 }
 
 /**
- * `insightsFallbackNotice(algorithmLabel)`: the fallback-mode sentence,
+ * `teamsFallbackNotice(algorithmLabel)`: the fallback-mode sentence,
  * with the selected algorithm's display label substituted in. This is the
  * ONLY place that sentence appears in source.
  */
-export function insightsFallbackNotice(algorithmLabel: string): string {
+export function teamsFallbackNotice(algorithmLabel: string): string {
   return `This event has no official TBA ranking. Teams below are ordered by ${algorithmLabel}'s rank instead.`;
 }
 
 /**
- * `insightsLiveNotice()`: the ONLY place the counted-order sentence
+ * `teamsLiveNotice()`: the ONLY place the counted-order sentence
  * appears in source. Flat third person, zero hyphen or zero dash
  * characters of any kind — this site's methodology copy voice. States the
  * one honest claim this order owes the reader: it is counted from results
@@ -205,37 +205,37 @@ export function insightsFallbackNotice(algorithmLabel: string): string {
  * `apps/worker/src/liveStandings.ts`'s tiebreak doc comment for the full statement of
  * those two divergences).
  */
-export function insightsLiveNotice(): string {
+export function teamsLiveNotice(): string {
   return "These standings are counted from the results posted so far and can differ from the official order.";
 }
 
 /**
- * `insightsPreEventNotice(algorithmLabel)`: the sentence for an event with no
+ * `teamsPreEventNotice(algorithmLabel)`: the sentence for an event with no
  * played qualification row yet, where no official ranking can exist and the
  * fallback order is simply how the page reads before the event starts. Flat
  * third person, zero hyphen or dash characters of any kind. The ONLY place this
  * sentence appears in source.
  */
-export function insightsPreEventNotice(algorithmLabel: string): string {
+export function teamsPreEventNotice(algorithmLabel: string): string {
   return `Official rankings appear once qualification results post. Until then teams are ordered by ${algorithmLabel}'s rank.`;
 }
 
 /**
- * `insightsAwaitingOfficialNotice(algorithmLabel)`: the sentence while counted
+ * `teamsAwaitingOfficialNotice(algorithmLabel)`: the sentence while counted
  * records (a `standings` marker with no counted rank) stand in for TBA's
  * rankings that have not arrived yet. Same copy rules as the pre event sentence.
  * The ONLY place this sentence appears in source.
  */
-export function insightsAwaitingOfficialNotice(algorithmLabel: string): string {
+export function teamsAwaitingOfficialNotice(algorithmLabel: string): string {
   return `Official rankings have not arrived yet. Teams are ordered by ${algorithmLabel}'s rank for now.`;
 }
 
-/** Which notice the Insights tab shows above the table, derived from `orderSource` and the artifact and deciding the sentence only. */
-export type InsightsNotice = "none" | "counted" | "pre-event" | "awaiting-official" | "no-official";
+/** Which notice the event Teams tab shows above the table, derived from `orderSource` and the artifact and deciding the sentence only. */
+export type TeamsNotice = "none" | "counted" | "pre-event" | "awaiting-official" | "no-official";
 
 /**
- * `insightsNoticeFor(artifact, orderSource)`: the one place the notice is
- * chosen. `buildInsightsRows` stays the one function that knows the ORDER; this
+ * `teamsNoticeFor(artifact, orderSource)`: the one place the notice is
+ * chosen. `buildTeamsRows` stays the one function that knows the ORDER; this
  * reads its `orderSource` and decides the sentence, so the notice and the order
  * can never be two independently consulted facts. The "no official TBA ranking"
  * sentence is reachable only for an event with a played qualification row, no
@@ -243,7 +243,7 @@ export type InsightsNotice = "none" | "counted" | "pre-event" | "awaiting-offici
  * records are standing in for rankings still on their way, is not an event TBA
  * declined to rank.
  */
-export function insightsNoticeFor(artifact: EventArtifact, orderSource: InsightsOrderSource): InsightsNotice {
+export function teamsNoticeFor(artifact: EventArtifact, orderSource: TeamsOrderSource): TeamsNotice {
   if (orderSource === "official") return "none";
   if (orderSource === "live") return "counted";
   if (!artifact.matches.some((match) => match.compLevel === "qm")) return "pre-event";
@@ -261,33 +261,33 @@ export function insightsNoticeFor(artifact: EventArtifact, orderSource: Insights
  * second rounding pass. A future change to `ROUNDING_RULE.rankingPoints`
  * must be mirrored here.
  */
-export const INSIGHTS_RP_DECIMALS = 2;
+export const TEAMS_RP_DECIMALS = 2;
 
 /**
  * Registered once, module-level: only column sizing is registered (no
  * pinning feature — no column in this table is frozen). The column helper
- * below is typed against THIS module's own `InsightsRow`, so it is
+ * below is typed against THIS module's own `TeamsRow`, so it is
  * declared locally rather than imported across the `teams-table` module
  * boundary.
  */
 const features = tableFeatures({ columnSizingFeature });
-const columnHelper = createColumnHelper<typeof features, InsightsRow>();
+const columnHelper = createColumnHelper<typeof features, TeamsRow>();
 
 function cellClassName(columnId: string): string {
   return columnId === "nickname" ? "truncate text-role-body" : "numeric-cell text-role-body";
 }
 
 /**
- * The Insights tab's column set is the fixed five identity/competition
+ * The event Teams tab's column set is the fixed five identity/competition
  * columns plus one per `METRIC_GROUPS` entry, in that constant's own
  * order — never derived from a fetched row's own `metrics` key order.
  * Column ids match the Teams table's own identity ids (`rank`,
  * `teamNumber`, `nickname`).
  */
-function buildInsightsColumns(
+function buildTeamsColumns(
   algorithmId: string,
   season: number,
-  orderSource: InsightsOrderSource,
+  orderSource: TeamsOrderSource,
   isNarrow: boolean,
   tierCuts: SeasonTierCuts | undefined,
   metricFirst: boolean = isNarrow
@@ -300,7 +300,7 @@ function buildInsightsColumns(
   const algorithm = algorithmId as PublishedAlgorithmId;
   // Only fallback renames the header and widens the column below — "live"
   // keeps the plain "Rank" label and the official width, matching
-  // `buildInsightsRows`'s own official/live symmetry.
+  // `buildTeamsRows`'s own official/live symmetry.
   const rankHeader = orderSource === "fallback" ? `${algorithmDisplayLabel(algorithm)} Rank` : "Rank";
 
   const recordColumn = columnHelper.accessor("record", {
@@ -327,7 +327,7 @@ function buildInsightsColumns(
     size: 84,
     cell: (info) => {
       const value = info.getValue();
-      return <span className="numeric-cell">{value === undefined ? "" : value.toFixed(INSIGHTS_RP_DECIMALS)}</span>;
+      return <span className="numeric-cell">{value === undefined ? "" : value.toFixed(TEAMS_RP_DECIMALS)}</span>;
     },
   });
 
@@ -454,17 +454,17 @@ function buildInsightsColumns(
   ]);
 }
 
-export interface InsightsTabProps {
+export interface TeamsTabProps {
   artifact: EventArtifact;
   algorithmId: string;
   season: number;
 }
 
 /** The pending state's skeleton row count. */
-export const INSIGHTS_SKELETON_ROW_COUNT = 8;
+export const TEAMS_SKELETON_ROW_COUNT = 8;
 
 /**
- * `InsightsTabSkeleton({ algorithmId, season })`: the eight real column
+ * `TeamsTabSkeleton({ algorithmId, season })`: the eight real column
  * headers above `SkeletonRows` — always with the BARE `Rank` header, never
  * the fallback-labelled one. Before the artifact resolves there is no way
  * to know whether the fallback applies, and flashing the
@@ -475,7 +475,7 @@ export const INSIGHTS_SKELETON_ROW_COUNT = 8;
  * `totalColumnHeader(algorithmId)` the live table uses — so nothing shifts
  * when the real data lands under a Sigma-enabled algorithm.
  */
-export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
+export function TeamsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void season;
   // Total leads the metric block, matching the live table's own
   // `metricGroupColumns` order — never a re-typed literal that could
@@ -497,7 +497,7 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
             </TableRow>
           </TableHeader>
           <TableBody>
-            <SkeletonRows rows={INSIGHTS_SKELETON_ROW_COUNT} columns={headers.length} />
+            <SkeletonRows rows={TEAMS_SKELETON_ROW_COUNT} columns={headers.length} />
           </TableBody>
         </table>
       </div>
@@ -506,7 +506,7 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
 }
 
 /**
- * The Insights tab: `TierKeyRow` once, the fallback banner when (and only
+ * The event Teams tab: `TierKeyRow` once, the fallback banner when (and only
  * when) `orderSource` is `"fallback"`, then the wide table in its own
  * native `overflow-x-auto` scroll region — a DOM SIBLING of the tab strip's
  * own scroll region, never its ancestor or descendant. Renders `EmptyState`
@@ -516,17 +516,17 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
  * name, event key — renders as a plain JSX text node or a `title` attribute
  * value, never through a raw-markup sink.
  */
-export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps) {
+export function TeamsTab({ artifact, algorithmId, season }: TeamsTabProps) {
   // Same sitewide breakpoint hook `TeamsTable.tsx` reuses — see that
   // component's own doc comment for why (one "mobile" definition for the
   // whole page, live on resize/rotation via `matchMedia`'s `change` event).
   const isNarrow = useIsMobile();
   const isF3Width = useIsF3MetricFirstWidth();
-  const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
-  const notice = insightsNoticeFor(artifact, orderSource);
+  const { rows, orderSource } = useMemo(() => buildTeamsRows(artifact, algorithmId), [artifact, algorithmId]);
+  const notice = teamsNoticeFor(artifact, orderSource);
   const algorithmLabel = algorithmDisplayLabel(algorithmId as PublishedAlgorithmId);
   const columns = useMemo(
-    () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow, artifact.tierCuts),
+    () => buildTeamsColumns(algorithmId, season, orderSource, isNarrow, artifact.tierCuts),
     [algorithmId, season, orderSource, isNarrow, artifact.tierCuts],
   );
 
@@ -546,32 +546,32 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
       <TierKeyRow />
       {notice === "no-official" && (
         <div
-          data-testid="insights-fallback-banner"
+          data-testid="teams-fallback-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
         >
           <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
-          <span>{insightsFallbackNotice(algorithmLabel)}</span>
+          <span>{teamsFallbackNotice(algorithmLabel)}</span>
         </div>
       )}
       {(notice === "pre-event" || notice === "awaiting-official") && (
         <div
-          data-testid="insights-pending-banner"
+          data-testid="teams-pending-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
         >
           <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
-          <span>{notice === "pre-event" ? insightsPreEventNotice(algorithmLabel) : insightsAwaitingOfficialNotice(algorithmLabel)}</span>
+          <span>{notice === "pre-event" ? teamsPreEventNotice(algorithmLabel) : teamsAwaitingOfficialNotice(algorithmLabel)}</span>
         </div>
       )}
       {notice === "counted" && (
         <div
-          data-testid="insights-live-banner"
+          data-testid="teams-live-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
         >
           <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
-          <span>{insightsLiveNotice()}</span>
+          <span>{teamsLiveNotice()}</span>
         </div>
       )}
-      <div data-testid="insights-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div data-testid="teams-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
             // See `TeamsTable.tsx`'s identical style-object comment for
@@ -593,7 +593,7 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    data-testid={`insights-header-${header.column.id}`}
+                    data-testid={`teams-header-${header.column.id}`}
                     className="text-role-label truncate"
                     style={{
                       width: header.getSize(),
@@ -616,11 +616,11 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id} data-testid="insights-row" data-team-number={row.original.teamNumber}>
+              <TableRow key={row.id} data-testid="teams-row" data-team-number={row.original.teamNumber}>
                 {row.getAllCells().map((cell) => (
                   <TableCell
                     key={cell.id}
-                    data-testid={`insights-cell-${cell.column.id}`}
+                    data-testid={`teams-cell-${cell.column.id}`}
                     className={cellClassName(cell.column.id)}
                     style={{ width: cell.column.getSize() }}
                   >

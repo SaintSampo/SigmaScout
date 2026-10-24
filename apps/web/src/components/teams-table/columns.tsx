@@ -32,7 +32,7 @@ export const PINNED_COLUMN_IDS = ["rank", "teamNumber", "nickname"] as const;
  * data — pinning all three (380px declared) leaves no room for a single
  * prediction metric on a 390px screen; team number is FRC's canonical row
  * identity and rank is implicit in row order on a rank-ordered table, so
- * nickname is the one that gives way. `Insights` and `TeamsTable` share
+ * nickname is the one that gives way. `TeamsTab` and `TeamsTable` share
  * this identical derivation.
  */
 export const MOBILE_PINNED_COLUMN_IDS = PINNED_COLUMN_IDS.filter((id) => id !== "nickname");
@@ -45,12 +45,12 @@ export const MOBILE_PINNED_COLUMN_IDS = PINNED_COLUMN_IDS.filter((id) => id !== 
  *    so "9999" is the worst case, measured at a real cell width of 52.3px
  *    including padding. `RANK_COLUMN_WIDTH_NARROW_PX` adds a ~4px
  *    cross-browser font-hinting margin and is shared by both `TeamsTable`
- *    and `InsightsTab` rather than each table picking its own number.
+ *    and `TeamsTab` rather than each table picking its own number.
  *  - teamNumber needs to hold a 5-digit value ("10000" — FRC numbers now
  *    exceed 9999) without clipping, measured at 61.4px; adds a larger
  *    ~10px margin matching the "Team #" header's own measured width.
  * The WIDE-viewport sizes (96/88 for `TeamsTable`, 72/88 for
- * `buildInsightsColumns`) are DELIBERATELY left unchanged: both already
+ * `buildTeamsColumns` in `TeamsTab.tsx`) are DELIBERATELY left unchanged: both already
  * exceed these narrow minimums with room to spare.
  */
 export const RANK_COLUMN_WIDTH_NARROW_PX = 56;
@@ -67,7 +67,7 @@ export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 72;
  * 90 is the largest width that still leaves TeamsTable's tightest layout —
  * the only one of the three tables where a full 120px metric column sits
  * immediately after nickname — with a real, fully-visible metric column at
- * scroll 0 (measured with 4px to spare against the scroller). Insights clears
+ * scroll 0 (measured with 4px to spare against the scroller). The event Teams tab clears
  * it with more room. A single shared constant, not a
  * per-table number, matching the identity-column constants' own "one
  * number, not independently-drifting copies" precedent.
@@ -83,7 +83,7 @@ export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 90;
  * `record`'s declared width BELOW `MOBILE_BREAKPOINT_PX`. The narrowest
  * supported viewport (312px scroller) left only 94px after rank+teamNumber+
  * nickname, and the 100-120px column that used to sit there next no longer
- * fit (measured live: Insights' `record` missed by 6px, TeamsTable's first
+ * fit (measured live: the event Teams tab's `record` missed by 6px, TeamsTable's first
  * metric column by 26px).
  *
  * The metric-tier value cell is NOT narrowed here: its real worst-case
@@ -100,7 +100,7 @@ export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 90;
  * a 6px cross-browser buffer rounds up to 80, clearing the 94px budget
  * with 14px to spare. `TeamsTable` also REORDERS `record` to sit
  * immediately after `nickname` below the breakpoint (its layout puts the
- * metric columns there first, unlike `InsightsTab`).
+ * metric columns there first, unlike `TeamsTab`).
  *
  * The WIDE-viewport size (100, unchanged) applies only below
  * `MOBILE_BREAKPOINT_PX`.
@@ -390,7 +390,7 @@ export function buildColumns(
           search={{ year: season, algorithm, tab: "overview" }}
           title={info.getValue()}
           // `truncate`, not just `block max-w-full` — see
-          // `InsightsTab.tsx`'s identical anchor for the full mechanism:
+          // `TeamsTab.tsx`'s identical anchor for the full mechanism:
           // the cell's own ellipsis only fires on ITS OWN overflowing
           // content, and this anchor's box already fills the cell exactly,
           // so the cell never sees an overflow. The anchor's own text was

@@ -11,7 +11,7 @@ import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../
  * Display labels for the published ids — a build-time constant, never
  * derived from the manifest. This is the SINGLE place the site's model name
  * is written: every other model-name render in the app (Teams-page rank
- * column header, Insights tab's fallback notice,
+ * column header, event Teams tab's fallback notice,
  * the home podium) reads through
  * `algorithmDisplayLabel` below rather than holding a second literal.
  */

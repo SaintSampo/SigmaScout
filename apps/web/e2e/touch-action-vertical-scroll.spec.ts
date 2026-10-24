@@ -37,8 +37,8 @@ interface RegionCase {
 
 /** Every site named in 07-UAT.md's G-4 gap report as carrying the defect. */
 const REGIONS: RegionCase[] = [
-  { name: "event tab strip", url: `/event/${EVENT_KEY}?algorithm=spr&tab=insights`, testId: "event-tab-strip-scroll" },
-  { name: "Insights table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=insights`, testId: "insights-table-scroll" },
+  { name: "event tab strip", url: `/event/${EVENT_KEY}?algorithm=spr&tab=teams`, testId: "event-tab-strip-scroll" },
+  { name: "event Teams table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=teams`, testId: "teams-table-scroll" },
   { name: "Quals table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=quals`, testId: "quals-table-scroll" },
   { name: "Alliances table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=alliances`, testId: "alliances-table-scroll" },
   { name: "Elims table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=elims`, testId: "elims-table-scroll" },

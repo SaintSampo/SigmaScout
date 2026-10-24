@@ -18,8 +18,8 @@ test.describe("Event page tracer", () => {
   // The original assertions (`getByTestId("event-key")`,
   // `getByTestId("event-team-count")`) target DOM that never shipped under
   // those names, or stopped existing once `EventHeader.tsx` (07-15) and
-  // `InsightsTab.tsx` (07-11) landed — `event-header`/`event-header-meta`
-  // and `insights-row` are the real, current signals. This tracer spec was
+  // `TeamsTab.tsx` (07-11) landed — `event-header`/`event-header-meta`
+  // and `teams-row` are the real, current signals. This tracer spec was
   // never previously exercised against a deployed origin (07-01 through
   // 07-17 were never pushed to trigger the deploy workflow before this
   // plan), so the mismatch went undetected until this task's own required
@@ -34,7 +34,7 @@ test.describe("Event page tracer", () => {
     const headingText = await heading.innerText();
     expect(headingText.trim().length).toBeGreaterThan(0);
 
-    const teamRows = page.getByTestId("insights-row");
+    const teamRows = page.getByTestId("teams-row");
     await expect(teamRows.first()).toBeVisible();
     expect(await teamRows.count()).toBeGreaterThan(0);
   });

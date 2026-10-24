@@ -126,7 +126,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
           <Link
             to="/event/$eventKey"
             params={{ eventKey: event.eventKey }}
-            search={{ year: season, algorithm: algorithmId as PublishedAlgorithmId, tab: "insights" }}
+            search={{ year: season, algorithm: algorithmId as PublishedAlgorithmId, tab: "teams" }}
             title={event.eventName}
             className="text-[var(--color-accent)] hover:underline"
           >

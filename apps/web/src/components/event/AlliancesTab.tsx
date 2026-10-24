@@ -293,7 +293,7 @@ export function alliancesIncompleteNotice(incomplete: number, total: number, alg
 
 /**
  * `formatAllianceRecord(record)`: wins-losses-ties joined by hyphens,
- * mirroring `InsightsTab.tsx`'s `formatEventRecord` (restated, not
+ * mirroring `TeamsTab.tsx`'s `formatEventRecord` (restated, not
  * imported, following that function's own precedent of copying across the
  * event/ module boundary). `undefined` returns the EMPTY STRING: an event
  * with no playoff bracket yet, or an unrecognised `status` shape, are both
@@ -733,7 +733,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
       <div data-testid="alliances-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         {/*
           `table-layout: fixed`, matching every other event table
-          (Insights/TeamsTable): every pick cell renders only a
+          (TeamsTab/TeamsTable): every pick cell renders only a
           team number plus a bounded metric cell (`MetricValue` or
           `TotalSigmaValue`'s pill) whose width is bounded by CSS
           (`.metric-tier`'s own `min-width`, `.metric-pill`'s own halves,
@@ -743,7 +743,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           `width` is the EXACT sum of the column sizes
           (`table.getTotalSize()`), never `100%`: with `width: "100%"` +
           `minWidth: table.getTotalSize()` (the pattern
-          Insights/TeamsTable still use), shrinking this tab's
+          TeamsTab/TeamsTable still use), shrinking this tab's
           columns below the content area lets `100%` win over `minWidth`,
           and `table-layout: fixed` redistributes the freed space
           proportionally BACK across every column, silently undoing the

@@ -74,11 +74,14 @@ describe("TeamSearchSchema", () => {
   });
 });
 
+/** Retired event tab ids, which existed once and now resolve to the default tab through `.catch()`: `insights` was renamed to `teams`, `breakdown` was removed (quick task 261024-jvv). */
+const RETIRED_EVENT_TAB_IDS = ["insights", "breakdown"] as const;
+
 describe("EventSearchSchema", () => {
   // Ordering asserted separately from the default so the two facts (WHICH
   // tab is active vs. WHERE tabs sit in the strip) cannot be conflated.
   it("EVENT_TABS is the five fixed ids in tab-strip order, with the default's id first and 'simulation' last", () => {
-    expect(EVENT_TABS).toEqual(["insights", "quals", "alliances", "elims", "simulation"]);
+    expect(EVENT_TABS).toEqual(["teams", "quals", "alliances", "elims", "simulation"]);
   });
 
   it("parses each of the five explicit tab ids back unchanged (five iterations)", () => {
@@ -88,16 +91,16 @@ describe("EventSearchSchema", () => {
     }
   });
 
-  it("falls back to insights (the new default) on a bogus tab value", () => {
-    expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("insights");
+  it("falls back to teams (the default) on a bogus tab value", () => {
+    expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("teams");
   });
 
-  it("defaults to insights when tab is absent", () => {
-    expect(EventSearchSchema.parse({}).tab).toBe("insights");
+  it("defaults to teams when tab is absent", () => {
+    expect(EventSearchSchema.parse({}).tab).toBe("teams");
   });
 
-  it("resolves the retired breakdown tab id to the default tab", () => {
-    expect(EventSearchSchema.parse({ tab: "breakdown" }).tab).toBe(DEFAULT_EVENT_TAB);
+  it.each(RETIRED_EVENT_TAB_IDS)("resolves the retired tab id %s to the Teams tab", (retiredId) => {
+    expect(EventSearchSchema.parse({ tab: retiredId }).tab).toBe("teams");
   });
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
@@ -109,8 +112,8 @@ describe("EventSearchSchema", () => {
   // Which tab is active on arrival vs. where tabs sit in the strip are
   // different facts — asserted against "appended an id and moved the
   // default while I was in there."
-  it("DEFAULT_EVENT_TAB is still exactly 'insights' and is NOT the last element of EVENT_TABS", () => {
-    expect(DEFAULT_EVENT_TAB).toBe("insights");
+  it("DEFAULT_EVENT_TAB is still exactly 'teams' and is NOT the last element of EVENT_TABS", () => {
+    expect(DEFAULT_EVENT_TAB).toBe("teams");
     expect(EVENT_TABS.at(-1)).toBe("simulation");
     expect(EVENT_TABS.at(-1)).not.toBe(DEFAULT_EVENT_TAB);
   });

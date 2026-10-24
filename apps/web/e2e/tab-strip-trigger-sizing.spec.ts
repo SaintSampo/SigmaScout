@@ -18,7 +18,7 @@
  */
 import { test, expect, type Locator } from "@playwright/test";
 
-const EVENT_URL = "/event/2024new?algorithm=spr&tab=insights";
+const EVENT_URL = "/event/2024new?algorithm=spr&tab=teams";
 /** Real-world subpixel/font-hinting tolerance for width/position comparisons — loose enough to absorb browser rounding, tight enough that the 6-22px range 07-UAT.md measured cannot pass by accident. */
 const TOLERANCE_PX = 2;
 

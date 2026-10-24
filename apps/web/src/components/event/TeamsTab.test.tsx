@@ -6,7 +6,7 @@
  * every event tab test follows.
  *
  * This first describe-block set covers Task 1's pure data layer
- * (`buildInsightsRows`, `formatEventRecord`, `insightsFallbackNotice`) only.
+ * (`buildTeamsRows`, `formatEventRecord`, `teamsFallbackNotice`) only.
  * Task 2 extends this same file with the rendered-table cases, using a
  * self-contained `TestHarness` router-context since the Team #/Nickname
  * cells are real router `Link`s here too.
@@ -23,16 +23,16 @@ import { makeEventArtifact as makeArtifact, mockNarrowViewport } from "@/test/he
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
-  buildInsightsRows,
+  buildTeamsRows,
   formatEventRecord,
-  insightsAwaitingOfficialNotice,
-  insightsFallbackNotice,
-  insightsLiveNotice,
-  insightsNoticeFor,
-  insightsPreEventNotice,
-  InsightsTab,
-  InsightsTabSkeleton,
-} from "./InsightsTab";
+  teamsAwaitingOfficialNotice,
+  teamsFallbackNotice,
+  teamsLiveNotice,
+  teamsNoticeFor,
+  teamsPreEventNotice,
+  TeamsTab,
+  TeamsTabSkeleton,
+} from "./TeamsTab";
 
 type ArtifactTeam = EventArtifact["teams"][number];
 
@@ -57,8 +57,8 @@ function TestHarness({ children }: { children: ReactNode }) {
   );
 }
 
-/** A metrics record carrying every Insights group key plus Total, so column-set/tier tests have real data behind every column. */
-function fullInsightsMetrics(overrides: Record<string, { value: number; spread?: number; percentile?: number }> = {}) {
+/** A metrics record carrying every Teams group key plus Total, so column-set/tier tests have real data behind every column. */
+function fullTeamsMetrics(overrides: Record<string, { value: number; spread?: number; percentile?: number }> = {}) {
   const record: ArtifactTeam["metrics"] = { [TOTAL_KEY]: { value: 10 } };
   for (const group of METRIC_GROUPS) {
     record[group.metricKey] = { value: 10 };
@@ -66,10 +66,10 @@ function fullInsightsMetrics(overrides: Record<string, { value: number; spread?:
   return { ...record, ...overrides };
 }
 
-function renderInsights(artifact: EventArtifact, algorithmId = "spr", season = 2024) {
+function renderTeams(artifact: EventArtifact, algorithmId = "spr", season = 2024) {
   return render(
     <TestHarness>
-      <InsightsTab artifact={artifact} algorithmId={algorithmId} season={season} />
+      <TeamsTab artifact={artifact} algorithmId={algorithmId} season={season} />
     </TestHarness>,
   );
 }
@@ -84,14 +84,14 @@ function team(overrides: Partial<ArtifactTeam> = {}): ArtifactTeam {
   };
 }
 
-describe("buildInsightsRows — official vs fallback ordering", () => {
+describe("buildTeamsRows — official vs fallback ordering", () => {
   it("every team carrying a rank returns orderSource 'official' and rows in ascending rank order, regardless of input order", () => {
     const artifact = makeArtifact([
       team({ teamKey: "frc3", teamNumber: 3, rank: 3, metrics: { [TOTAL_KEY]: { value: 1 } } }),
       team({ teamKey: "frc1", teamNumber: 1, rank: 1, metrics: { [TOTAL_KEY]: { value: 3 } } }),
       team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: { [TOTAL_KEY]: { value: 2 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.orderSource).toBe("official");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([1, 2, 3]);
   });
@@ -102,7 +102,7 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 30 } } }),
       team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.orderSource).toBe("fallback");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([2, 3, 1]);
   });
@@ -113,7 +113,7 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: { [TOTAL_KEY]: { value: 2 } } }),
       team({ teamKey: "frc3", teamNumber: 3, rank: 1, metrics: { [TOTAL_KEY]: { value: 3 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.orderSource).toBe("official");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([3, 2, 1]);
     const firstUnrankedIndex = model.rows.findIndex((row) => row.displayRank === undefined);
@@ -125,7 +125,7 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc9", teamNumber: 9, rank: 5, metrics: { [TOTAL_KEY]: { value: 1 } } }),
       team({ teamKey: "frc3", teamNumber: 3, rank: 5, metrics: { [TOTAL_KEY]: { value: 2 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.rows).toHaveLength(2);
     expect(model.rows.map((row) => row.teamNumber)).toEqual([3, 9]);
     expect(model.rows.map((row) => row.displayRank)).toEqual([5, 5]);
@@ -136,7 +136,7 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc9", teamNumber: 9, metrics: { [TOTAL_KEY]: { value: 15 } } }),
       team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 15 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([3, 9]);
   });
 
@@ -145,7 +145,7 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc1", teamNumber: 1, metrics: {} }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: -50 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.orderSource).toBe("fallback");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([2, 1]);
   });
@@ -157,8 +157,8 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc5", teamNumber: 5, rank: 2, metrics: { [TOTAL_KEY]: { value: 3 } } }),
     ];
     const teamsB = [teamsA[2] as ArtifactTeam, teamsA[0] as ArtifactTeam, teamsA[1] as ArtifactTeam];
-    const modelA = buildInsightsRows(makeArtifact(teamsA), "spr");
-    const modelB = buildInsightsRows(makeArtifact(teamsB), "spr");
+    const modelA = buildTeamsRows(makeArtifact(teamsA), "spr");
+    const modelB = buildTeamsRows(makeArtifact(teamsB), "spr");
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(modelB.rows.map((row) => row.teamKey));
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(["frc3", "frc5", "frc9"]);
   });
@@ -170,8 +170,8 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc5", teamNumber: 5, metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ];
     const teamsB = [teamsA[2] as ArtifactTeam, teamsA[0] as ArtifactTeam, teamsA[1] as ArtifactTeam];
-    const modelA = buildInsightsRows(makeArtifact(teamsA), "spr");
-    const modelB = buildInsightsRows(makeArtifact(teamsB), "spr");
+    const modelA = buildTeamsRows(makeArtifact(teamsA), "spr");
+    const modelB = buildTeamsRows(makeArtifact(teamsB), "spr");
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(modelB.rows.map((row) => row.teamKey));
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(["frc3", "frc5", "frc9"]);
   });
@@ -181,7 +181,7 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc1", teamNumber: 1, rank: 7, metrics: { [TOTAL_KEY]: { value: 1 } } }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 2 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     const ranked = model.rows.find((row) => row.teamNumber === 1);
     const unranked = model.rows.find((row) => row.teamNumber === 2);
     expect(ranked?.displayRank).toBe(7);
@@ -194,35 +194,35 @@ describe("buildInsightsRows — official vs fallback ordering", () => {
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 30 } } }),
       team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.rows.map((row) => row.displayRank)).toEqual([1, 2, 3]);
   });
 
   it("an artifact with teams: [] returns zero rows and orderSource 'fallback' — no rank exists, so the discriminant is honest even with nothing to order", () => {
-    const model = buildInsightsRows(makeArtifact([]), "spr");
+    const model = buildTeamsRows(makeArtifact([]), "spr");
     expect(model.rows).toHaveLength(0);
     expect(model.orderSource).toBe("fallback");
   });
 
   it("a one-team artifact returns one row through the same code path as a 43-team one", () => {
-    const oneTeamModel = buildInsightsRows(makeArtifact([team({ rank: 1 })]), "spr");
+    const oneTeamModel = buildTeamsRows(makeArtifact([team({ rank: 1 })]), "spr");
     expect(oneTeamModel.rows).toHaveLength(1);
 
     const manyTeams = Array.from({ length: 43 }, (_, index) =>
       team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, rank: index + 1, nickname: `Team ${index + 1}` }),
     );
-    const manyTeamsModel = buildInsightsRows(makeArtifact(manyTeams), "spr");
+    const manyTeamsModel = buildTeamsRows(makeArtifact(manyTeams), "spr");
     expect(manyTeamsModel.rows).toHaveLength(43);
   });
 });
 
-describe("buildInsightsRows — record/rp pass-through", () => {
+describe("buildTeamsRows — record/rp pass-through", () => {
   it("record passes through verbatim: a published record carries exactly that object; a team with no record carries undefined", () => {
     const artifact = makeArtifact([
       team({ teamKey: "frc1", teamNumber: 1, record: { wins: 4, losses: 2, ties: 1 } }),
       team({ teamKey: "frc2", teamNumber: 2 }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     const withRecord = model.rows.find((row) => row.teamNumber === 1);
     const withoutRecord = model.rows.find((row) => row.teamNumber === 2);
     expect(withRecord?.record).toEqual({ wins: 4, losses: 2, ties: 1 });
@@ -234,7 +234,7 @@ describe("buildInsightsRows — record/rp pass-through", () => {
       team({ teamKey: "frc1", teamNumber: 1, rp: 0 }),
       team({ teamKey: "frc2", teamNumber: 2 }),
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     const withRp = model.rows.find((row) => row.teamNumber === 1);
     const withoutRp = model.rows.find((row) => row.teamNumber === 2);
     expect(withRp?.rp).toBe(0);
@@ -244,7 +244,7 @@ describe("buildInsightsRows — record/rp pass-through", () => {
 
   it("teamNumber falls back to the team key's digits and nickname to a Team {number} string when either is absent", () => {
     const artifact = makeArtifact([{ teamKey: "frc42", metrics: { [TOTAL_KEY]: { value: 10 } } }]);
-    const row = buildInsightsRows(artifact, "spr").rows[0];
+    const row = buildTeamsRows(artifact, "spr").rows[0];
     expect(row?.teamNumber).toBe(42);
     expect(row?.nickname).toBe("Team 42");
   });
@@ -266,15 +266,15 @@ describe("formatEventRecord", () => {
   });
 });
 
-describe("insightsFallbackNotice — the no-ranking fallback notice copy", () => {
+describe("teamsFallbackNotice — the no-ranking fallback notice copy", () => {
   it("begins with the hand-written literal leading clause and contains the given label", () => {
-    const sentence = insightsFallbackNotice("SPR");
+    const sentence = teamsFallbackNotice("SPR");
     expect(sentence.startsWith("This event has no official TBA ranking. Teams below are ordered by ")).toBe(true);
     expect(sentence).toContain("SPR");
   });
 });
 
-describe("InsightsTab — column set", () => {
+describe("TeamsTab — column set", () => {
   it("vpr/2024: exactly nine headers, in the declared order", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -286,9 +286,9 @@ describe("InsightsTab — column set", () => {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
     });
-    renderInsights(artifact, "spr", 2024);
+    renderTeams(artifact, "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
@@ -309,7 +309,7 @@ describe("InsightsTab — column set", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { [TOTAL_KEY]: { value: 20 } } }],
     });
-    renderInsights(artifact, "opr", 2024);
+    renderTeams(artifact, "opr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
   });
@@ -333,7 +333,7 @@ describe("InsightsTab — column set", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: reversed }],
     });
-    renderInsights(artifact, "spr", 2024);
+    renderTeams(artifact, "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
@@ -341,7 +341,7 @@ describe("InsightsTab — column set", () => {
   });
 });
 
-describe("InsightsTab — Total ± Sigma pill", () => {
+describe("TeamsTab — Total ± Sigma pill", () => {
   function sprArtifactWithSigma(sigma?: { value: number; percentile?: number }) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -359,29 +359,29 @@ describe("InsightsTab — Total ± Sigma pill", () => {
           teamNumber: 254,
           nickname: "The Cheesy Poofs",
           rank: 1,
-          metrics: fullInsightsMetrics(sigma !== undefined ? { [SIGMA_METRIC_KEY]: sigma } : {}),
+          metrics: fullTeamsMetrics(sigma !== undefined ? { [SIGMA_METRIC_KEY]: sigma } : {}),
         },
       ],
     });
   }
 
   it("spr with sigma on the row: Total header reads 'Total ± Sigma' and the Total cell renders the pill", async () => {
-    renderInsights(sprArtifactWithSigma({ value: 92, percentile: 80 }), "spr", 2024);
+    renderTeams(sprArtifactWithSigma({ value: 92, percentile: 80 }), "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(headers[5]).toBe("Total ± Sigma");
 
-    const totalCell = await screen.findByTestId("insights-cell-total");
+    const totalCell = await screen.findByTestId("teams-cell-total");
     const pill = totalCell.querySelector("[data-testid='total-sigma-pill']");
     expect(pill).not.toBeNull();
     expect(totalCell.textContent).toBe("10.00±92.00");
   });
 
   it("a live Sigma (a value with no percentile, as a tick writes it) renders the pill with that Sigma and no tier class on the Sigma half", async () => {
-    renderInsights(sprArtifactWithSigma({ value: 18.35 }), "spr", 2024);
+    renderTeams(sprArtifactWithSigma({ value: 18.35 }), "spr", 2024);
 
-    const totalCell = await screen.findByTestId("insights-cell-total");
+    const totalCell = await screen.findByTestId("teams-cell-total");
     expect(totalCell.querySelector("[data-testid='total-sigma-pill']")).not.toBeNull();
     expect(totalCell.textContent).toBe("10.00±18.35");
     const sigmaHalf = totalCell.querySelector(".metric-pill__sigma")!;
@@ -390,9 +390,9 @@ describe("InsightsTab — Total ± Sigma pill", () => {
   });
 
   it("the same fixture with sigma stripped renders exactly one metric-tier box per Total cell and no pill", async () => {
-    renderInsights(sprArtifactWithSigma(undefined), "spr", 2024);
+    renderTeams(sprArtifactWithSigma(undefined), "spr", 2024);
 
-    const totalCell = await screen.findByTestId("insights-cell-total");
+    const totalCell = await screen.findByTestId("teams-cell-total");
     expect(totalCell.querySelector("[data-testid='total-sigma-pill']")).toBeNull();
     expect(totalCell.querySelectorAll(".numeric-cell").length).toBe(1);
     expect(totalCell.textContent).toBe("10.00");
@@ -411,30 +411,30 @@ describe("InsightsTab — Total ± Sigma pill", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { [TOTAL_KEY]: { value: 20 } } }],
     });
-    renderInsights(artifact, "opr", 2024);
+    renderTeams(artifact, "opr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(headers[5]).toBe("Total");
 
-    const totalCell = await screen.findByTestId("insights-cell-total");
+    const totalCell = await screen.findByTestId("teams-cell-total");
     expect(totalCell.querySelector("[data-testid='total-sigma-pill']")).toBeNull();
   });
 
-  it("InsightsTabSkeleton reads 'Total ± Sigma' for spr and 'Total' for opr, before any data lands", () => {
-    const sprRender = render(<InsightsTabSkeleton algorithmId="spr" season={2024} />);
+  it("TeamsTabSkeleton reads 'Total ± Sigma' for spr and 'Total' for opr, before any data lands", () => {
+    const sprRender = render(<TeamsTabSkeleton algorithmId="spr" season={2024} />);
     const sprHeaders = sprRender.getAllByRole("columnheader").map((el) => el.textContent);
     expect(sprHeaders[5]).toBe("Total ± Sigma");
     sprRender.unmount();
 
-    const oprRender = render(<InsightsTabSkeleton algorithmId="opr" season={2024} />);
+    const oprRender = render(<TeamsTabSkeleton algorithmId="opr" season={2024} />);
     const oprHeaders = oprRender.getAllByRole("columnheader").map((el) => el.textContent);
     expect(oprHeaders[5]).toBe("Total");
     oprRender.unmount();
   });
 });
 
-/** One played qualification row: the fact `insightsNoticeFor` reads to tell an event that has started from one that has not. */
+/** One played qualification row: the fact `teamsNoticeFor` reads to tell an event that has started from one that has not. */
 const PLAYED_QM = {
   matchKey: "2024casf_qm1",
   compLevel: "qm" as const,
@@ -451,7 +451,7 @@ const PLAYED_QM = {
   actualBlueScore: 90,
 };
 
-describe("InsightsTab — no-ranking fallback header and banner", () => {
+describe("TeamsTab — no-ranking fallback header and banner", () => {
   function artifactWithRanks(teams: { rank?: number }[], matches: unknown[] = [PLAYED_QM]) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -467,101 +467,101 @@ describe("InsightsTab — no-ranking fallback header and banner", () => {
         teamKey: `frc${index + 1}`,
         teamNumber: index + 1,
         nickname: `Team ${index + 1}`,
-        metrics: fullInsightsMetrics(),
+        metrics: fullTeamsMetrics(),
         ...overrides,
       })),
     });
   }
 
   it("no ranks: fallback header contains the algorithm's display label and the word Rank, and the banner renders", async () => {
-    renderInsights(artifactWithRanks([{}, {}]), "spr", 2024);
+    renderTeams(artifactWithRanks([{}, {}]), "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toContain(algorithmDisplayLabel("spr"));
     expect(rankHeader?.textContent).toContain("Rank");
 
-    const banner = screen.getByTestId("insights-fallback-banner");
+    const banner = screen.getByTestId("teams-fallback-banner");
     expect(banner.textContent?.startsWith("This event has no official TBA ranking.")).toBe(true);
     expect(banner.querySelector("button")).toBeNull();
     expect(banner.getAttribute("role")).toBeNull();
   });
 
   it("has ranks: the leading header is exactly the word Rank, and the banner does not exist at all", async () => {
-    renderInsights(artifactWithRanks([{ rank: 1 }, { rank: 2 }]), "spr", 2024);
+    renderTeams(artifactWithRanks([{ rank: 1 }, { rank: 2 }]), "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toBe("Rank");
-    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
-    expect(screen.queryByTestId("insights-pending-banner")).toBeNull();
-    expect(screen.queryByTestId("insights-live-banner")).toBeNull();
+    expect(screen.queryByTestId("teams-fallback-banner")).toBeNull();
+    expect(screen.queryByTestId("teams-pending-banner")).toBeNull();
+    expect(screen.queryByTestId("teams-live-banner")).toBeNull();
   });
 
   it("a posted schedule with nothing played shows the pending banner with the pre event sentence and NOT the fallback banner", async () => {
-    renderInsights(artifactWithRanks([{}, {}], []), "spr", 2024);
+    renderTeams(artifactWithRanks([{}, {}], []), "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
-    expect(screen.getByTestId("insights-pending-banner").textContent).toBe(insightsPreEventNotice(algorithmDisplayLabel("spr")));
+    expect(screen.queryByTestId("teams-fallback-banner")).toBeNull();
+    expect(screen.getByTestId("teams-pending-banner").textContent).toBe(teamsPreEventNotice(algorithmDisplayLabel("spr")));
   });
 
   it("played rows, counted records and no ranks show the pending banner with the awaiting sentence and not the fallback banner", async () => {
     const base = artifactWithRanks([{}, {}]);
-    renderInsights({ ...base, standings: { source: "tick-counted" as const, ranked: false } }, "spr", 2024);
+    renderTeams({ ...base, standings: { source: "tick-counted" as const, ranked: false } }, "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
-    expect(screen.getByTestId("insights-pending-banner").textContent).toBe(insightsAwaitingOfficialNotice(algorithmDisplayLabel("spr")));
+    expect(screen.queryByTestId("teams-fallback-banner")).toBeNull();
+    expect(screen.getByTestId("teams-pending-banner").textContent).toBe(teamsAwaitingOfficialNotice(algorithmDisplayLabel("spr")));
   });
 
   it("played rows, no ranks and no marker still show the fallback banner with its existing sentence", async () => {
-    renderInsights(artifactWithRanks([{}, {}]), "spr", 2024);
+    renderTeams(artifactWithRanks([{}, {}]), "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    expect(screen.queryByTestId("insights-pending-banner")).toBeNull();
-    expect(screen.getByTestId("insights-fallback-banner").textContent).toBe(insightsFallbackNotice(algorithmDisplayLabel("spr")));
+    expect(screen.queryByTestId("teams-pending-banner")).toBeNull();
+    expect(screen.getByTestId("teams-fallback-banner").textContent).toBe(teamsFallbackNotice(algorithmDisplayLabel("spr")));
   });
 });
 
-describe("insightsNoticeFor — which sentence the Insights tab shows", () => {
+describe("teamsNoticeFor — which sentence the event Teams tab shows", () => {
   const withMatches = (matches: unknown[], extra: Partial<EventArtifact> = {}) => ({ ...makeArtifact([team()]), matches: matches as EventArtifact["matches"], ...extra });
 
   it("official order gives none", () => {
-    expect(insightsNoticeFor(withMatches([PLAYED_QM]), "official")).toBe("none");
+    expect(teamsNoticeFor(withMatches([PLAYED_QM]), "official")).toBe("none");
   });
 
   it("live order gives counted", () => {
-    expect(insightsNoticeFor(withMatches([PLAYED_QM], { standings: { source: "tick-counted", ranked: true } }), "live")).toBe("counted");
+    expect(teamsNoticeFor(withMatches([PLAYED_QM], { standings: { source: "tick-counted", ranked: true } }), "live")).toBe("counted");
   });
 
   it("fallback with no played qualification row gives pre-event, even when only playoff rows are played", () => {
-    expect(insightsNoticeFor(withMatches([]), "fallback")).toBe("pre-event");
-    expect(insightsNoticeFor(withMatches([{ ...PLAYED_QM, matchKey: "2024casf_sf1m1", compLevel: "sf" }]), "fallback")).toBe("pre-event");
+    expect(teamsNoticeFor(withMatches([]), "fallback")).toBe("pre-event");
+    expect(teamsNoticeFor(withMatches([{ ...PLAYED_QM, matchKey: "2024casf_sf1m1", compLevel: "sf" }]), "fallback")).toBe("pre-event");
   });
 
   it("fallback with a played qualification row and a standings marker gives awaiting-official", () => {
-    expect(insightsNoticeFor(withMatches([PLAYED_QM], { standings: { source: "tick-counted", ranked: false } }), "fallback")).toBe("awaiting-official");
+    expect(teamsNoticeFor(withMatches([PLAYED_QM], { standings: { source: "tick-counted", ranked: false } }), "fallback")).toBe("awaiting-official");
   });
 
   it("fallback with a played qualification row and no marker gives no-official", () => {
-    expect(insightsNoticeFor(withMatches([PLAYED_QM]), "fallback")).toBe("no-official");
+    expect(teamsNoticeFor(withMatches([PLAYED_QM]), "fallback")).toBe("no-official");
   });
 
   it("neither new sentence, nor the counted sentence, nor the fallback sentence contains a hyphen or a dash of any kind", () => {
     // ASCII hyphen-minus plus the Unicode dash block (U+2010-U+2015).
-    for (const sentence of [insightsPreEventNotice("SPR"), insightsAwaitingOfficialNotice("SPR"), insightsLiveNotice(), insightsFallbackNotice("SPR")]) {
+    for (const sentence of [teamsPreEventNotice("SPR"), teamsAwaitingOfficialNotice("SPR"), teamsLiveNotice(), teamsFallbackNotice("SPR")]) {
       expect(sentence).not.toMatch(/[-‐-―]/);
     }
   });
 
   it("the pre event sentence is exactly the agreed copy", () => {
-    expect(insightsPreEventNotice("SPR")).toBe("Official rankings appear once qualification results post. Until then teams are ordered by SPR's rank.");
-    expect(insightsAwaitingOfficialNotice("SPR")).toBe("Official rankings have not arrived yet. Teams are ordered by SPR's rank for now.");
+    expect(teamsPreEventNotice("SPR")).toBe("Official rankings appear once qualification results post. Until then teams are ordered by SPR's rank.");
+    expect(teamsAwaitingOfficialNotice("SPR")).toBe("Official rankings have not arrived yet. Teams are ordered by SPR's rank for now.");
   });
 });
 
-describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7)", () => {
+describe("TeamsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7)", () => {
   /** A team-ranked-by-`rank` artifact plus the `standings` marker the live tick publishes, spread on top of the real parsed shape. */
   function liveDerivedArtifact(teams: { teamKey: string; teamNumber: number; rank: number }[], ranked = true): EventArtifact {
     const base = EventArtifactSchema.parse({
@@ -581,7 +581,7 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
         rank: t.rank,
         record: { wins: 1, losses: 0, ties: 0 },
         rp: 2,
-        metrics: fullInsightsMetrics(),
+        metrics: fullTeamsMetrics(),
       })),
     });
     return { ...base, standings: { source: "tick-counted" as const, ranked } };
@@ -593,7 +593,7 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
       { teamKey: "frc1", teamNumber: 1, rank: 1 },
       { teamKey: "frc2", teamNumber: 2, rank: 2 },
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.orderSource).toBe("live");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([1, 2, 3]);
   });
@@ -603,7 +603,7 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
       { teamKey: "frc1", teamNumber: 1, rank: 7 },
       { teamKey: "frc2", teamNumber: 2, rank: 2 },
     ]);
-    const model = buildInsightsRows(artifact, "spr");
+    const model = buildTeamsRows(artifact, "spr");
     expect(model.rows.find((row) => row.teamNumber === 1)?.displayRank).toBe(7);
     expect(model.rows.find((row) => row.teamNumber === 2)?.displayRank).toBe(2);
   });
@@ -613,18 +613,18 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
       { teamKey: "frc1", teamNumber: 1, rank: 1 },
       { teamKey: "frc2", teamNumber: 2, rank: 2 },
     ]);
-    renderInsights(artifact, "spr", 2026);
+    renderTeams(artifact, "spr", 2026);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toBe("Rank");
-    expect(screen.getByTestId("insights-header-rank").style.width).toBe("72px");
-    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    expect(screen.getByTestId("teams-header-rank").style.width).toBe("72px");
+    expect(screen.queryByTestId("teams-fallback-banner")).toBeNull();
 
-    const banner = screen.getByTestId("insights-live-banner");
-    expect(banner.textContent).toBe(insightsLiveNotice());
+    const banner = screen.getByTestId("teams-live-banner");
+    expect(banner.textContent).toBe(teamsLiveNotice());
     // Zero hyphen or dash characters of any kind (site methodology copy voice): ASCII hyphen-minus plus the Unicode dash block (U+2010-U+2015).
-    expect(insightsLiveNotice()).not.toMatch(/[-‐-―]/);
+    expect(teamsLiveNotice()).not.toMatch(/[-‐-―]/);
   });
 
   it("no standings marker: orderSource resolves to 'official' or 'fallback' exactly as before, and no live banner renders", async () => {
@@ -639,14 +639,14 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
       matches: [],
       upcoming: [],
       teams: [
-        team({ teamKey: "frc1", teamNumber: 1, rank: 1, metrics: fullInsightsMetrics() }),
-        team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: fullInsightsMetrics() }),
+        team({ teamKey: "frc1", teamNumber: 1, rank: 1, metrics: fullTeamsMetrics() }),
+        team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: fullTeamsMetrics() }),
       ],
     });
-    renderInsights(rankedArtifact, "spr", 2024);
+    renderTeams(rankedArtifact, "spr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    expect(screen.queryByTestId("insights-live-banner")).toBeNull();
-    expect(buildInsightsRows(rankedArtifact, "spr").orderSource).toBe("official");
+    expect(screen.queryByTestId("teams-live-banner")).toBeNull();
+    expect(buildTeamsRows(rankedArtifact, "spr").orderSource).toBe("official");
 
     const fallbackArtifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -660,7 +660,7 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
       upcoming: [],
       teams: [team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 1 } } })],
     });
-    expect(buildInsightsRows(fallbackArtifact, "spr").orderSource).toBe("fallback");
+    expect(buildTeamsRows(fallbackArtifact, "spr").orderSource).toBe("fallback");
   });
 
   it("an unranked tick-counted marker does not produce 'live': the order stays official/fallback, and only the Record column was counted", () => {
@@ -671,12 +671,12 @@ describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7
       ],
       false,
     );
-    const model = buildInsightsRows(unranked, "spr");
+    const model = buildTeamsRows(unranked, "spr");
     expect(model.orderSource).toBe("official");
   });
 });
 
-describe("InsightsTab — no sticky columns", () => {
+describe("TeamsTab — no sticky columns", () => {
   const artifact = EventArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
@@ -687,14 +687,14 @@ describe("InsightsTab — no sticky columns", () => {
     season: 2024,
     matches: [],
     upcoming: [],
-    teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
   });
 
   it("wide layout: no sticky column, identity columns still lead", async () => {
-    renderInsights(artifact);
-    await waitFor(() => expect(screen.getByTestId("insights-header-rank")).toBeDefined());
+    renderTeams(artifact);
+    await waitFor(() => expect(screen.getByTestId("teams-header-rank")).toBeDefined());
 
-    const region = screen.getByTestId("insights-table-scroll");
+    const region = screen.getByTestId("teams-table-scroll");
     const cells = within(region).getByRole("table").querySelectorAll("th, td");
     expect(cells.length).toBeGreaterThan(0);
     for (const cell of cells) {
@@ -705,18 +705,18 @@ describe("InsightsTab — no sticky columns", () => {
 
     const headerIds = within(region)
       .getByRole("table")
-      .querySelectorAll("thead [data-testid^='insights-header-']");
+      .querySelectorAll("thead [data-testid^='teams-header-']");
     const orderedIds = Array.from(headerIds).map((el) => el.getAttribute("data-testid"));
-    expect(orderedIds.slice(0, 3)).toEqual(["insights-header-rank", "insights-header-teamNumber", "insights-header-nickname"]);
+    expect(orderedIds.slice(0, 3)).toEqual(["teams-header-rank", "teams-header-teamNumber", "teams-header-nickname"]);
   });
 
   it("narrow layout: no sticky column, identity columns still lead", async () => {
     const restoreMatchMedia = mockNarrowViewport();
     try {
-      renderInsights(artifact);
-      await waitFor(() => expect(screen.getByTestId("insights-header-rank")).toBeDefined());
+      renderTeams(artifact);
+      await waitFor(() => expect(screen.getByTestId("teams-header-rank")).toBeDefined());
 
-      const region = screen.getByTestId("insights-table-scroll");
+      const region = screen.getByTestId("teams-table-scroll");
       const cells = within(region).getByRole("table").querySelectorAll("th, td");
       expect(cells.length).toBeGreaterThan(0);
       for (const cell of cells) {
@@ -727,16 +727,16 @@ describe("InsightsTab — no sticky columns", () => {
 
       const headerIds = within(region)
         .getByRole("table")
-        .querySelectorAll("thead [data-testid^='insights-header-']");
+        .querySelectorAll("thead [data-testid^='teams-header-']");
       const orderedIds = Array.from(headerIds).map((el) => el.getAttribute("data-testid"));
-      expect(orderedIds.slice(0, 3)).toEqual(["insights-header-rank", "insights-header-teamNumber", "insights-header-nickname"]);
+      expect(orderedIds.slice(0, 3)).toEqual(["teams-header-rank", "teams-header-teamNumber", "teams-header-nickname"]);
     } finally {
       restoreMatchMedia();
     }
   });
 });
 
-describe("InsightsTab — Record and RP cells (RP prohibition)", () => {
+describe("TeamsTab — Record and RP cells (RP prohibition)", () => {
   function oneTeamArtifact(overrides: Partial<ArtifactTeam> = {}) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -748,43 +748,43 @@ describe("InsightsTab — Record and RP cells (RP prohibition)", () => {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics(), ...overrides }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics(), ...overrides }],
     });
   }
 
   it("a team publishing {wins:8, losses:3, ties:0} renders 8-3-0", async () => {
-    renderInsights(oneTeamArtifact({ record: { wins: 8, losses: 3, ties: 0 } }));
-    const cell = await screen.findByTestId("insights-cell-record");
+    renderTeams(oneTeamArtifact({ record: { wins: 8, losses: 3, ties: 0 } }));
+    const cell = await screen.findByTestId("teams-cell-record");
     expect(cell.textContent).toBe("8-3-0");
   });
 
   it("a team with no record renders an em-dash", async () => {
-    renderInsights(oneTeamArtifact());
-    const cell = await screen.findByTestId("insights-cell-record");
+    renderTeams(oneTeamArtifact());
+    const cell = await screen.findByTestId("teams-cell-record");
     expect(cell.textContent).toBe("");
   });
 
   it("a team publishing rp:3.6 renders 3.60", async () => {
-    renderInsights(oneTeamArtifact({ rp: 3.6 }));
-    const cell = await screen.findByTestId("insights-cell-rp");
+    renderTeams(oneTeamArtifact({ rp: 3.6 }));
+    const cell = await screen.findByTestId("teams-cell-rp");
     expect(cell.textContent).toBe("3.60");
   });
 
   it("a team publishing rp:0 renders 0.00 (never an em-dash — a real zero is distinct from absence)", async () => {
-    renderInsights(oneTeamArtifact({ rp: 0 }));
-    const cell = await screen.findByTestId("insights-cell-rp");
+    renderTeams(oneTeamArtifact({ rp: 0 }));
+    const cell = await screen.findByTestId("teams-cell-rp");
     expect(cell.textContent).toBe("0.00");
   });
 
   it("a team with no rp renders an em-dash", async () => {
-    renderInsights(oneTeamArtifact());
-    const cell = await screen.findByTestId("insights-cell-rp");
+    renderTeams(oneTeamArtifact());
+    const cell = await screen.findByTestId("teams-cell-rp");
     expect(cell.textContent).toBe("");
   });
 
   it("the RP cell carries numeric-cell and never a metric-tier class, even when every phase metric is at percentile 99", async () => {
-    renderInsights(oneTeamArtifact({ rp: 12.34, metrics: fullInsightsMetrics({ [TOTAL_KEY]: { value: 10 }, phaseAuto: { value: 1, percentile: 99 }, phaseTeleop: { value: 1, percentile: 99 }, phaseEndgame: { value: 1, percentile: 99 } }) }));
-    const cell = await screen.findByTestId("insights-cell-rp");
+    renderTeams(oneTeamArtifact({ rp: 12.34, metrics: fullTeamsMetrics({ [TOTAL_KEY]: { value: 10 }, phaseAuto: { value: 1, percentile: 99 }, phaseTeleop: { value: 1, percentile: 99 }, phaseEndgame: { value: 1, percentile: 99 } }) }));
+    const cell = await screen.findByTestId("teams-cell-rp");
     expect(cell.className).toContain("numeric-cell");
     expect(cell.querySelector('[class*="metric-tier"]')).toBeNull();
   });
@@ -801,21 +801,21 @@ describe("InsightsTab — Record and RP cells (RP prohibition)", () => {
       matches: [],
       upcoming: [],
       teams: [
-        { teamKey: "frc1", teamNumber: 1, nickname: "One", rank: 1, metrics: fullInsightsMetrics() },
-        { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: fullInsightsMetrics() },
+        { teamKey: "frc1", teamNumber: 1, nickname: "One", rank: 1, metrics: fullTeamsMetrics() },
+        { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: fullTeamsMetrics() },
       ],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
-    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(2));
-    const rows = screen.getAllByTestId("insights-row");
+    await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(2));
+    const rows = screen.getAllByTestId("teams-row");
     expect(rows[1]?.getAttribute("data-team-number")).toBe("2");
-    const lastRankCell = within(rows[1] as HTMLElement).getByTestId("insights-cell-rank");
+    const lastRankCell = within(rows[1] as HTMLElement).getByTestId("teams-cell-rank");
     expect(lastRankCell.textContent).toBe("");
   });
 });
 
-describe("InsightsTab — tier boundaries on the Auto column", () => {
+describe("TeamsTab — tier boundaries on the Auto column", () => {
   async function renderWithAutoPercentile(percentile: number) {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -827,12 +827,12 @@ describe("InsightsTab — tier boundaries on the Auto column", () => {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics({ phaseAuto: { value: 10, percentile } }) }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics({ phaseAuto: { value: 10, percentile } }) }],
     });
-    renderInsights(artifact);
-    const cell = await screen.findByTestId("insights-cell-phaseAuto");
+    renderTeams(artifact);
+    const cell = await screen.findByTestId("teams-cell-phaseAuto");
     const inner = cell.querySelector(".numeric-cell");
-    if (inner === null) throw new Error("MetricValue's numeric-cell span was not found inside the Insights Auto cell");
+    if (inner === null) throw new Error("MetricValue's numeric-cell span was not found inside the Teams Auto cell");
     return inner as HTMLElement;
   }
 
@@ -871,13 +871,13 @@ describe("InsightsTab — tier boundaries on the Auto column", () => {
         teamNumber: n,
         nickname: `Team ${n}`,
         rank: n,
-        metrics: fullInsightsMetrics({ phaseAuto: { value: 10, percentile: 96 } }),
+        metrics: fullTeamsMetrics({ phaseAuto: { value: 10, percentile: 96 } }),
       })),
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
-    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(3));
-    const legendaryBoxes = document.querySelectorAll("[data-testid='insights-cell-phaseAuto'] .metric-tier--legendary");
+    await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(3));
+    const legendaryBoxes = document.querySelectorAll("[data-testid='teams-cell-phaseAuto'] .metric-tier--legendary");
     expect(legendaryBoxes).toHaveLength(3);
   });
 
@@ -892,18 +892,18 @@ describe("InsightsTab — tier boundaries on the Auto column", () => {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
     });
-    renderInsights(artifact);
-    const cell = await screen.findByTestId("insights-cell-phaseAuto");
+    renderTeams(artifact);
+    const cell = await screen.findByTestId("teams-cell-phaseAuto");
     const inner = cell.querySelector(".numeric-cell");
     expect(inner?.className).not.toContain("metric-tier");
   });
 });
 
-describe("InsightsTab — partial phase-metric data", () => {
+describe("TeamsTab — partial phase-metric data", () => {
   it("a team missing phaseTeleop renders an em-dash while the Teleop header stays present", async () => {
-    const metrics = fullInsightsMetrics();
+    const metrics = fullTeamsMetrics();
     delete metrics.phaseTeleop;
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -917,10 +917,10 @@ describe("InsightsTab — partial phase-metric data", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics }],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
-    await waitFor(() => expect(screen.getByTestId("insights-header-phaseTeleop")).toBeDefined());
-    expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toBe("");
+    await waitFor(() => expect(screen.getByTestId("teams-header-phaseTeleop")).toBeDefined());
+    expect(screen.getByTestId("teams-cell-phaseTeleop").textContent).toBe("");
   });
 
   it("an opr fixture whose team publishes none of the three phase keys renders three em-dash cells and all nine headers", async () => {
@@ -936,16 +936,16 @@ describe("InsightsTab — partial phase-metric data", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { [TOTAL_KEY]: { value: 20 } } }],
     });
-    renderInsights(artifact, "opr", 2024);
+    renderTeams(artifact, "opr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     for (const group of METRIC_GROUPS) {
-      expect(screen.getByTestId(`insights-cell-${group.metricKey}`).textContent).toBe("");
+      expect(screen.getByTestId(`teams-cell-${group.metricKey}`).textContent).toBe("");
     }
   });
 });
 
-describe("InsightsTab — EPA derived group columns, with the stale-artifact fallback", () => {
+describe("TeamsTab — EPA derived group columns, with the stale-artifact fallback", () => {
   it("stale-artifact fallback: an EPA event fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a cached pre-republish artifact — renders real derived sums, where before every cell in those columns was blank", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -978,12 +978,12 @@ describe("InsightsTab — EPA derived group columns, with the stale-artifact fal
         },
       ],
     });
-    renderInsights(artifact, "epa", 2026);
+    renderTeams(artifact, "epa", 2026);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
-    expect(screen.getByTestId("insights-cell-phaseAuto").textContent).toContain("10");
-    expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toContain("13");
-    expect(screen.getByTestId("insights-cell-phaseEndgame").textContent).toContain("4");
+    expect(screen.getByTestId("teams-cell-phaseAuto").textContent).toContain("10");
+    expect(screen.getByTestId("teams-cell-phaseTeleop").textContent).toContain("13");
+    expect(screen.getByTestId("teams-cell-phaseEndgame").textContent).toContain("4");
   });
 
   it("a VPR fixture's published group values/tiers are unchanged by this derivation, and no spread renders", async () => {
@@ -997,11 +997,11 @@ describe("InsightsTab — EPA derived group columns, with the stale-artifact fal
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics({ phaseAuto: { value: 22.5, spread: 1.1, percentile: 96 } }) }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics({ phaseAuto: { value: 22.5, spread: 1.1, percentile: 96 } }) }],
     });
-    renderInsights(artifact, "spr", 2024);
+    renderTeams(artifact, "spr", 2024);
 
-    const cell = await screen.findByTestId("insights-cell-phaseAuto");
+    const cell = await screen.findByTestId("teams-cell-phaseAuto");
     expect(cell.textContent).toContain("22.50");
     // The published phase spread is the algorithm's own confidence — never rendered.
     expect(cell.textContent).not.toContain("±");
@@ -1025,20 +1025,20 @@ describe("InsightsTab — EPA derived group columns, with the stale-artifact fal
           teamNumber: 254,
           nickname: "The Cheesy Poofs",
           rank: 1,
-          metrics: fullInsightsMetrics({ phaseEndgame: { value: 4.5, percentile: 96 } }),
+          metrics: fullTeamsMetrics({ phaseEndgame: { value: 4.5, percentile: 96 } }),
         },
       ],
     });
-    renderInsights(artifact, "epa", 2026);
+    renderTeams(artifact, "epa", 2026);
 
-    const cell = await screen.findByTestId("insights-cell-phaseEndgame");
+    const cell = await screen.findByTestId("teams-cell-phaseEndgame");
     expect(cell.textContent).toContain("4.50");
     expect(cell.textContent?.includes("±")).toBe(false);
     expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 });
 
-describe("InsightsTab — empty and zero-one-many", () => {
+describe("TeamsTab — empty and zero-one-many", () => {
   it("teams: [] renders EmptyState naming the event and no table element", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -1052,7 +1052,7 @@ describe("InsightsTab — empty and zero-one-many", () => {
       upcoming: [],
       teams: [],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
     await waitFor(() => expect(screen.getByText("No teams for 2024casf")).toBeDefined());
     expect(document.querySelector("table")).toBeNull();
@@ -1069,10 +1069,10 @@ describe("InsightsTab — empty and zero-one-many", () => {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc1", teamNumber: 1, nickname: "One", rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc1", teamNumber: 1, nickname: "One", rank: 1, metrics: fullTeamsMetrics() }],
     });
-    const { unmount } = renderInsights(oneTeamArtifact);
-    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(1));
+    const { unmount } = renderTeams(oneTeamArtifact);
+    await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(1));
     const oneTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     unmount();
 
@@ -1081,7 +1081,7 @@ describe("InsightsTab — empty and zero-one-many", () => {
       teamNumber: index + 1,
       nickname: `Team ${index + 1}`,
       rank: index + 1,
-      metrics: fullInsightsMetrics(),
+      metrics: fullTeamsMetrics(),
     }));
     const manyTeamsArtifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -1095,14 +1095,14 @@ describe("InsightsTab — empty and zero-one-many", () => {
       upcoming: [],
       teams: manyTeams,
     });
-    renderInsights(manyTeamsArtifact);
-    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(43));
+    renderTeams(manyTeamsArtifact);
+    await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(43));
     const manyTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(manyTeamHeaders).toEqual(oneTeamHeaders);
   });
 });
 
-describe("InsightsTab — long text", () => {
+describe("TeamsTab — long text", () => {
   it("a 60-character nickname renders in full inside the cell's title attribute and carries a truncation class", async () => {
     const longNickname = "A".repeat(60);
     const artifact = EventArtifactSchema.parse({
@@ -1115,18 +1115,18 @@ describe("InsightsTab — long text", () => {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: longNickname, rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: longNickname, rank: 1, metrics: fullTeamsMetrics() }],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
-    const cell = await screen.findByTestId("insights-cell-nickname");
+    const cell = await screen.findByTestId("teams-cell-nickname");
     expect(cell.className).toContain("truncate");
     const link = within(cell).getByTitle(longNickname);
     expect(link.textContent).toBe(longNickname);
   });
 });
 
-describe("InsightsTab — tier key row, accessibility and scroll region", () => {
+describe("TeamsTab — tier key row, accessibility and scroll region", () => {
   it("TierKeyRow renders exactly once", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -1138,9 +1138,9 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
     await waitFor(() => expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1));
   });
@@ -1156,9 +1156,9 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     for (const header of screen.getAllByRole("columnheader")) {
@@ -1167,7 +1167,7 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
     }
   });
 
-  it("exactly one element carries data-testid=insights-table-scroll", async () => {
+  it("exactly one element carries data-testid=teams-table-scroll", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -1178,17 +1178,17 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullTeamsMetrics() }],
     });
-    renderInsights(artifact);
+    renderTeams(artifact);
 
-    await waitFor(() => expect(screen.getAllByTestId("insights-table-scroll")).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByTestId("teams-table-scroll")).toHaveLength(1));
   });
 });
 
-describe("InsightsTabSkeleton", () => {
+describe("TeamsTabSkeleton", () => {
   it("renders the nine real headers with the bare Rank header, skeleton body rows, and zero progressbar elements", () => {
-    render(<InsightsTabSkeleton algorithmId="spr" season={2024} />);
+    render(<TeamsTabSkeleton algorithmId="spr" season={2024} />);
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total ± Sigma", "Auto", "Teleop", "Endgame"]);

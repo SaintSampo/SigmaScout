@@ -270,7 +270,7 @@ export type TeamSearch = z.infer<typeof TeamSearchSchema>;
 
 /**
  * The event page's five tab ids, in the fixed order the tab strip renders:
- * Insights, Quals, Alliances, Elims, Simulation. The route's own
+ * Teams, Quals, Alliances, Elims, Simulation. The route's own
  * `REGISTERED_EVENT_TABS` array is the narrower, currently-registered
  * subset (has a trigger and a content panel) — keeping this URL contract
  * stable means a later plan registering a new tab is a no-op here; only
@@ -283,21 +283,30 @@ export type TeamSearch = z.infer<typeof TeamSearchSchema>;
  * algorithms. That reachability rule lives in the route
  * (`event.$eventKey.tsx`), not here.
  */
-export const EVENT_TABS = ["insights", "quals", "alliances", "elims", "simulation"] as const;
+export const EVENT_TABS = ["teams", "quals", "alliances", "elims", "simulation"] as const;
 
 /**
- * The event page's default tab — Insights, the event's landing tab. This
+ * The event page's default tab — Teams, the event's landing tab. This
  * constant names which tab is ACTIVE on arrival, never where a tab sits in
  * the strip — `EVENT_TABS`'s declared order above is unrelated and
  * unchanged by this value. The route (`event.$eventKey.tsx`) narrows this
  * against its own `REGISTERED_EVENT_TABS` array, so this constant may only
  * ever hold an id that has a registered trigger and content panel.
+ *
+ * THE LANDING TAB'S RETIRED ID `insights` WAS RENAMED TO `teams` (quick task
+ * 261024-jvv), AND THE RENAME COSTS NO SHARED LINK. The renamed tab IS this
+ * constant, and `EventSearchSchema`'s `.catch(DEFAULT_EVENT_TAB)` below falls
+ * any unrecognised id back to exactly that, so every pre-rename link lands on
+ * the Teams panel and none breaks.
+ *
+ * Retired id `insights`: renamed to `teams` in quick task 261024-jvv.
+ * Retired id `breakdown`: removed in quick task 261024-jvv, no replacement.
  */
-export const DEFAULT_EVENT_TAB = "insights";
+export const DEFAULT_EVENT_TAB = "teams";
 
 /**
  * Extends `RootSearchSchema` with exactly one field, `tab` — mirroring
- * `TeamSearchSchema` exactly. The Insights tab exposes no
+ * `TeamSearchSchema` exactly. The event Teams tab exposes no
  * clickable-to-resort header, so there is no sort state to carry:
  * `sort`/`sortDir` are deliberately NOT extended in here.
  */
