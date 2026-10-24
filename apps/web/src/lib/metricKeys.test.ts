@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { hasGroupedTeamsView, metricKeysFor, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
-import { CURRENT_SEASON, EXCLUDED_SEASONS, FIRST_SEASON, SEASONS } from "./seasons.js";
+import { CURRENT_SEASON, DEFAULT_SEASON, EXCLUDED_SEASONS, FIRST_SEASON, SEASONS } from "./seasons.js";
 import { componentMapForSeason } from "../../../../packages/core/algorithms/breakdown/index.js";
+import { NEWEST_GAME_SEASON } from "../../../../packages/harness/rosterOnlySeason.js";
+import { isRosterOnlySeason } from "./seasonGame.js";
 
 describe("metricKeysFor", () => {
   it("OPR returns exactly one key, the total key", () => {
@@ -43,6 +45,13 @@ describe("metricKeysFor", () => {
     expect(() => metricKeysFor("epa", 2021)).toThrow();
     expect(() => metricKeysFor("epa", 2021)).toThrow(/no component map registered/);
   });
+
+  it("answers the Total key alone for a roster-only season, while componentMapForSeason still throws for it", () => {
+    const rosterSeason = NEWEST_GAME_SEASON + 1;
+    expect(metricKeysFor("epa", rosterSeason)).toEqual([TOTAL_KEY]);
+    expect(metricKeysFor("spr", rosterSeason)).toEqual([TOTAL_KEY]);
+    expect(() => componentMapForSeason(rosterSeason)).toThrow(/no component map registered/);
+  });
 });
 
 describe("hasGroupedTeamsView", () => {
@@ -80,10 +89,19 @@ describe("SEASONS", () => {
     expect(SEASONS).not.toContain(2021);
   });
 
-  it("every element has a registered component map — the year dropdown and the algorithms' own season registry cannot silently disagree", () => {
+  it("every element either has a registered component map or is a roster-only season — the year dropdown and the algorithms' own season registry cannot silently disagree", () => {
     for (const season of SEASONS) {
+      if (isRosterOnlySeason(season)) {
+        continue;
+      }
       expect(() => componentMapForSeason(season)).not.toThrow();
     }
+  });
+
+  it("DEFAULT_SEASON is listed and is never a roster-only season — the site never opens on a season without its game", () => {
+    expect(SEASONS).toContain(DEFAULT_SEASON);
+    expect(isRosterOnlySeason(DEFAULT_SEASON)).toBe(false);
+    expect(() => componentMapForSeason(DEFAULT_SEASON)).not.toThrow();
   });
 
   it("every EXCLUDED_SEASONS member THROWS through componentMapForSeason — the exclusion tracks the algorithms' own registry, not an arbitrary hole. The day a 2021 component map is registered, this assertion goes red and forces the exclusion to be revisited deliberately.", () => {

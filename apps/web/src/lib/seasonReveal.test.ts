@@ -13,6 +13,8 @@ import { metricKeysFor, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js"
 import { applyYearChange, RootSearchSchema } from "./searchParams.js";
 import { CURRENT_SEASON, DEFAULT_SEASON, SEASONS } from "./seasons.js";
 import { isRosterOnlySeason } from "./seasonGame.js";
+import { COMPARE_FIRST_SEASON, COMPARE_SEASONS } from "./api/compare.js";
+import { BREAKDOWN_REGISTERED_SEASONS } from "../../../../packages/core/algorithms/breakdown/index.js";
 
 vi.mock("./seasons.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./seasons.js")>();
@@ -55,5 +57,12 @@ describe("the revealed season list", () => {
     const next = applyYearChange({ year: DEFAULT_SEASON, algorithm: "spr" as const, sort: "phaseAuto", sortDir: "desc" as const }, ROSTER_SEASON);
     expect(next.year).toBe(ROSTER_SEASON);
     expect(next.sort).toBe("phaseAuto");
+  });
+
+  it("never lists a roster-only season in Compare: Compare's seasons are the registered game seasons from its floor up", () => {
+    expect(COMPARE_SEASONS).not.toContain(ROSTER_SEASON);
+    expect(COMPARE_SEASONS.some((season) => isRosterOnlySeason(season))).toBe(false);
+    const expected = [...BREAKDOWN_REGISTERED_SEASONS].filter((season) => season >= COMPARE_FIRST_SEASON).sort((a, b) => a - b);
+    expect(COMPARE_SEASONS).toEqual(expected);
   });
 });

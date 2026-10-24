@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
-import { CURRENT_SEASON } from "../lib/seasons.js";
+import { DEFAULT_SEASON } from "../lib/seasons.js";
 import { RootSearchSchema, TeamsSearchSchema, type TeamsSearch } from "../lib/searchParams.js";
 
 /**
@@ -32,7 +32,7 @@ describe("RootSearchSchema / TeamsSearchSchema — URL round trip", () => {
 
   it("a year outside the known season list is coerced (never accepted raw) rather than reaching a component", () => {
     const parsed = RootSearchSchema.parse({ year: "1999", algorithm: "spr" });
-    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.year).toBe(DEFAULT_SEASON);
   });
 
   it("an unknown algorithm id is coerced (never accepted raw) rather than reaching a component", () => {
@@ -41,8 +41,8 @@ describe("RootSearchSchema / TeamsSearchSchema — URL round trip", () => {
   });
 
   it("a missing param takes its declared default", () => {
-    expect(RootSearchSchema.parse({})).toEqual({ year: CURRENT_SEASON, algorithm: "spr" });
-    expect(TeamsSearchSchema.parse({})).toEqual({ year: CURRENT_SEASON, algorithm: "spr", sort: undefined, sortDir: "desc" });
+    expect(RootSearchSchema.parse({})).toEqual({ year: DEFAULT_SEASON, algorithm: "spr" });
+    expect(TeamsSearchSchema.parse({})).toEqual({ year: DEFAULT_SEASON, algorithm: "spr", sort: undefined, sortDir: "desc" });
   });
 
   it("a param carrying scripting- or path-traversal-shaped text is coerced away for the closed-set fields (year/algorithm/sortDir), never reaching a component as the raw attack string", () => {
@@ -50,7 +50,7 @@ describe("RootSearchSchema / TeamsSearchSchema — URL round trip", () => {
       year: "<script>alert(1)</script>",
       algorithm: "../../../etc/passwd",
     });
-    expect(parsed).toEqual({ year: CURRENT_SEASON, algorithm: "spr" });
+    expect(parsed).toEqual({ year: DEFAULT_SEASON, algorithm: "spr" });
 
     const teamsParsed = TeamsSearchSchema.parse({ sortDir: "'; DROP TABLE teams; --" });
     expect(teamsParsed.sortDir).toBe("desc");

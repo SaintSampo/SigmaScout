@@ -18,6 +18,7 @@
 import { artifactKey, CompareArtifactSchema, type CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { markArtifactParsed } from "../perfMarks.js";
+import { isRosterOnlySeason } from "../seasonGame.js";
 import { SEASONS } from "../seasons.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
@@ -51,16 +52,20 @@ export type CompareCompLevelView = CompareArtifact["slices"][number]["compLevelV
  * since they are handicapped equally. If those caveats ever need to be
  * visible, `headlineEligible` is already on every published slice.
  *
- * `COMPARE_SEASONS` is `SEASONS` filtered to `>= COMPARE_FIRST_SEASON` and
- * sorted ASCENDING (`Year` column order, top-to-bottom 2016-2026); `SEASONS`
- * itself is DESCENDING by design (the year dropdown's default selection is
- * first). The filter is presently a NO-OP — the floor equals `FIRST_SEASON`
- * — and the constant is kept as the documented seam for narrowing Compare
- * independently of the site's season list.
+ * `COMPARE_SEASONS` is `SEASONS` filtered to `>= COMPARE_FIRST_SEASON`,
+ * with every ROSTER-ONLY season (`seasonGame.ts`'s `isRosterOnlySeason`)
+ * dropped, and sorted ASCENDING (`Year` column order, top-to-bottom
+ * 2016-2026); `SEASONS` itself is DESCENDING by design (the newest listed
+ * season is first). A season listed before its game is out (2027 until
+ * January 2027, quick task 261024-lfa) has no matches and so no compare
+ * file: the publisher never writes one, and Compare must never request one.
+ * The filter is a NO-OP only while no roster-only season is listed (the
+ * floor equals `FIRST_SEASON`); the constant stays the documented seam for
+ * narrowing Compare independently of the site's season list.
  */
 export const COMPARE_FIRST_SEASON = 2016;
 
-export const COMPARE_SEASONS: readonly number[] = [...SEASONS].filter((season) => season >= COMPARE_FIRST_SEASON).sort((a, b) => a - b);
+export const COMPARE_SEASONS: readonly number[] = [...SEASONS].filter((season) => season >= COMPARE_FIRST_SEASON && !isRosterOnlySeason(season)).sort((a, b) => a - b);
 
 export async function fetchCompareArtifact({ year }: FetchCompareArtifactParams): Promise<CompareArtifact> {
   const key = artifactKey({ page: "compare", year });

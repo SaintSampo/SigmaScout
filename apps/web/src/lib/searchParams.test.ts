@@ -4,7 +4,7 @@
  * still apply unchanged through `.extend()`.
  */
 import { describe, expect, it } from "vitest";
-import { CURRENT_SEASON } from "./seasons.js";
+import { CURRENT_SEASON, DEFAULT_SEASON } from "./seasons.js";
 import {
   DEFAULT_DISTRICT_TAB,
   DEFAULT_EVENT_TAB,
@@ -69,7 +69,7 @@ describe("TeamSearchSchema", () => {
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = TeamSearchSchema.parse({ year: "1899", algorithm: "nope" });
-    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.year).toBe(DEFAULT_SEASON);
     expect(parsed.algorithm).toBe("spr");
   });
 });
@@ -105,7 +105,7 @@ describe("EventSearchSchema", () => {
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = EventSearchSchema.parse({ year: "1899", algorithm: "nope" });
-    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.year).toBe(DEFAULT_SEASON);
     expect(parsed.algorithm).toBe("spr");
   });
 
@@ -138,7 +138,7 @@ describe("MatchSearchSchema", () => {
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = MatchSearchSchema.parse({ year: "1899", algorithm: "nope" });
-    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.year).toBe(DEFAULT_SEASON);
     expect(parsed.algorithm).toBe("spr");
   });
 

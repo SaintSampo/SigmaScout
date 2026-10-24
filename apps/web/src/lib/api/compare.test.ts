@@ -3,6 +3,7 @@ import { COMPARE_SEASONS, fetchCompareArtifact, type FetchCompareArtifactParams 
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../../packages/harness/pageArtifacts.js";
 import { SEASONS } from "../seasons.js";
+import { isRosterOnlySeason } from "../seasonGame.js";
 
 function validCompareBody(overrides: Record<string, unknown> = {}) {
   return {
@@ -88,14 +89,17 @@ describe("COMPARE_SEASONS", () => {
     expect(COMPARE_SEASONS).not.toContain(2021);
   });
 
-  it("no longer narrows SEASONS at all — the 2022 floor was removed and this is the pin that says so", () => {
+  it("no longer narrows SEASONS by a floor — the 2022 floor was removed and this is the pin that says so; only a roster-only season is dropped", () => {
     // The floor's retired rationale claimed 2019/2020 were selection-only
     // "FOREVER ... there is no earlier season to add". 2016/2017/2018 were
     // then added, so the premise failed. This asserts the two sets now agree
     // as SETS (COMPARE_SEASONS is ascending, SEASONS descending by design),
     // which is what makes a future re-narrowing a deliberate, visible edit
-    // rather than a silent drift.
-    expect([...COMPARE_SEASONS].sort((a, b) => a - b)).toEqual([...SEASONS].sort((a, b) => a - b));
+    // rather than a silent drift. A roster-only season (listed before its
+    // game is out, so it has no compare file) is the one deliberate
+    // difference (quick task 261024-lfa).
+    const gameSeasons = SEASONS.filter((season) => !isRosterOnlySeason(season));
+    expect([...COMPARE_SEASONS].sort((a, b) => a - b)).toEqual([...gameSeasons].sort((a, b) => a - b));
     expect(COMPARE_SEASONS).toContain(2019);
     expect(COMPARE_SEASONS).toContain(2020);
   });
