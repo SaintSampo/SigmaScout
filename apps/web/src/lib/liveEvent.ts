@@ -13,7 +13,7 @@
  *
  * Pure module, no React.
  */
-import { eventScheduleIsCurrent } from "../../../../packages/harness/eventSchedule.js";
+import { eventScheduleIsCurrent, SCHEDULE_STALE_AFTER_MS } from "../../../../packages/harness/eventSchedule.js";
 import {
   districtEventStateFinished,
   districtEventStateStarted,
@@ -190,4 +190,52 @@ export function shouldPollDistrictArtifact(artifact: DistrictArtifactPollShape |
     }
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// The Events page LIST's poll gate (quick task 261024-jdz)
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** `YYYY-MM-DD` plus `days`, by calendar arithmetic on the string's own parts. `Date.UTC` is used purely as a calendar here, so no time zone is ever applied. */
+function addDaysToDateString(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * Poll the Events page list at the 60 s floor while at least one row is inside
+ * its live window: its start date is today or earlier (the browser's LOCAL date,
+ * as `events.tsx` and `isDisplayableEvent` read it) and today is no more than
+ * `SCHEDULE_STALE_AFTER_MS` (7 days) past it. The window length is the
+ * publisher's own, imported so it stays defined in one place.
+ *
+ * NO COUNT GATE. Played equals total in the gap between the last qualification
+ * match and the playoff schedule landing (quick task 261017-doy fixed that same
+ * gap for the event page), and a promoted event reads 0/0 until the Worker
+ * patches it. Both need polling, and a list row carries no finals facts to tell
+ * a finished event apart.
+ *
+ * THE HONEST LIMITATION, stated here because it is a real one: the list row
+ * carries a start date and counts, but no match times, no end date and no finals
+ * result. So a finished event keeps an open Events page polling at the 60 s floor
+ * until its window closes (at most 7 days after its start), and in season the
+ * page polls whenever any event is in its window. The bound is the window plus
+ * TanStack's focus gating (`refetchIntervalInBackground` stays unset, so a hidden
+ * tab stops). Each poll re-reads the edge-cached list (max-age 60). A second,
+ * finer currency approximation is deliberately NOT invented.
+ *
+ * A malformed `startDate` makes that row not live, which errs toward not polling:
+ * the list still renders, it just does not refresh.
+ */
+export function shouldPollEventsList(artifact: { readonly events: readonly { readonly startDate: string }[] } | undefined, nowMs: number): boolean {
+  if (artifact === undefined) return false;
+  const today = new Date(nowMs).toLocaleDateString("en-CA");
+  const windowDays = SCHEDULE_STALE_AFTER_MS / DAY_MS;
+  return artifact.events.some((row) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.startDate)) return false;
+    // Plain string comparison is correct for zero-padded ISO dates.
+    return row.startDate <= today && today <= addDaysToDateString(row.startDate, windowDays);
+  });
 }

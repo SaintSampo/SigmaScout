@@ -6,7 +6,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { fetchEventsArtifact } from "./events.js";
+import { EVENT_POLL_INTERVAL_MS } from "../liveEvent.js";
+import { eventsQueryOptions, fetchEventsArtifact } from "./events.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 function makeValidArtifact(): EventsArtifact {
@@ -149,5 +150,34 @@ describe("fetchEventsArtifact: cancelled rows (quick task 260929-mcf)", () => {
     expect(EventsArtifactSchema.safeParse(artifact).success).toBe(true);
     const result = await fetchEventsArtifact(params);
     expect(result.events.map((e) => e.eventKey)).toEqual(["2020casj", "2025alhu"]);
+  });
+});
+
+describe("eventsQueryOptions polling (quick task 261024-jdz)", () => {
+  const params = { year: 2026, algorithmId: "spr", version: "2.0.0+tuned-2026-08" };
+  const options = eventsQueryOptions(params);
+  const intervalFor = (data: EventsArtifact | undefined) => (options.refetchInterval as (query: unknown) => number | false)({ state: { data } });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("polls at the floor while a row starts today", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 24, 12, 0));
+    const base = makeValidArtifact();
+    const live: EventsArtifact = { ...base, season: 2026, events: [{ ...base.events[0]!, eventKey: "2026live", startDate: "2026-10-24" }] };
+    expect(intervalFor(live)).toBe(EVENT_POLL_INTERVAL_MS);
+  });
+
+  it("does not poll a finished season, or before any data has arrived", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 24, 12, 0));
+    expect(intervalFor(makeValidArtifact())).toBe(false);
+    expect(intervalFor(undefined)).toBe(false);
+  });
+
+  it("leaves refetchIntervalInBackground unset, so a hidden tab stops polling", () => {
+    expect("refetchIntervalInBackground" in options).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import {
   eventArtifactScheduleIsCurrent,
   shouldPollDistrictArtifact,
   shouldPollEventArtifact,
+  shouldPollEventsList,
   shouldPollTeamArtifact,
   sortTimeToEpochMs,
 } from "./liveEvent.js";
@@ -176,5 +177,56 @@ describe("the district artifact's own poll gate (phase 10)", () => {
   it("ignores a dcmp-tier row and a row carrying no state block at all", () => {
     expect(shouldPollDistrictArtifact(district([{ tier: "dcmp", state: midQuals }]))).toBe(false);
     expect(shouldPollDistrictArtifact(district([{ tier: "district" }]))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Events page list's poll gate (quick task 261024-jdz)
+// ---------------------------------------------------------------------------
+
+describe("shouldPollEventsList", () => {
+  // Every instant is built with the LOCAL Date constructor, never an ISO string,
+  // so these hold in any time zone: the rule reads the local calendar date.
+  const noon = new Date(2026, 9, 24, 12, 0).getTime();
+  const list = (...startDates: string[]) => ({ events: startDates.map((startDate) => ({ startDate })) });
+
+  it("polls for a row starting today and for a row that started seven days ago", () => {
+    expect(shouldPollEventsList(list("2026-10-24"), noon)).toBe(true);
+    expect(shouldPollEventsList(list("2026-10-17"), noon)).toBe(true);
+  });
+
+  it("stops once a row started more than seven days ago", () => {
+    expect(shouldPollEventsList(list("2026-10-16"), noon)).toBe(false);
+  });
+
+  it("does not poll for future-only rows, a finished season, or undefined", () => {
+    expect(shouldPollEventsList(list("2026-10-25", "2026-11-14", "2027-03-01"), noon)).toBe(false);
+    expect(shouldPollEventsList(list("2025-03-12", "2025-04-02", "2025-04-19"), noon)).toBe(false);
+    expect(shouldPollEventsList(undefined, noon)).toBe(false);
+    expect(shouldPollEventsList(list(), noon)).toBe(false);
+  });
+
+  it("does not poll for a malformed startDate alone", () => {
+    expect(shouldPollEventsList(list(""), noon)).toBe(false);
+    expect(shouldPollEventsList(list("2026-10"), noon)).toBe(false);
+  });
+
+  it("reads the LOCAL date: 23:30 on 2026-10-24 does not make a 2026-10-25 row live", () => {
+    const lateEvening = new Date(2026, 9, 24, 23, 30).getTime();
+    expect(shouldPollEventsList(list("2026-10-25"), lateEvening)).toBe(false);
+    expect(shouldPollEventsList(list("2026-10-24"), lateEvening)).toBe(true);
+  });
+
+  it("polls when one live row sits among many finished rows", () => {
+    expect(shouldPollEventsList(list("2026-03-05", "2026-03-19", "2026-10-22", "2026-04-02"), noon)).toBe(true);
+  });
+
+  it("adds the window across a month boundary: 2026-09-28 is live on 2026-10-05 and over on 2026-10-06", () => {
+    expect(shouldPollEventsList(list("2026-09-28"), new Date(2026, 9, 5, 12, 0).getTime())).toBe(true);
+    expect(shouldPollEventsList(list("2026-09-28"), new Date(2026, 9, 6, 12, 0).getTime())).toBe(false);
+  });
+
+  it("uses the publisher's own window length", () => {
+    expect(SCHEDULE_STALE_AFTER_MS / DAY).toBe(7);
   });
 });
