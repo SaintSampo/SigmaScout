@@ -45,7 +45,7 @@ export const FIRST_SEASON = 2016;
  * this one line moves to 2027 (a roster-only season: events and rosters, no
  * game yet). It is NOT the season pages open on; that is `DEFAULT_SEASON`.
  */
-export const CURRENT_SEASON = 2026;
+export const CURRENT_SEASON = 2027;
 
 /**
  * The season every page opens on and the URL fallback for a missing or
