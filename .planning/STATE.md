@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-24T21:00:37.243Z"
-last_activity: 2026-10-24
+last_updated: "2026-10-26T02:16:26.977Z"
+last_activity: 2026-10-26
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -789,6 +789,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 353 | Event page: remove the Breakdown tab, rename Insights to Teams, add column sorting to the Teams table | 2026-10-24 | e4bab555 | [261024-jvv-event-page-remove-the-breakdown-tab-rena](./quick/261024-jvv-event-page-remove-the-breakdown-tab-rena/) |
 | 354 | Events page Matches column updates live: the Worker patches events list rows it folds or prices, and the page polls the list 60 s while any event is in its 7 day window | 2026-10-24 | 878e2e90 | [261024-jdz-fix-events-page-matches-column-not-updat](./quick/261024-jdz-fix-events-page-matches-column-not-updat/) |
 | 355 | Add 2027 as a roster-only season: events, rosters and the year dropdown (2026 stays default); one command publish:roster-seasons left for Jacob; game rules, simulations and Locks for 2027 wait for January | 2026-10-24 | 63f2d6bc | [261024-lfa-add-2027-season](./quick/261024-lfa-add-2027-season/) |
+| 356 | 2027 revealed as a roster-only season: roster publish VERIFIED (654 objects, 216 events, 190 rosters), CURRENT_SEASON moved to 2027 (fast task) | 2026-10-26 | 2c45e8df | — |
 
 ### Roadmap Evolution
 
